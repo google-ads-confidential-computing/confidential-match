@@ -1,0 +1,37 @@
+{
+  "columns": [
+    {
+      "column_type": "STRING",
+      "column_alias": "metadata"
+    },
+    {
+      "column_type": "STRING",
+      "column_alias": "email"
+    },
+    {
+      "column_type": "STRING",
+      "column_alias": "phone"
+    },
+    {
+      "column_type": "STRING",
+      "column_alias": "first_name",
+      "column_group": 0
+    },
+    {
+      "column_type": "STRING",
+      "column_alias": "last_name",
+      "column_group": 0
+    },
+    {
+      "column_type": "STRING",
+      "column_alias": "country_code",
+      "column_group": 0
+    },
+    {
+      "column_type": "STRING",
+      "column_alias": "zip_code",
+      "column_group": 0
+    }
+  ],
+  "data_format": "SERIALIZED_PROTO"
+}

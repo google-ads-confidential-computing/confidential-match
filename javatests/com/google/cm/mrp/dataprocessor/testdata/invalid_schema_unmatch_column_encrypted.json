@@ -1,0 +1,59 @@
+{
+  "columns": [
+    {
+      "column_name": "Email",
+      "column_type": "STRING",
+      "column_alias": "email",
+      "encrypted": true
+    },
+    {
+      "column_name": "Phone",
+      "column_type": "STRING",
+      "column_alias": "phone",
+      "encrypted": true
+    },
+    {
+      "column_name": "FirstName",
+      "column_type": "STRING",
+      "column_alias": "first_name",
+      "encrypted": true
+    },
+    {
+      "column_name": "LastName",
+      "column_type": "STRING",
+      "column_alias": "last_name",
+      "encrypted": true
+    },
+    {
+      "column_name": "Zip",
+      "column_type": "STRING",
+      "column_alias": "zip_code",
+      "encrypted": false
+    },
+    {
+      "column_name": "Country",
+      "column_type": "STRING",
+      "column_alias": "country_code",
+      "encrypted": false
+    },
+    {
+      "column_name": "Dek",
+      "column_type": "STRING",
+      "column_alias": "encrypted_dek",
+      "encrypted": false
+    },
+    {
+      "column_name": "Kek",
+      "column_type": "STRING",
+      "column_alias": "kek_uri",
+      "encrypted": false
+    },
+    {
+      "column_name": "metadata",
+      "column_type": "STRING",
+      "encrypted": true
+    }
+  ],
+  "data_format": "CSV",
+  "skip_header_record": true
+}

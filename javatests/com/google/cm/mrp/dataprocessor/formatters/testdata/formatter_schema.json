@@ -1,0 +1,69 @@
+{
+    "columns": [
+        {
+            "column_name": "group_pii",
+            "column_type": "STRING",
+            "encrypted": true,
+            "column_format": "GTAG",
+            "nested_schema": {
+                "columns": [
+                    {
+                        "column_name": "em",
+                        "column_type": "STRING",
+                        "column_alias": "email",
+                        "encrypted": true
+                    },
+                    {
+                        "column_name": "pn",
+                        "column_type": "STRING",
+                        "column_alias": "phone",
+                        "encrypted": true
+                    },
+                    {
+                        "column_name": "fn",
+                        "column_type": "STRING",
+                        "column_alias": "first_name",
+                        "encrypted": true,
+                        "column_group": 0
+                    },
+                    {
+                        "column_name": "ln",
+                        "column_type": "STRING",
+                        "column_alias": "last_name",
+                        "encrypted": true,
+                        "column_group": 0
+                    },
+                    {
+                        "column_name": "pc",
+                        "column_type": "STRING",
+                        "column_alias": "zip_code",
+                        "column_group": 0
+                    },
+                    {
+                        "column_name": "co",
+                        "column_type": "STRING",
+                        "column_alias": "country_code",
+                        "column_group": 0
+                    },
+                    {
+                        "column_name": "error_codes",
+                        "column_type": "STRING"
+                    }
+                ],
+                "data_format": "DATA_FORMAT_UNSPECIFIED",
+                "skip_header_record": true
+            }
+        },
+        {
+            "column_name": "key_id123",
+            "column_type": "STRING",
+            "column_alias": "coordinator_key_id"
+        },
+        {
+            "column_name": "metadata",
+            "column_type": "STRING"
+        }
+    ],
+    "data_format": "csv",
+    "skip_header_record": false
+}

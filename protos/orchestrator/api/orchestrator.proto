@@ -1,0 +1,160 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package google.confidential_match.orchestrator;
+
+option java_package = "com.google.cm.orchestrator.api";
+option java_outer_classname = "OrchestratorProto";
+
+// Request object to create a new sharding scheme if one matching the given
+// arguments does not already exist.
+message CreateShardingSchemeRequest {
+  // The cluster group in which the sharded data will be stored.
+  string cluster_group_id = 1;
+
+  // The scheme used to shard the data.
+  ShardingScheme sharding_scheme = 2;
+}
+
+// Response object from Orchestrator after creating a new ShardingScheme.
+message CreateShardingSchemeResponse {
+  // The unique ID of the newly created (or already existing) sharding scheme
+  string sharding_scheme_id = 1;
+}
+
+// Request object for the API that fetches the current active sharding scheme.
+message GetCurrentShardingSchemeRequest {
+  // The cluster group whose sharding schemes will be queried.
+  string cluster_group_id = 1;
+}
+
+// Response object for the API that fetches the current active sharding scheme.
+message GetCurrentShardingSchemeResponse {
+  // A unique ID tied to the sharding scheme.
+  string sharding_scheme_id = 1;
+
+  // The type of sharding scheme used. (e.g. "jump-consistent-hashing")
+  string type = 2;
+
+  message Shard {
+    // A value representing the shard number.
+    int64 shard_number = 1;
+
+    // A string containing the address to the LB for the shard.
+    string server_address_uri = 2;
+  }
+  // A list of shard objects for the sharding scheme.
+  repeated Shard shards = 3;
+}
+
+// Request object used by Lookup Servers to fetch the latest data export batch.
+message GetLatestDataExportRecordRequest {
+  // The group ID of the cluster whose latest data export will be retrieved.
+  string cluster_group_id = 1;
+
+  // The ID for the cluster whose latest data export will be retrieved.
+  // This is predefined for each instance within Terraform configs.
+  string cluster_id = 2;
+}
+
+// Request object for the API to update a sharding scheme's state.
+message UpdateShardingSchemeRequest {
+  // The ID of the sharding scheme being updated.
+  string sharding_scheme_id = 1;
+
+  // The current client usage state of the sharding scheme.
+  string current_client_usage_state = 2;
+
+  // The new client usage state for the sharding scheme.
+  string new_client_usage_state = 3;
+}
+
+// Response object from Orchestrator after updating a sharding scheme's state.
+message UpdateShardingSchemeResponse {}
+
+// Response object containing information about the latest data export batch.
+// Used by a lookup server within a given cluster.
+message GetLatestDataExportRecordResponse {
+  // A unique ID tied to the data export.
+  string data_export_id = 1;
+
+  // Location of the object storage directory containing the shard.
+  Location shard_location = 2;
+
+  // Location of the object storage directory containing the metadata.
+  Location metadata_location = 3;
+
+  // The scheme used to shard the data.
+  ShardingScheme sharding_scheme = 4;
+}
+
+// Request object to create a new internal Orchestrator record for a data
+// export created by the Match Data Exporter.
+message CreateDataExportRecordRequest {
+  // The cluster group ID where to store the data export.
+  string cluster_group_id = 1;
+
+  // A unique ID tied to the data export.
+  string data_export_id = 2;
+
+  // The scheme used to shard the data.
+  ShardingScheme sharding_scheme = 3;
+
+  // Location for DataExport files
+  DataExportLocations data_location = 4;
+}
+
+// The scheme used to shard the data.
+message ShardingScheme {
+  // The type of sharding scheme used. (e.g. "jump-consistent-hashing")
+  string type = 1;
+
+  // The total number of shards used in the sharding scheme.
+  int64 num_shards = 2;
+}
+
+// Location map of data export files, including top-level directory, metadata,
+// and all shards.
+message DataExportLocations {
+  // Top-level location
+  Location location = 1;
+
+  // Location for export metadata.
+  Location metadata_location = 2;
+
+  // Location of each shard, keyed by shard number.
+  map<string, Location> shard_locations = 3;
+}
+
+// Represents a location to for MatchDataExport outputs.
+message Location {
+  // The location in different potential sources.
+  oneof location {
+    BlobStorageLocation blob_storage_location = 1;
+  }
+}
+
+// Represents a location in object storage. (e.g. GCS, S3, ...)
+message BlobStorageLocation {
+  // The name of the bucket in object storage.
+  string bucket_name = 1;
+
+  // The path to the location within the bucket.
+  string path = 2;
+}
+
+// Response object from Orchestrator after creating a new data export.
+message CreateDataExportRecordResponse {}

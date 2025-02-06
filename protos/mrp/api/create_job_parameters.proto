@@ -1,0 +1,53 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package google.confidential_match.mrp.api;
+
+import "protos/mrp/api/application.proto";
+import "protos/mrp/api/encryption_metadata.proto";
+
+option java_package = "com.google.cm.mrp.api";
+option java_outer_classname = "CreateJobParametersProto";
+
+// Job parameters proto object.
+message JobParameters {
+  message DataOwner {
+    message DataLocation {
+      // Specify either input_data_blob_prefix or input_data_blob_paths
+      string input_data_blob_prefix = 1;
+      string input_data_bucket_name = 2;
+      bool is_streamed = 3;
+      // Specifying input_data_blob_paths requires input_schema_path
+      repeated string input_data_blob_paths = 4;
+      // input_schema_path is optional if using input_data_blob_prefix.
+      // Default: schema.json in input_data_blob_prefix path.
+      string input_schema_path = 5;
+    }
+
+    oneof data_source {
+      DataLocation data_location = 1; // data location for data sources from storage
+      string lookup_endpoint = 2; // lookup service endpoint (e.g. Google data lookup service)
+    }
+  }
+
+  message DataOwnerList {
+    repeated DataOwner data_owners = 1;
+  }
+
+  DataOwnerList data_owner_list = 1;
+  ApplicationId application_id = 2;
+  optional EncryptionMetadata encryption_metadata = 3;
+}

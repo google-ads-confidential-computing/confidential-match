@@ -1,0 +1,45 @@
+{
+  "columns": [
+    {
+      "column_name": "Firstname1",
+      "column_alias": "first_name",
+      "column_group": 0
+    },
+    {
+      "column_name": "Lastname1",
+      "column_alias": "last_name",
+      "column_group": 0
+    },
+    {
+      "column_name": "Zipcode1",
+      "column_alias": "zip_code",
+      "column_group": 0
+    },
+    {
+      "column_name": "CountryCode1",
+      "column_alias": "country_code",
+      "column_group": 0
+    },
+    {
+      "column_name": "Firstname2",
+      "column_alias": "first_name",
+      "column_group": 1
+    },
+    {
+      "column_name": "Lastname2",
+      "column_alias": "last_name",
+      "column_group": 1
+    },
+    {
+      "column_name": "Zipcode2",
+      "column_alias": "zip_code"
+    },
+    {
+      "column_name": "CountryCode2",
+      "column_alias": "country_code",
+      "column_group": 1
+    }
+  ],
+  "data_format": "CSV",
+  "skip_header_record": true
+}

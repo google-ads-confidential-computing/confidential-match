@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# Create self-signed cert
+mkdir -p /opt/google/ssl/self-signed-certs;
+openssl ecparam -name prime256v1 -genkey -out /opt/google/ssl/self-signed-certs/privatekey.pem;
+openssl req -new -key /opt/google/ssl/self-signed-certs/privatekey.pem -out /opt/google/ssl/self-signed-certs/csr.pem -subj "/C=US/ST=WA/O=CFM/CN=cfm.admc.goog";
+openssl x509 -req -days 7305 -in /opt/google/ssl/self-signed-certs/csr.pem -signkey /opt/google/ssl/self-signed-certs/privatekey.pem -out /opt/google/ssl/self-signed-certs/public.crt;
+rm /opt/google/ssl/self-signed-certs/csr.pem;
+
+# launch lookup server
+exec /opt/google/lookup_service/lookup_server

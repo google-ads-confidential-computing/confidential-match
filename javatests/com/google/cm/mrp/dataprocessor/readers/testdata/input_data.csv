@@ -1,0 +1,9 @@
+email,phone,first_name,last_name,zip_code,country_code
+abc111,abc111,abc111,abc111,91111,US
+abc222,abc222,abc222,abc222,92222,US
+abc333,abc333,abc333,abc333,93333,US
+abc444,abc444,abc444,abc444,94444,US
+abc555,abc555,abc555,abc555,95555,US
+abc666,abc666,abc666,abc666,96666,US
+abc777,"abc,777","abc""777","abc
+777","97777","US"

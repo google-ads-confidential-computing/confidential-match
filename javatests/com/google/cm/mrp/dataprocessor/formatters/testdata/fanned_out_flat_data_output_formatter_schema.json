@@ -1,0 +1,73 @@
+{
+  "columns": [
+    {
+      "column_name": "em",
+      "column_type": "STRING",
+      "column_alias": "email"
+    },
+    {
+      "column_name": "pn",
+      "column_type": "STRING",
+      "column_alias": "phone"
+    },
+    {
+      "column_name": "fn",
+      "column_type": "STRING",
+      "column_alias": "first_name",
+      "column_group": 0
+    },
+    {
+      "column_name": "ln",
+      "column_type": "STRING",
+      "column_alias": "last_name",
+      "column_group": 0
+    },
+    {
+      "column_name": "pc",
+      "column_type": "STRING",
+      "column_alias": "zip_code",
+      "column_group": 0
+    },
+    {
+      "column_name": "co",
+      "column_type": "STRING",
+      "column_alias": "country_code",
+      "column_group": 0
+    },
+    {
+      "column_name": "ig",
+      "column_type": "STRING",
+      "column_alias": "insta",
+      "column_group": 1
+    },
+    {
+      "column_name": "tt",
+      "column_type": "STRING",
+      "column_alias": "tiktok",
+      "column_group": 1
+    },
+    {
+      "column_name": "key_id",
+      "column_type": "STRING",
+      "column_alias": "coordinator_key_id"
+    },
+    {
+      "column_name": "metadata",
+      "column_type": "STRING"
+    },
+    {
+      "column_name": "error_codes",
+      "column_type": "STRING"
+    },
+    {
+      "column_name": "row_status",
+      "column_type": "STRING"
+    },
+    {
+      "column_name": "6145906a-b3e0-40ad-8f77-21c5dfa5c237",
+      "column_type": "STRING"
+    }
+  ],
+  "data_format": "CSV",
+  "skip_header_record": false
+}

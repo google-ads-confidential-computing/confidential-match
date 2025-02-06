@@ -1,0 +1,260 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package google.confidential_match.lookup_server.proto_api;
+
+import "protos/shared/api/errors/error_response.proto";
+
+option java_package = "com.google.cm.lookupserver.api";
+option java_outer_classname = "LookupProto";
+
+// Represents a lookup request.
+message LookupRequest {
+  // The data records from the client to be matched.
+  repeated DataRecord data_records = 1;
+
+  // A collection of data records. This proto is meant to be serialized, then
+  // encrypted, then stored into `encrypted_data_records`.
+  message SerializableDataRecords {
+    // The hashed (but unencrypted) data records from the client to be matched.
+    repeated DataRecord data_records = 1;
+  }
+  // A base-64 encoded, encrypted, binary-format serialized proto of SerializableDataRecords.
+  // EncryptionKeyInfo should be set if using this field.
+  string encrypted_data_records = 7;
+
+  // The format of all lookup keys in the request.
+  enum KeyFormat {
+    // The default value for KeyFormat. Should not be used.
+    KEY_FORMAT_UNSPECIFIED = 0;
+
+    // Indicates that the key is hashed.
+    // `hash_info` must be set containing the type of hash used.
+    KEY_FORMAT_HASHED = 1;
+
+    // Indicates that the key is hashed then encrypted.
+    // `hash_info` and `encryption_key_info` must be set containing the
+    // hash and encryption scheme.
+    KEY_FORMAT_HASHED_ENCRYPTED = 2;
+  }
+  KeyFormat key_format = 2;
+
+  // The sharding scheme used to shard the data for the request.
+  message ShardingScheme {
+    // The type of sharding scheme used.
+    string type = 1;
+    // The total number of shards used in the sharding scheme.
+    int64 num_shards = 2;
+  }
+  ShardingScheme sharding_scheme = 3;
+
+  // Contains information about the hashing scheme used.
+  // This is provided when using an hashed key format, such as
+  // `KEY_FORMAT_HASHED` and `KEY_FORMAT_HASHED_ENCRYPTED`.
+  message HashInfo {
+    // The format of all lookup key hashes in the request.
+    enum HashType {
+      // The default value for HashType. Should not be used.
+      HASH_TYPE_UNSPECIFIED = 0;
+      // Indicates that SHA-256 is used to hash the original payload.
+      HASH_TYPE_SHA_256 = 1;
+    }
+    HashType hash_type = 1;
+  }
+  HashInfo hash_info = 4;
+
+  // Optional: Contains information about the encryption key.
+  // This is only provided when using an encrypted key format,
+  // such as `KEY_FORMAT_HASHED_ENCRYPTED`.
+  EncryptionKeyInfo encryption_key_info = 5;
+
+  // Optional: Specifies the associated data fields to fetch and include
+  // alongside the matched records in the response.
+  // The `associated_data` field in matched records response will contain one
+  // key-value pair for each key provided in this list.
+  // Examples of associated data include user IDs, location info, etc.
+  repeated string associated_data_keys = 6;
+}
+
+// The response for a lookup request.
+message LookupResponse {
+  repeated LookupResult lookup_results = 1;
+}
+
+// The result for a single data record lookup.
+message LookupResult {
+  // Indicates whether the match operation was successful.
+  // If successful, `matched_data_records` contains each match, or is empty
+  // if there are no matches.
+  // If failed, error_response is populated with the failure reason.
+  enum Status {
+    // The default value for a status. Should not be used.
+    STATUS_UNSPECIFIED = 0;
+    // Indicates a successful match request.
+    STATUS_SUCCESS = 1;
+    // Indicates a failed match request due to an error.
+    STATUS_FAILED = 2;
+  }
+  Status status = 3;
+
+  // The client-provided data record that was matched.
+  DataRecord client_data_record = 1;
+
+  // A list of server data records that matched against the client record,
+  // or an empty list if no matches.
+  repeated MatchedDataRecord matched_data_records = 2;
+
+  // Optional: Describes any errors that occurred during matching.
+  // Only set when status == FAILED.
+  google.confidential_match.shared.api_errors.ErrorResponse error_response = 4;
+}
+
+// Represents a single user record from the client to be matched.
+message DataRecord {
+  // The shared key used for matching. This connects a client user record to
+  // zero or more lookup server user records.
+  LookupKey lookup_key = 1;
+
+  // Optional identifiers or metadata associated with the entry to be matched.
+  // This metadata will be returned intact alongside the matches in the results.
+  // For example, this can include identifiers (like client user ID) to tie the
+  // matched response object to the original request object.
+  repeated KeyValue metadata = 3;
+
+  // The associated data keys field is deprecated, use `associated_data_keys` on
+  // the LookupRequest instead.
+  reserved 2;
+  reserved "associated_data_keys";
+}
+
+// A shared lookup key (eg. hashed user data) that ties a client user record to
+// any number of user records on the lookup server.
+message LookupKey {
+  // The key used to match against data in Lookup Server.
+  string key = 1;
+}
+
+// A data record for a matched user in lookup server's ID space.
+message MatchedDataRecord {
+  // The key that was matched between the client and the server.
+  LookupKey lookup_key = 1;
+
+  // Metadata associated with the matched entry.
+  // This can include things like matched user IDs, privacy bits, and so forth.
+  repeated KeyValue associated_data = 2;
+}
+
+// Represents a key-value pair.
+message KeyValue {
+  // The key associated with the key-value pair.
+  string key = 1;
+
+  // The value associated with the key-value pair.
+  oneof value {
+    string string_value = 2;
+    int64 int_value = 3;
+    double double_value = 4;
+    bool bool_value = 5;
+    bytes bytes_value = 6;
+  }
+}
+
+// Contains information about the encryption key.
+message EncryptionKeyInfo {
+  // A wrapped data encryption key protected by a KMS.
+  message WrappedKeyInfo {
+    // The key type for the DEK, which is used to encrypt the data.
+    enum KeyType {
+      // The default value for KeyType. Should not be used.
+      KEY_TYPE_UNSPECIFIED = 0;
+      // Indicates that XChaCha20-Poly1305 is used to encrypt the payload.
+      KEY_TYPE_XCHACHA20_POLY1305 = 1;
+    }
+    KeyType key_type = 1;
+
+    // The wrapped data encryption key (DEK) used to protect the hashes.
+    string encrypted_dek = 2;
+
+    // The KMS resource identifier for the key encryption key (KEK) protecting
+    // the encrypted DEK.
+    string kek_kms_resource_id = 3;
+
+    // Optional: The KMS identity to impersonate to gain access to decryption.
+    string kms_identity = 4;
+
+    // Optional: The path to the Workload Identity Pool (WIP) provider,
+    // used to obtain access to the privileged service account.
+    string kms_wip_provider = 5;
+
+    // AWS-specific info for keys using AWS KMS.
+    message AwsWrappedKeyInfo {
+      // The ARN of the role required to send KMS requests
+      string role_arn = 1;
+
+      // Optional: the audience to use to request a Confidential Space token
+      string audience = 2;
+    }
+
+    // GCP-specific info for keys using GCP KMS.
+    message GcpWrappedKeyInfo {
+      // The path to the Workload Identity Pool (WIP) provider,
+      // used to obtain access to the privileged service account.
+      string wip_provider = 1;
+      // Optional: The KMS identity to impersonate to gain access to decryption.
+      string service_account_to_impersonate = 2;
+    }
+
+    // Oneof proto to choose between AWS or GCP KMS
+    oneof cloud_wrapped_key_info {
+      // KeyInfo for DEKs encrypted with AWS KMS
+      AwsWrappedKeyInfo aws_wrapped_key_info = 6;
+      // KeyInfo for DEKs encrypted with GCP KMS
+      GcpWrappedKeyInfo gcp_wrapped_key_info = 7;
+    }
+  }
+
+  message CoordinatorInfo {
+    // The endpoint for the encryption key service.
+    string key_service_endpoint = 1;
+
+    // Optional: The KMS identity to impersonate to gain access to decryption.
+    string kms_identity = 2;
+
+    // Optional: The path to the Workload Identity Pool (WIP) provider,
+    // used to obtain access to the privileged service account.
+    string kms_wip_provider = 3;
+
+    // Optional: The encryption key service audience URL used to create the
+    // credentials.
+    string key_service_audience_url = 4;
+  }
+
+  // Represents metadata needed to support coordinator key service.
+  message CoordinatorKeyInfo {
+    string key_id = 1;
+    // Coordinator key service may have multiple coordinators.
+    repeated CoordinatorInfo coordinator_info = 2;
+  }
+
+  // Indicates the key used for decryption. This can be a wrapped key
+  // protected by a KMS, keys controlled by a coordinator, etc.
+  oneof key_info {
+    // A wrapped key that can be decrypted by a KMS.
+    WrappedKeyInfo wrapped_key_info = 1;
+    // A coordinator key to be fetched and decrypted in attested TEE.
+    CoordinatorKeyInfo coordinator_key_info = 2;
+  }
+}

@@ -1,0 +1,65 @@
+diff --git a/BUILD.bazel b/BUILD.bazel
+index a8a89a0..b8b0a2a 100644
+--- a/BUILD.bazel
++++ b/BUILD.bazel
+@@ -6,6 +6,7 @@ cc_library(
+     deps = [
+         "//src/google/protobuf/util/converter:default_value",
+         "//src/google/protobuf/util/converter:json",
++        "//src/google/protobuf/util/converter:legacy_json_util",
+         "//src/google/protobuf/util/converter:object_writer",
+         "//src/google/protobuf/util/converter:protostream",
+         "//src/google/protobuf/util/converter:type_info",
+diff --git a/src/google/protobuf/util/converter/BUILD.bazel b/src/google/protobuf/util/converter/BUILD.bazel
+index bff9574..e94e03a 100644
+--- a/src/google/protobuf/util/converter/BUILD.bazel
++++ b/src/google/protobuf/util/converter/BUILD.bazel
+@@ -140,6 +140,23 @@ cc_library(
+     ],
+ )
+
++cc_library(
++    name = "legacy_json_util",
++    srcs = ["legacy_json_util.cc"],
++    hdrs = ["legacy_json_util.h"],
++    copts = COPTS,
++    strip_include_prefix = "/src",
++    deps = [
++        ":default_value",
++        ":json",
++        ":protostream",
++        "@com_google_absl//absl/base",
++        "@com_google_absl//absl/status",
++        "@com_google_absl//absl/strings",
++        "@com_google_protobuf//:protobuf",
++    ],
++)
++
+ cc_test(
+     name = "json_objectwriter_test",
+     srcs = ["json_objectwriter_test.cc"],
+diff --git a/src/google/protobuf/util/converter/legacy_json_util.cc b/src/google/protobuf/util/converter/legacy_json_util.cc
+index 6f37aa5..87358cd 100644
+--- a/src/google/protobuf/util/converter/legacy_json_util.cc
++++ b/src/google/protobuf/util/converter/legacy_json_util.cc
+@@ -19,6 +19,7 @@
+ #include "absl/base/call_once.h"
+ #include "absl/status/status.h"
+ #include "google/protobuf/stubs/bytestream.h"
++#include "absl/strings/ascii.h"
+ #include "absl/strings/str_cat.h"
+ #include "absl/strings/string_view.h"
+ #include "google/protobuf/util/converter/default_value_objectwriter.h"
+diff --git a/src/google/protobuf/util/converter/port_def.inc b/src/google/protobuf/util/converter/port_def.inc
+index 41af5b7..c3f71ab 100644
+--- a/src/google/protobuf/util/converter/port_def.inc
++++ b/src/google/protobuf/util/converter/port_def.inc
+@@ -415,7 +415,7 @@ static_assert(PROTOBUF_ABSL_MIN(20230125, 3),
+
+ // The minimum library version which works with the current version of the
+ // headers.
+-#define GOOGLE_PROTOBUF_MIN_LIBRARY_VERSION 4023000
++// #define GOOGLE_PROTOBUF_MIN_LIBRARY_VERSION 4023000
+
+ #ifdef PROTOBUF_RTTI
+ #error PROTOBUF_RTTI was previously defined

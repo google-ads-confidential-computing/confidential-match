@@ -1,0 +1,156 @@
+{
+  "columns": [
+    {
+      "column_name": "group_pii",
+      "column_type": "STRING",
+      "encrypted": false,
+      "nested_schema": {
+        "columns": [
+          {
+            "column_name": "em",
+            "column_type": "STRING",
+            "column_alias": "email"
+          },
+          {
+            "column_name": "pn",
+            "column_type": "STRING",
+            "column_alias": "phone"
+          },
+          {
+            "column_name": "fn",
+            "column_type": "STRING",
+            "column_alias": "first_name",
+            "column_group": 0
+          },
+          {
+            "column_name": "ln",
+            "column_type": "STRING",
+            "column_alias": "last_name",
+            "column_group": 0
+          },
+          {
+            "column_name": "pc",
+            "column_type": "STRING",
+            "column_alias": "zip_code",
+            "column_group": 0
+          },
+          {
+            "column_name": "co",
+            "column_type": "STRING",
+            "column_alias": "country_code",
+            "column_group": 0
+          },
+          {
+            "column_name": "ig",
+            "column_type": "STRING",
+            "column_alias": "insta",
+            "column_group": 1
+          },
+          {
+            "column_name": "tt",
+            "column_type": "STRING",
+            "column_alias": "tiktok",
+            "column_group": 1
+          },
+          {
+            "column_name": "error_codes",
+            "column_type": "STRING"
+          }
+        ],
+        "data_format": "DATA_FORMAT_UNSPECIFIED",
+        "skip_header_record": true
+      }
+    },
+    {
+      "column_name": "key_id",
+      "column_type": "STRING",
+      "column_alias": "coordinator_key_id"
+    },
+    {
+      "column_name": "metadata",
+      "column_type": "STRING"
+    }
+  ],
+  "output_columns": [
+    {
+      "column": {
+        "column_name": "key_id"
+      }
+    },
+    {
+      "condensed_column": {
+        "column_name": "pii_proto",
+        "condense_mode": "CONDENSE_COLUMNS_PROTO",
+        "subcolumns": [
+          {
+            "column": { "column_name": "em" }
+          },
+          {
+            "column": { "column_name": "pn" }
+          },
+          {
+            "composite_column": {
+              "column_name": "address",
+              "columns": [
+                { "column_name": "fn" },
+                { "column_name": "ln" },
+                { "column_name": "pc" },
+                { "column_name": "co" }
+              ]
+            }
+          },
+          {
+            "composite_column": {
+              "column_name": "socials",
+              "columns": [
+                { "column_name": "ig" },
+                { "column_name": "tt" }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "condensed_column": {
+        "column_name": "pii_proto_2",
+        "condense_mode": "CONDENSE_COLUMNS_PROTO",
+        "subcolumns": [
+          {
+            "column": { "column_name": "em2" }
+          },
+          {
+            "column": { "column_name": "pn2" }
+          },
+          {
+            "composite_column": {
+              "column_name": "address2",
+              "columns": [
+                { "column_name": "fn2" },
+                { "column_name": "ln2" },
+                { "column_name": "pc2" },
+                { "column_name": "co2" }
+              ]
+            }
+          },
+          {
+            "composite_column": {
+              "column_name": "socials2",
+              "columns": [
+                { "column_name": "ig2" },
+                { "column_name": "tt2" }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "column": {
+        "column_name": "metadata"
+      }
+    }
+  ],
+  "data_format": "CSV",
+  "skip_header_record": false
+}

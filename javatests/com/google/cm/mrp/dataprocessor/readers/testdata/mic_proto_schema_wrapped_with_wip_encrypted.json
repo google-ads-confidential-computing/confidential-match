@@ -1,0 +1,53 @@
+{
+  "columns": [
+    {
+      "column_type": "STRING",
+      "column_alias": "metadata"
+    },
+    {
+      "column_type": "STRING",
+      "column_alias": "encrypted_dek"
+    },
+    {
+      "column_type": "STRING",
+      "column_alias": "kek_uri"
+    },
+    {
+      "column_type": "STRING",
+      "column_alias": "wip_provider"
+    },
+    {
+      "column_type": "STRING",
+      "column_alias": "email",
+      "encrypted": true
+    },
+    {
+      "column_type": "STRING",
+      "column_alias": "phone",
+      "encrypted": true
+    },
+    {
+      "column_type": "STRING",
+      "column_alias": "first_name",
+      "encrypted": true,
+      "column_group": 0
+    },
+    {
+      "column_type": "STRING",
+      "column_alias": "last_name",
+      "encrypted": true,
+      "column_group": 0
+    },
+    {
+      "column_type": "STRING",
+      "column_alias": "country_code",
+      "column_group": 0
+    },
+    {
+      "column_type": "STRING",
+      "column_alias": "zip_code",
+      "column_group": 0
+    }
+  ],
+  "data_format": "SERIALIZED_PROTO"
+}

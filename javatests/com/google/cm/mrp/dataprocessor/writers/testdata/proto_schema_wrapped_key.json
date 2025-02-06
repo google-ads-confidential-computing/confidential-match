@@ -1,0 +1,25 @@
+{
+  "columns": [
+    {
+      "column_name": "email",
+      "column_type": "STRING",
+      "column_alias": "email"
+    },
+    {
+      "column_name": "encrypted_dek",
+      "column_type": "STRING",
+      "column_alias": "encrypted_dek"
+    },
+    {
+      "column_name": "kek_uri",
+      "column_type": "STRING",
+      "column_alias": "kek_uri"
+    },
+    {
+      "column_name": "wip_alias",
+      "column_type": "STRING",
+      "column_alias": "wip_alias"
+    }
+  ],
+  "data_format": "SERIALIZED_PROTO"
+}

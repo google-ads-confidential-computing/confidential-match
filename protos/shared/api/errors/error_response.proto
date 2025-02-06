@@ -1,0 +1,55 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package google.confidential_match.shared.api_errors;
+
+option java_package = "com.google.cm.shared.api.errors";
+option java_outer_classname = "ErrorResponseProto";
+
+// Represents an error response from Lookup Server.
+// This is modeled after google.rpc.Status:
+// https://github.com/googleapis/googleapis/blob/master/google/rpc/status.proto
+message ErrorResponse {
+  // An error status code that can be easily handled by the client.
+  // Values are defined within protos/shared/api/errors/code.proto.
+  int32 code = 1;
+
+  // A developer-facing, human-readable error message.
+  string message = 2;
+
+  // Additional error information that the client code can use to handle the
+  // error.
+  repeated Details details = 3;
+}
+
+// Structured details that describe the cause of the error.
+// This is modeled after google.rpc.ErrorInfo:
+// https://github.com/googleapis/googleapis/blob/master/google/rpc/error_details.proto
+message Details {
+  // The reason for the error. This is a constant value that identifies the
+  // proximate cause of the error.
+  // Example: "API_DISABLED"
+  string reason = 1;
+
+  // The logical grouping to which the reason belong. This is usually the
+  // service name or product that generates the error.
+  // Example: "spanner.googleapis.com".
+  string domain = 2;
+
+  // Additional structured details about this error.
+  // Example: {"shardingSchemeId":"123"}
+  map<string, string> metadata = 3;
+}

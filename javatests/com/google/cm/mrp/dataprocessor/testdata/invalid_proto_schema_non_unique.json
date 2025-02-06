@@ -1,0 +1,11 @@
+{
+  "columns": [
+    {
+      "column_alias": "email"
+    },
+    {
+      "column_alias": "email"
+    }
+  ],
+  "data_format": "SERIALIZED_PROTO"
+}

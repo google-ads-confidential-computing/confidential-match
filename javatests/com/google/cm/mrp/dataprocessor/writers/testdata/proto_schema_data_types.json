@@ -1,0 +1,21 @@
+{
+  "columns": [
+    {
+      "column_name": "md_string",
+      "column_type": "STRING"
+    },
+    {
+      "column_name": "md_int",
+      "column_type": "INT"
+    },
+    {
+      "column_name": "md_double",
+      "column_type": "DOUBLE"
+    },
+    {
+      "column_name": "md_bool",
+      "column_type": "BOOL"
+    }
+  ],
+  "data_format": "SERIALIZED_PROTO"
+}

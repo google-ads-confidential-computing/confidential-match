@@ -1,0 +1,96 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package google.confidential_match.mrp.backend;
+
+option java_package = "com.google.cm.mrp.backend";
+option java_outer_classname = "DataRecordEncryptionFieldsProto";
+
+// Contains keys found in each data record for encryption
+message DataRecordEncryptionKeys {
+  message WrappedEncryptionKeys {
+    // Encrypted Data Encryption Key
+    string encrypted_dek = 1;
+    // Key Encryption Key KMS URI
+    string kek_uri = 2;
+
+    message AwsWrappedKeys {
+      // Role ARN
+      string role_arn = 1;
+      // Audience
+      string audience = 2;
+    }
+
+    message GcpWrappedKeys {
+      // Workload Identity Pool Provider
+      string wip_provider = 1;
+    }
+
+    // AWS-specific keys
+    optional AwsWrappedKeys aws_wrapped_keys = 3;
+
+    // GCP-specific keys
+    optional GcpWrappedKeys gcp_wrapped_keys = 4;
+  }
+
+  message CoordinatorKey {
+    // Coordinator key ID which used to fetch the encryption key
+    string key_id = 1;
+  }
+
+  oneof keys {
+    // Actual values for wrapped encryption key
+    WrappedEncryptionKeys wrapped_encryption_keys = 1;
+    // Actual value for coordinator key
+    CoordinatorKey coordinator_key = 2;
+  }
+}
+
+// Contains info about encrypted fields in a DataRecord
+message DataRecordEncryptionColumns {
+  message WrappedKeyColumnIndices {
+    // Index for encrypted DEK column
+    uint32 encrypted_dek_column_index = 1;
+    // Index for Key Encryption Key KMS URI column
+    uint32 kek_uri_column_index = 2;
+
+    message GcpWrappedKeyColumnIndices {
+      uint32 wip_provider_index = 1;
+    }
+    optional GcpWrappedKeyColumnIndices gcp_column_indices = 3;
+  }
+
+  message CoordinatorKeyColumnIndices {
+    // Index for coordinator key column
+    uint32 coordinator_key_column_index = 1;
+  }
+
+  message EncryptionKeyColumnIndices {
+    oneof column_indices {
+      // Indices for the columns containing WrappedKeyColumnIndices
+      WrappedKeyColumnIndices wrapped_key_column_indices = 1;
+      // Indices for the columns containing CoordinatorKeyColumnIndices
+      CoordinatorKeyColumnIndices coordinator_key_column_indices = 2;
+    }
+  }
+
+  // Contains indices of columns which contain encrypted data
+  repeated uint32 encrypted_column_indices = 1;
+  // Indices for the columns containing DataRecordEncryptionKeys
+  EncryptionKeyColumnIndices encryption_key_column_indices = 2;
+  // Actual values for DataRecordEncryptionKeys
+  DataRecordEncryptionKeys data_record_encryption_keys = 3;
+}

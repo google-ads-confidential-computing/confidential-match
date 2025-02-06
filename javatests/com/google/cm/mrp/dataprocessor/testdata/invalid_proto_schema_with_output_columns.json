@@ -1,0 +1,17 @@
+{
+  "columns": [
+    {
+      "column_type": "STRING",
+      "column_alias": "email"
+    }
+  ],
+  "output_columns": [
+    {
+      "column": {
+        "column_type": "STRING",
+        "column_alias": "email"
+      }
+    }
+  ],
+  "data_format": "SERIALIZED_PROTO"
+}

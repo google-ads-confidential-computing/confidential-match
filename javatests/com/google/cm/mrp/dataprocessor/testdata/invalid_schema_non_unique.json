@@ -1,0 +1,14 @@
+{
+  "columns": [
+    {
+      "column_name": "Email1",
+      "column_alias": "email"
+    },
+    {
+      "column_name": "Email1",
+      "column_alias": "email"
+    }
+  ],
+  "data_format": "CSV",
+  "skip_header_record": true
+}

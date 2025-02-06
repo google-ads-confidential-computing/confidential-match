@@ -1,0 +1,119 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package google.confidential_match.mrp.backend;
+
+import "protos/mrp/backend/application.proto";
+
+option java_package = "com.google.cm.mrp.backend";
+option java_outer_classname = "MatchConfigProto";
+
+message MatchConfig {
+  enum Mode {
+    MODE_UNSPECIFIED = 0;
+    REDACT = 1;
+    TRANSFORM = 2;
+  }
+
+  // Toggles partial job successes
+  message SuccessConfig {
+    enum SuccessMode {
+      SUCCESS_TYPE_UNDEFINED = 0;
+      ONLY_COMPLETE_SUCCESS = 1;
+      // Adds a status field to each output record. Requires PartialSuccessAttributes
+      ALLOW_PARTIAL_SUCCESS = 2;
+    }
+    message PartialSuccessAttributes {
+      string record_status_field_name = 1;
+      string redact_error_with = 2;
+    }
+
+    SuccessMode success_mode = 1;
+    // Required if ALLOW_PARTIAL_SUCCESS
+    optional PartialSuccessAttributes partial_success_attributes = 2;
+  }
+
+  message Column {
+    int32 order = 1;  // order of columns is important for match key calculation
+                      // and output
+    string column_alias = 2;
+    string column_name = 4;
+    repeated MatchTransformation match_transformations =
+        3;  // ordered by insertion
+  }
+
+  // Transform column value before matching
+  message MatchTransformation {
+    // ID corresponding to the in-code transformation to be applied.
+    string transformation_id = 1;
+    // The input columns provided for processing (including the original
+    // column).
+    repeated string dependent_column_aliases = 2;  // ordered by insertion
+  }
+
+  message CompositeColumn {
+    string column_alias = 1;
+    string column_name = 3; // Used for output condensing.
+    repeated Column columns = 2;
+  }
+  enum MatchOperator {
+    MATCH_OPERATOR_UNSPECIFIED = 0;
+    EQUALS = 1;
+  }
+  message MatchCondition {
+    // this configuration allows two-way matches with join conditions/operators
+    // similar to SQL JOIN
+    MatchOperator operator = 1;
+    CompositeColumn data_source1_column = 2;
+    CompositeColumn data_source2_column = 3;
+  }
+  message OutputColumn {
+    int32 data_source = 1;
+    Column column = 2;
+  }
+
+  // Defines specific columns necessary for encryption
+  message EncryptionKeyColumns {
+    // Column aliases necessary for wrapped keys
+    message WrappedKeyColumns {
+      string encrypted_dek_column_alias = 1;
+      string kek_uri_column_alias = 2;
+
+      message GcpWrappedKeyColumns {
+        string wip_provider_alias = 1;
+      }
+
+      // GCP-specific columns
+      optional GcpWrappedKeyColumns gcp_wrapped_key_columns = 3;
+    }
+
+    message CoordinatorKeyColumn {
+      string coordinator_key_column_alias = 1;
+    }
+
+    optional WrappedKeyColumns wrapped_key_columns = 1;
+    optional CoordinatorKeyColumn coordinator_key_column = 2;
+  }
+
+  ApplicationId application_id = 1;
+  Mode mode = 2;
+  repeated MatchCondition match_conditions = 3;
+  repeated OutputColumn output_columns = 4;
+  optional string redact_unmatched_with = 5; // only used if mode is redact
+  // Defines optional columns necessary for encryption
+  optional EncryptionKeyColumns encryption_key_columns = 6;
+  SuccessConfig success_config = 8;
+}

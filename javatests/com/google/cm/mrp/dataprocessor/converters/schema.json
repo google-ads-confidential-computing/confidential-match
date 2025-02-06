@@ -1,0 +1,42 @@
+{
+  "columns": [
+    {
+      "column_name": "email",
+      "column_type": "STRING",
+      "column_alias": "email",
+      "column_group": 0
+    },
+    {
+      "column_name": "phone",
+      "column_type": "STRING",
+      "column_alias": "phone",
+      "column_group": 0
+    },
+    {
+      "column_name": "first_name",
+      "column_type": "STRING",
+      "column_alias": "first_name",
+      "column_group": 0
+    },
+    {
+      "column_name": "last_name",
+      "column_type": "STRING",
+      "column_alias": "last_name",
+      "column_group": 0
+    },
+    {
+      "column_name": "zip_code",
+      "column_type": "STRING",
+      "column_alias": "zip_code",
+      "column_group": 0
+    },
+    {
+      "column_name": "country_code",
+      "column_type": "STRING",
+      "column_alias": "country_code",
+      "column_group": 0
+    }
+  ],
+  "data_format": "CSV",
+  "skip_header_record": true
+}

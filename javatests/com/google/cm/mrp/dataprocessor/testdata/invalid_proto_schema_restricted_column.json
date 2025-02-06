@@ -1,0 +1,13 @@
+{
+  "columns": [
+    {
+      "column_type": "STRING",
+      "column_alias": "email"
+    },
+    {
+      "column_type": "STRING",
+      "column_alias": "6145906a-b3e0-40ad-8f77-21c5dfa5c237"
+    }
+  ],
+  "data_format": "SERIALIZED_PROTO"
+}

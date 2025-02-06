@@ -1,0 +1,9 @@
+{
+  "columns": [
+    {
+      "column_type": "STRING",
+      "column_name": "email"
+    }
+  ],
+  "data_format": "SERIALIZED_PROTO"
+}

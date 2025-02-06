@@ -1,0 +1,104 @@
+{
+  "application_id": "adh",
+  "mode": "REDACT",
+  "redact_unmatched_with": "UNMATCHED",
+  "success_config": {
+    "success_mode": "ONLY_COMPLETE_SUCCESS"
+  },
+  "match_conditions": [
+    {
+      "operator": 1,
+      "data_source1_column": {
+        "column_alias": "email",
+        "columns": [
+          {
+            "order": 0,
+            "column_alias": "email"
+          }
+        ]
+      },
+      "data_source2_column": {
+        "column_alias": "pii_value",
+        "columns": [
+          {
+            "order": 0,
+            "column_alias": "pii_value"
+          }
+        ]
+      }
+    },
+    {
+      "operator": 1,
+      "data_source1_column": {
+        "column_alias": "phone",
+        "columns": [
+          {
+            "order": 0,
+            "column_alias": "phone"
+          }
+        ]
+      },
+      "data_source2_column": {
+        "column_alias": "pii_value",
+        "columns": [
+          {
+            "order": 0,
+            "column_alias": "pii_value"
+          }
+        ]
+      }
+    },
+    {
+      "operator": 1,
+      "data_source1_column": {
+        "column_alias": "address",
+        "columns": [
+          {
+            "order": 0,
+            "column_alias": "first_name"
+          },
+          {
+            "order": 1,
+            "column_alias": "last_name"
+          },
+          {
+            "order": 2,
+            "column_alias": "country_code",
+            "match_transformations": [
+              {
+                "transformation_id": "ToLowercaseTransformation"
+              }
+            ]
+          },
+          {
+            "order": 3,
+            "column_alias": "zip_code",
+            "match_transformations": [
+              {
+                "transformation_id": "CountryBasedZipTransformation",
+                "dependent_column_aliases": [
+                  "country_code"
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "data_source2_column": {
+        "column_alias": "pii_value",
+        "columns": [
+          {
+            "order": 0,
+            "column_alias": "pii_value"
+          }
+        ]
+      }
+    }
+  ],
+  "encryption_key_columns": {
+    "wrapped_key_columns": {
+      "encrypted_dek_column_alias": "encrypted_dek",
+      "kek_uri_column_alias": "kek_uri"
+    }
+  }
+}

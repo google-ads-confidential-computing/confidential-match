@@ -1,0 +1,15 @@
+{
+  "columns": [
+    {
+      "column_name": "Product"
+    },
+    {
+      "column_name": "Manufacturer"
+    },
+    {
+      "column_name": "Location"
+    }
+  ],
+  "data_format": "CSV",
+  "skip_header_record": true
+}

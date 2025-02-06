@@ -1,0 +1,98 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package google.confidential_match.lookup_server.proto_backend;
+
+// Contains information about an encryption key.
+// This is used by crypto clients to encrypt and decrypt payloads.
+message EncryptionKeyInfo {
+  // A wrapped data encryption key protected by a KMS.
+  message WrappedKeyInfo {
+    // The key type for the DEK, which is used to encrypt the data.
+    enum KeyType {
+      // The default value for KeyType. Should not be used.
+      KEY_TYPE_UNSPECIFIED = 0;
+      // Indicates that XChaCha20-Poly1305 is used to encrypt the payload.
+      KEY_TYPE_XCHACHA20_POLY1305 = 1;
+    }
+    KeyType key_type = 1;
+
+    // The wrapped data encryption key (DEK) used to protect the hashes.
+    string encrypted_dek = 2;
+
+    // The KMS resource identifier for the key encryption key (KEK) protecting
+    // the encrypted DEK.
+    string kek_kms_resource_id = 3;
+
+    // AWS-specific info for keys using AWS KMS.
+    message AwsWrappedKeyInfo {
+      // The ARN of the role required to send KMS requests
+      string role_arn = 1;
+
+      // Optional: the audience to use to request a Confidential Space token
+      string audience = 2;
+    }
+
+    // GCP-specific info for keys using GCP KMS.
+    message GcpWrappedKeyInfo {
+      // The path to the Workload Identity Pool (WIP) provider,
+      // used to obtain access to the privileged service account.
+      string wip_provider = 1;
+      // Optional: The KMS identity to impersonate to gain access to decryption.
+      string service_account_to_impersonate = 2;
+    }
+
+    // Oneof proto to choose between AWS or GCP KMS
+    oneof cloud_wrapped_key_info {
+      // KeyInfo for DEKs encrypted with AWS KMS
+      AwsWrappedKeyInfo aws_wrapped_key_info = 6;
+      // KeyInfo for DEKs encrypted with GCP KMS
+      GcpWrappedKeyInfo gcp_wrapped_key_info = 7;
+    }
+  }
+
+  message CoordinatorInfo {
+    // The endpoint for the encryption key service.
+    string key_service_endpoint = 1;
+
+    // Optional: The KMS identity to impersonate to gain access to decryption.
+    string kms_identity = 2;
+
+    // Optional: The path to the Workload Identity Pool (WIP) provider,
+    // used to obtain access to the privileged service account.
+    string kms_wip_provider = 3;
+
+    // Optional: The encryption key service audience URL used to create the
+    // credentials.
+    string key_service_audience_url = 4;
+  }
+
+  // Represents metadata needed to support coordinator key service.
+  message CoordinatorKeyInfo {
+    string key_id = 1;
+    // Coordinator key service may have multiple coordinators.
+    repeated CoordinatorInfo coordinator_info = 2;
+  }
+
+  // Indicates the key used for decryption. This can be a wrapped key
+  // protected by a KMS, keys controlled by a coordinator, etc.
+  oneof key_info {
+    // A wrapped key that can be decrypted by a KMS.
+    WrappedKeyInfo wrapped_key_info = 1;
+    // A coordinator key to be fetched and decrypted in attested TEE.
+    CoordinatorKeyInfo coordinator_key_info = 2;
+  }
+}

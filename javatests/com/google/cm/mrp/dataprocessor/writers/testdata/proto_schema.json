@@ -1,0 +1,68 @@
+{
+  "columns": [
+    {
+      "column_name": "email",
+      "column_type": "STRING",
+      "column_alias": "email"
+    },
+    {
+      "column_name": "phone",
+      "column_type": "STRING",
+      "column_alias": "phone"
+    },
+    {
+      "column_name": "first_name",
+      "column_type": "STRING",
+      "column_alias": "first_name",
+      "column_group": 0
+    },
+    {
+      "column_name": "last_name",
+      "column_type": "STRING",
+      "column_alias": "last_name",
+      "column_group": 0
+    },
+    {
+      "column_name": "zip_code",
+      "column_type": "STRING",
+      "column_alias": "zip_code",
+      "column_group": 0
+    },
+    {
+      "column_name": "country_code",
+      "column_type": "STRING",
+      "column_alias": "country_code",
+      "column_group": 0
+    },
+    {
+      "column_name": "instagram",
+      "column_type": "STRING",
+      "column_alias": "instagram",
+      "column_group": 1
+    },
+    {
+      "column_name": "tiktok",
+      "column_type": "STRING",
+      "column_alias": "tiktok",
+      "column_group": 1
+    },
+    {
+      "column_name": "coordinator_key_id",
+      "column_type": "STRING",
+      "column_alias": "coordinator_key_id"
+    },
+    {
+      "column_name": "metadata",
+      "column_type": "STRING"
+    },
+    {
+      "column_name": "row_status",
+      "column_type": "STRING"
+    },
+    {
+      "column_name": "6145906a-b3e0-40ad-8f77-21c5dfa5c237",
+      "column_type": "STRING"
+    }
+  ],
+  "data_format": "SERIALIZED_PROTO"
+}

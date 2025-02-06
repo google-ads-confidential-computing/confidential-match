@@ -1,0 +1,88 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package google.confidential_match.mrp.api;
+
+option java_package = "com.google.cm.mrp.api";
+option java_outer_classname = "EncryptionMetadataProto";
+
+// Represents metadata needed to support encrypted workloads.
+// Passed in with create_job_parameters
+message EncryptionMetadata {
+  // A data encryption key wrapped by a KMS key.
+  message WrappedKeyInfo {
+    // The Key type (encryption algorithm) used to encrypt the data
+    enum KeyType {
+      UNSPECIFIED = 0;
+      XCHACHA20_POLY1305 = 1;
+    }
+    KeyType key_type = 1;
+
+    // Optional: The Workload Identity Pool provider required to use KEK
+    optional string kms_wip_provider = 2;
+  }
+
+  message CoordinatorInfo {
+    // The endpoint for the encryption key service.
+    string key_service_endpoint = 1;
+    // Optional: The service account to impersonate required to decrypt the
+    // private key.
+    optional string kms_identity = 2;
+    // Optional: The Workload Identity Pool provider required to decrypt the
+    // private key.
+    optional string kms_wip_provider = 3;
+    // Optional: The encryption key service audience URL used to create the
+    // credentials.
+    optional string key_service_audience_url = 4;
+  }
+
+  // Represents metadata needed to support coordinator key service.
+  message CoordinatorKeyInfo {
+    // Coordinator key service may have multiple coordinators.
+    repeated CoordinatorInfo coordinator_info = 1;
+  }
+
+  // A data encryption key wrapped by an AWS KMS key.
+  message AwsWrappedKeyInfo {
+    // The Key type (encryption algorithm) used to encrypt the data
+    enum KeyType {
+      UNSPECIFIED = 0;
+      XCHACHA20_POLY1305 = 1;
+    }
+
+    // Key Type enum
+    KeyType key_type = 1;
+
+    // The Role ARN to assume for KMS decryption access
+    string role_arn = 2;
+
+    // The audience value for a customer to provide.
+    optional string audience = 3;
+  }
+
+  // A container message to allow different kinds of data encryption keys.
+  message EncryptionKeyInfo {
+    reserved 1;
+    reserved "key_id";
+    oneof key_info {
+      WrappedKeyInfo wrapped_key_info = 2;
+      CoordinatorKeyInfo coordinator_key_info = 3;
+      AwsWrappedKeyInfo aws_wrapped_key_info = 4;
+    }
+  }
+
+  EncryptionKeyInfo encryption_key_info = 1;
+}

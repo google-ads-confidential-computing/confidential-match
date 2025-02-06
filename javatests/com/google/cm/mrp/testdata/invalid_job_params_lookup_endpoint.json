@@ -1,0 +1,5 @@
+{
+  "job_parameters": {
+    "data_owner_list": "{\"data_owners\": [{\"lookup_endpoint\": \"https://lookup_endpoint:1234\"}]}"
+  }
+}

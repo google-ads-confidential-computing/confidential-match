@@ -1,0 +1,22 @@
+{
+  "columns": [
+    {
+      "column_name": "GroupPiiString",
+      "column_type": "STRING",
+      "encrypted": true
+    },
+    {
+      "column_name": "KeyID",
+      "column_type": "STRING",
+      "column_alias": "coordinator_key_id",
+      "encrypted": false
+    },
+    {
+      "column_name": "Metadata",
+      "column_type": "STRING",
+      "encrypted": false
+    }
+  ],
+  "data_format": "CSV",
+  "skip_header_record": true
+}

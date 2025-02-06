@@ -1,0 +1,26 @@
+{
+  "columns": [
+    {
+      "column_name": "group_pii",
+      "column_type": "STRING",
+      "column_format": "GTAG",
+      "nested_schema": {
+        "columns": [
+          {
+            "column_type": "STRING",
+            "column_alias": "email"
+          },
+          {
+            "column_type": "STRING",
+            "column_alias": "phone"
+          }
+        ]
+      }
+    },
+    {
+      "column_alias": "metadata",
+      "column_type": "STRING"
+    }
+  ],
+  "data_format": "SERIALIZED_PROTO"
+}

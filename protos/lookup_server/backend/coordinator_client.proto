@@ -1,0 +1,60 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package google.confidential_match.lookup_server.proto_backend;
+
+// The request object used to fetch a hybrid key from one or more coordinators.
+message GetHybridKeyRequest {
+  // The ID for the coordinator hybrid key to fetch.
+  string key_id = 1;
+
+  // A list of the coordinators containing the key splits.
+  message Coordinator {
+    // The endpoint for the encryption key service.
+    string key_service_endpoint = 1;
+
+    // Optional: The service account to impersonate to gain decryption access.
+    string account_identity = 2;
+
+    // The path to the Workload Identity Pool provider, used to obtain
+    // decryption permissions on the KMS.
+    string kms_wip_provider = 3;
+
+    // Optional: The encryption key service audience URL used to create the
+    // credentials.
+    string key_service_audience_url = 4;
+  }
+  repeated Coordinator coordinators = 2;
+}
+
+// The response from fetching a hybrid key from a coordinator.
+message GetHybridKeyResponse {
+  // The fetched hybrid key from the coordinator, if found.
+  HybridKey hybrid_key = 1;
+}
+
+// A hybrid encryption public/private keypair stored in a coordinator.
+message HybridKey {
+  // The id of the coordinator key.
+  string key_id = 1;
+
+  // The serialized public key. This is a base-64 encoded raw key.
+  string public_key = 2;
+
+  // The serialized private key. This is the base64-encoded binary form of a
+  // Tink google::crypto::tink::Keyset for google::crypto::tink::HpkePrivateKey.
+  string private_key = 3;
+}

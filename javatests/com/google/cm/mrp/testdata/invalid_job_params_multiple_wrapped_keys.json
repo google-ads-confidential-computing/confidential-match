@@ -1,0 +1,7 @@
+{
+  "job_parameters": {
+    "data_owner_list": "{\"data_owners\": [{\"data_location\": {\"input_data_blob_prefix\": \"prefix1234\", \"input_data_bucket_name\": \"bucket1234\", \"is_streamed\": true}}]}",
+    "application_id": "customer_match",
+    "encryption_metadata": "{\"encryption_key_info\": [\"keyId\": \"0\", {\"wrapped_key_info\": {\"key_type\": \"XCHACHA20_POLY1305\", \"kms_wip_provider\": \"testWip\"}}, {\"keyId\": \"1\", \"wrapped_key_info\": {\"key_type\": \"XCHACHA20_POLY1305\", \"kms_wip_provider\": \"testWip\"}}]}"
+  }
+}

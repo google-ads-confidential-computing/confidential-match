@@ -1,0 +1,6 @@
+{
+  "job_parameters": {
+    "data_owner_list": "{\"data_owners\": [{\"data_location\": {\"input_data_blob_prefix\": \"prefix5678\", \"input_data_bucket_name\": \"bucket5678\", \"is_streamed\": true, \"input_data_blob_paths\": [\"prefix123/inputFile.csv\"]}}]}",
+    "application_id": "customer_match"
+  }
+}

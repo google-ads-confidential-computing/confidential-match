@@ -1,0 +1,62 @@
+{
+    "columns": [
+        {
+            "column_name": "gtag_grouped_pii",
+            "column_type": "STRING",
+            "column_alias": "gtag_grouped_pii",
+            "column_format": "UNDEFINED",
+            "nested_schema": {
+                "columns": [
+                    {
+                        "column_name": "em",
+                        "column_type": "STRING",
+                        "column_alias": "email"
+                    },
+                    {
+                        "column_name": "pn",
+                        "column_type": "STRING",
+                        "column_alias": "phone"
+                    },
+                    {
+                        "column_name": "fn",
+                        "column_type": "STRING",
+                        "column_alias": "first_name",
+                        "column_group": 0
+                    },
+                    {
+                        "column_name": "ln",
+                        "column_type": "STRING",
+                        "column_alias": "last_name",
+                        "column_group": 0
+                    },
+                    {
+                        "column_name": "pc",
+                        "column_type": "STRING",
+                        "column_alias": "zip_code",
+                        "column_group": 0
+                    },
+                    {
+                        "column_name": "co",
+                        "column_type": "STRING",
+                        "column_alias": "country_code",
+                        "column_group": 0
+                    }
+                ],
+                "data_format": "DATA_FORMAT_UNSPECIFIED",
+                "skip_header_record": false
+            }
+        },
+        {
+            "column_name": "coordinator_key_id",
+            "column_type": "STRING",
+            "column_alias": "coordinator_key_id"
+        },
+        {
+            "column_name": "row_metadata",
+            "column_type": "STRING",
+            "column_alias": "row_metadata"
+        }
+    ],
+    "data_format": "CSV",
+    "skip_header_record": true
+}

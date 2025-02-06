@@ -1,0 +1,254 @@
+/*
+ * Copyright 2025 Google LLC
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package com.google.cm.mrp.clients.cryptoclient;
+
+import static com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.KeyType.XCHACHA20_POLY1305;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DECRYPTION_ERROR;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_DECRYPTION_ERROR;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_KEY_TYPE_MISMATCH;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_MISSING_IN_RECORD;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.KEK_MISSING_IN_RECORD;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.UNSUPPORTED_DEK_KEY_TYPE;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WIP_MISSING_IN_RECORD;
+import static com.google.crypto.tink.LegacyKeysetSerialization.getKeysetInfo;
+import static com.google.crypto.tink.aead.AeadConfig.XCHACHA20_POLY1305_TYPE_URL;
+import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.Objects.requireNonNull;
+
+import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys;
+import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.WrappedEncryptionKeys;
+import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.WrappedEncryptionKeys.GcpWrappedKeys;
+import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo;
+import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo;
+import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.KeyType;
+import com.google.cm.mrp.clients.cryptoclient.AeadProvider.AeadProviderException;
+import com.google.cm.mrp.clients.cryptoclient.AeadProvider.UncheckedAeadProviderException;
+import com.google.cm.mrp.clients.cryptoclient.converters.AeadProviderParametersConverter;
+import com.google.common.cache.CacheBuilder;
+import com.google.common.cache.CacheLoader;
+import com.google.common.cache.LoadingCache;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.util.concurrent.UncheckedExecutionException;
+import com.google.crypto.tink.Aead;
+import com.google.crypto.tink.KeysetHandle;
+import com.google.crypto.tink.KeysetReader;
+import com.google.crypto.tink.proto.EncryptedKeyset;
+import com.google.crypto.tink.proto.KeysetInfo.KeyInfo;
+import com.google.inject.assistedinject.Assisted;
+import com.google.inject.assistedinject.AssistedInject;
+import com.google.protobuf.ByteString;
+import java.io.IOException;
+import java.security.GeneralSecurityException;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+/** Encrypts and decrypts data by using Tink AEAD */
+public final class AeadCryptoClient extends BaseCryptoClient {
+
+  private static final Logger logger = LoggerFactory.getLogger(AeadCryptoClient.class);
+
+  private static final int MAX_CACHE_SIZE = 150;
+  private static final long CACHE_ENTRY_IDLE_EXPIRY = 300;
+  private static final byte[] NO_BYTES = new byte[0];
+  private static final ImmutableMap<KeyType, String> KEY_TYPE_VALIDATION_MAP =
+      ImmutableMap.of(XCHACHA20_POLY1305, XCHACHA20_POLY1305_TYPE_URL);
+
+  private final LoadingCache<DataRecordEncryptionKeys, Aead> dekCache =
+      CacheBuilder.newBuilder()
+          .maximumSize(MAX_CACHE_SIZE)
+          .expireAfterAccess(CACHE_ENTRY_IDLE_EXPIRY, TimeUnit.SECONDS)
+          .concurrencyLevel(CONCURRENCY_LEVEL)
+          .build(
+              new CacheLoader<>() {
+                @SuppressWarnings("NullableProblems")
+                @Override
+                public Aead load(final DataRecordEncryptionKeys encryptionKeys)
+                    throws CryptoClientException {
+                  try {
+                    WrappedEncryptionKeys keys = encryptionKeys.getWrappedEncryptionKeys();
+                    String kekUri = keys.getKekUri().trim();
+
+                    byte[] dekBytes = base64Decode(keys.getEncryptedDek().trim(), false);
+                    KeysetReader reader = new CustomKeysetReader(ByteString.copyFrom(dekBytes));
+                    Aead kmsAead =
+                        aeadProvider
+                            .getAeadSelector(
+                                AeadProviderParametersConverter.convertToAeadProviderParameters(
+                                    encryptionKeys))
+                            .getAead(kekUri);
+                    KeysetHandle keyset = KeysetHandle.read(reader, kmsAead);
+                    // Validate that all key types match the job's key type
+                    for (KeyInfo key : getKeysetInfo(keyset).getKeyInfoList()) {
+                      if (!keyTypeUrl.equals(key.getTypeUrl())) {
+                        String message = "Unexpected DEK type: " + key.getTypeUrl();
+                        logger.warn(message);
+                        throw new CryptoClientException(DEK_KEY_TYPE_MISMATCH);
+                      }
+                    }
+                    return keyset.getPrimitive(Aead.class);
+                  } catch (GeneralSecurityException e) {
+                    throwIfWipFailure(e);
+                    logger.warn(
+                        "DEK could not be decrypted with given KEK. Will not be retried in job.");
+                    invalidDecrypters.add(encryptionKeys.toString());
+                    throw new CryptoClientException(e, DEK_DECRYPTION_ERROR);
+                  } catch (AeadProviderException | UncheckedAeadProviderException e) {
+                    logger.warn("KEK could not be used. Will not be retried in job.");
+                    invalidDecrypters.add(encryptionKeys.toString());
+                    throw new CryptoClientException(e, DEK_DECRYPTION_ERROR);
+                  } catch (RuntimeException | IOException e) {
+                    logger.warn(
+                        "DEK could not be decrypted with given KEK. Will not be retried in job.");
+                    invalidDecrypters.add(encryptionKeys.toString());
+                    throw new CryptoClientException(e, DEK_DECRYPTION_ERROR);
+                  }
+                }
+              });
+
+  private final AeadProvider aeadProvider;
+  private final EncryptionKeyInfo encryptionKeyInfo;
+  private final String keyTypeUrl;
+
+  @AssistedInject
+  public AeadCryptoClient(
+      @Assisted AeadProvider aeadProvider, @Assisted EncryptionKeyInfo encryptionKeyInfo)
+      throws CryptoClientException {
+    this.aeadProvider = aeadProvider;
+    this.encryptionKeyInfo = encryptionKeyInfo;
+    try {
+      KeyType keyType = encryptionKeyInfo.getWrappedKeyInfo().getKeyType();
+      String keyTypeUrl = KEY_TYPE_VALIDATION_MAP.get(keyType);
+      this.keyTypeUrl = requireNonNull(keyTypeUrl, "Unsupported key type: " + keyType.name());
+    } catch (NullPointerException ex) {
+      throw new CryptoClientException(ex, UNSUPPORTED_DEK_KEY_TYPE);
+    }
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public String encrypt(DataRecordEncryptionKeys encryptionKeys, byte[] plaintextBytes)
+      throws CryptoClientException {
+    Aead aead = decryptDek(encryptionKeys);
+    try {
+      return base64Encode(aead.encrypt(plaintextBytes, NO_BYTES));
+    } catch (RuntimeException | GeneralSecurityException e) {
+      throw new CryptoClientException(e);
+    }
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  public String decrypt(DataRecordEncryptionKeys encryptionKeys, byte[] ciphertextBytes)
+      throws CryptoClientException {
+    Aead aead = decryptDek(encryptionKeys);
+    try {
+      return new String(aead.decrypt(ciphertextBytes, NO_BYTES), UTF_8);
+    } catch (RuntimeException | GeneralSecurityException e) {
+      throw new CryptoClientException(e, DECRYPTION_ERROR);
+    }
+  }
+
+  /** {@inheritDoc} */
+  @Override
+  protected Logger getLogger() {
+    return logger;
+  }
+
+  /** Throw if KEK or DEK are not present. */
+  private static void validateEncryptionKeys(DataRecordEncryptionKeys encryptionKeys)
+      throws CryptoClientException {
+    if (encryptionKeys.getWrappedEncryptionKeys().getEncryptedDek().isBlank()) {
+      throw new CryptoClientException(DEK_MISSING_IN_RECORD);
+    }
+    if (encryptionKeys.getWrappedEncryptionKeys().getKekUri().isBlank()) {
+      throw new CryptoClientException(KEK_MISSING_IN_RECORD);
+    }
+  }
+
+  /**
+   * Decrypts an encrypted KeysetHandle using the given KMS KEK URI contained inside a {@link
+   * DataRecordEncryptionKeys} proto. Returns KeysetHandle primitive. The result is cached for the
+   * value listed in CACHE_ENTRY_TTL_SEC.
+   */
+  private Aead decryptDek(DataRecordEncryptionKeys dataRecordEncryptionKeys)
+      throws CryptoClientException {
+    validateEncryptionKeys(dataRecordEncryptionKeys);
+    DataRecordEncryptionKeys encryptionKeysWithWip =
+        addOrValidateAdditionalEncryptionKeyParams(dataRecordEncryptionKeys);
+    try {
+      if (invalidDecrypters.contains(encryptionKeysWithWip.toString())) {
+        throw new CryptoClientException(DEK_DECRYPTION_ERROR);
+      }
+      return dekCache.get(encryptionKeysWithWip);
+    } catch (ExecutionException | UncheckedExecutionException e) {
+      if (e.getCause() != null && e.getCause() instanceof CryptoClientException) {
+        throw (CryptoClientException) e.getCause();
+      }
+      throw new CryptoClientException(e, DEK_DECRYPTION_ERROR);
+    }
+  }
+
+  private DataRecordEncryptionKeys addOrValidateAdditionalEncryptionKeyParams(
+      DataRecordEncryptionKeys encryptionKeys) throws CryptoClientException {
+    // TODO(b/377983978): add AWS options
+    return validateGcpParams(encryptionKeys);
+  }
+
+  /** Use WIP for job if present, else require WIP to be present in DataRecordEncryptionKeys. */
+  private DataRecordEncryptionKeys validateGcpParams(DataRecordEncryptionKeys encryptionKeys)
+      throws CryptoClientException {
+    WrappedKeyInfo jobLevelInfo = encryptionKeyInfo.getWrappedKeyInfo();
+    // GCP keys are contained in WrappedEncryptionKeys
+    WrappedEncryptionKeys wrappedEncryptionKeys = encryptionKeys.getWrappedEncryptionKeys();
+    if (jobLevelInfo.hasGcpWrappedKeyInfo()
+        && !jobLevelInfo.getGcpWrappedKeyInfo().getWipProvider().isBlank()) {
+      return encryptionKeys.toBuilder()
+          .setWrappedEncryptionKeys(
+              wrappedEncryptionKeys.toBuilder()
+                  .setGcpWrappedKeys(
+                      GcpWrappedKeys.newBuilder()
+                          .setWipProvider(jobLevelInfo.getGcpWrappedKeyInfo().getWipProvider())))
+          .build();
+    } else if (wrappedEncryptionKeys.getGcpWrappedKeys().getWipProvider().isBlank()) {
+      throw new CryptoClientException(WIP_MISSING_IN_RECORD);
+    } else {
+      return encryptionKeys;
+    }
+  }
+
+  // Allows parsing an encrypted keyset handle without unnecessary serialization steps
+  private static class CustomKeysetReader implements KeysetReader {
+
+    private final ByteString dek;
+
+    public CustomKeysetReader(ByteString dek) {
+      this.dek = dek;
+    }
+
+    @Override
+    public com.google.crypto.tink.proto.Keyset read() {
+      throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public EncryptedKeyset readEncrypted() {
+      return EncryptedKeyset.newBuilder().setEncryptedKeyset(dek).build();
+    }
+  }
+}
