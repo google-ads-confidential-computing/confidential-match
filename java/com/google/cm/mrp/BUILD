@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -49,6 +49,8 @@ java_library(
         "//java/external:jackson_databind",
         "//java/external:javax_inject",
         "//java/external:jcommander",
+        "//java/external:log4j_api",
+        "//java/external:log4j_core",
         "//java/external:operator_backend_protos",
         "//java/external:operator_frontend_protos",
         "//java/external:protobuf_java",
@@ -109,13 +111,19 @@ java_library(
     ],
 )
 
+filegroup(
+    name = "log4j2config_prod",
+    srcs = ["log4j2.properties"],
+)
+
 java_binary(
     name = "MatchWorkerRunner",
-    classpath_resources = ["//java/com/google/cm:slf4jconfig_prod"],
+    classpath_resources = ["//java/com/google/cm/mrp:log4j2config_prod"],
     main_class = "com.google.cm.mrp.MatchWorkerApplication",
     runtime_deps = [
         ":matchworker_runner",
-        "//java/external:slf4j_simple",
+        "//java/external:log4j_core",
+        "//java/external:log4j_slf4j2_impl",
     ],
 )
 

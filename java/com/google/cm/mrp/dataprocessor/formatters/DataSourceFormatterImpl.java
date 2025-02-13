@@ -357,7 +357,7 @@ public final class DataSourceFormatterImpl implements DataSourceFormatter {
                         .isEmpty()
                     && !encryptionKeyIndicesMap.containsKey(
                         schema.getColumns(index).getColumnName())
-                    && schema.getColumns(index).getColumnName() != ROW_MARKER_COLUMN_NAME)
+                    && !schema.getColumns(index).getColumnName().equals(ROW_MARKER_COLUMN_NAME))
         .boxed()
         .collect(
             Collectors.toMap(index -> index, index -> schema.getColumns(index).getColumnName()))

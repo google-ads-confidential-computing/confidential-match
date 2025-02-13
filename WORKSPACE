@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -19,7 +19,7 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_file"
 # Download all http_archives and git_repositories: Begin
 ################################################################################
 
-SCP_VERSION = "v0.196.0"  # latest as of Tue Nov 19 23:09:10 2024 +0000
+SCP_VERSION = "v0.223.0"  # latest as of Tue Jan 28 11:48:55 2025 +0000
 
 SCP_REPOSITORY = "https://github.com/google-ads-confidential-computing/conf-data-processing-architecture-reference"
 
@@ -45,10 +45,8 @@ git_repository(
 ################################################################################
 # Rules JVM External: Begin
 ################################################################################
-RULES_JVM_EXTERNAL_TAG = "4.3"
-
-RULES_JVM_EXTERNAL_SHA = "6274687f6fc5783b589f56a2f1ed60de3ce1f99bc4e8f9edef3de43bdf7c6e74"
-
+RULES_JVM_EXTERNAL_TAG = "4.4"
+RULES_JVM_EXTERNAL_SHA = "0068b92a1527799d7268f6774654ed35024a660c6c68ac1f8011edade905929d"
 http_archive(
     name = "rules_jvm_external",
     sha256 = RULES_JVM_EXTERNAL_SHA,
@@ -85,10 +83,9 @@ git_repository(
 
 # Declare explicit protobuf version and hash, to override any implicit dependencies.
 # Please update both while upgrading to new versions.
-PROTOBUF_CORE_VERSION = "24.4"
+PROTOBUF_CORE_VERSION = "28.0"
 
-PROTOBUF_SHA_256 = "616bb3536ac1fff3fb1a141450fa28b875e985712170ea7f1bfe5e5fc41e2cd8"
-
+PROTOBUF_SHA_256 = "13e7749c30bc24af6ee93e092422f9dc08491c7097efa69461f88eb5f61805ce"
 load("//build_defs/cc:cfm.bzl", "cfm_dependencies")
 
 cfm_dependencies(PROTOBUF_CORE_VERSION, PROTOBUF_SHA_256)
@@ -156,16 +153,6 @@ rules_cc_toolchains()
 # Load indirect dependencies due to
 #     https://github.com/bazelbuild/bazel/issues/1943
 
-git_repository(
-    name = "grpc_proto_converter",
-    # Committed on Jun 7, 2023
-    # https://github.com/grpc-ecosystem/proto-converter/commit/d77ff301f48bf2e7a0f8935315e847c1a8e00017
-    commit = "d77ff301f48bf2e7a0f8935315e847c1a8e00017",
-    patch_args = ["-p1"],
-    patches = ["//build_defs/cc/shared:grpc_proto_converter.patch"],
-    remote = "https://github.com/grpc-ecosystem/proto-converter.git",
-)
-
 load("@com_github_googleapis_google_cloud_cpp//bazel:google_cloud_cpp_deps.bzl", "google_cloud_cpp_deps")
 
 google_cloud_cpp_deps()
@@ -200,6 +187,15 @@ load("@com_github_grpc_grpc//bazel:grpc_extra_deps.bzl", "grpc_extra_deps")
 
 grpc_extra_deps()
 
+bind(
+    name = "cares",
+    actual = "@com_github_cares_cares//:ares",
+)
+
+bind(
+    name = "madler_zlib",
+    actual = "@zlib//:zlib",
+)
 ###############
 # Proto rules #
 ###############
@@ -229,7 +225,7 @@ AUTO_VALUE_VERSION = "1.7.4"
 
 AWS_SDK_VERSION = "2.17.239"
 
-GOOGLE_GAX_VERSION = "2.4.0"
+GOOGLE_GAX_VERSION = "2.47.0"
 
 AUTO_SERVICE_VERSION = "1.0"
 
@@ -237,10 +233,15 @@ GUICE_VERSION = "5.1.0"  # latest as of Jan 25, 2022
 
 RESILIENCE4J_VERSION = "1.7.1"
 
-SLF4J_VERSION = "2.0.7"
+SLF4J_VERSION = "2.0.16"
 
 maven_install(
     artifacts = [
+        # Specify the protobuf-java explicitly to make sure
+        # the version will be upgraded with protobuf cc.
+        "com.google.protobuf:protobuf-java:4.28.0",
+        "com.google.protobuf:protobuf-java-util:4.28.0",
+        "com.google.protobuf:protobuf-javalite:4.28.0",
         "com.amazonaws:aws-lambda-java-core:1.2.1",
         "com.amazonaws:aws-lambda-java-events:3.8.0",
         "com.amazonaws:aws-lambda-java-events-sdk-transformer:3.1.0",
@@ -262,23 +263,24 @@ maven_install(
         "com.google.auto.value:auto-value-annotations:" + AUTO_VALUE_VERSION,
         "com.google.auto.value:auto-value:" + AUTO_VALUE_VERSION,
         "com.google.code.findbugs:jsr305:3.0.2",
-        "com.google.cloud:google-cloud-kms:2.1.2",
-        "com.google.cloud:google-cloud-pubsub:1.114.4",
-        "com.google.cloud:google-cloud-storage:1.118.0",
-        "com.google.cloud:google-cloud-spanner:6.12.2",
-        "com.google.cloud:google-cloud-secretmanager:2.2.0",
-        "com.google.cloud:google-cloud-compute:1.12.1",
-        "com.google.api.grpc:proto-google-cloud-compute-v1:1.12.1",
-        "com.google.api-client:google-api-client:1.32.2",
-        "com.google.cloud.functions.invoker:java-function-invoker:1.1.0",
-        "com.google.auth:google-auth-library-oauth2-http:1.11.0",
-        "com.google.auth:google-auth-library-credentials:1.11.0",
-        "com.google.cloud.functions:functions-framework-api:1.0.4",
+        "com.google.cloud:google-cloud-kms:2.48.0",
+        "com.google.cloud:google-cloud-pubsub:1.132.0",
+        "com.google.cloud:google-cloud-storage:2.41.0",
+        "com.google.cloud:google-cloud-spanner:6.71.0",
+        "com.google.cloud:google-cloud-secretmanager:2.46.0",
+        "com.google.cloud:google-cloud-compute:1.57.0",
+        "com.google.cloud:google-cloudevent-types:0.14.0",
+        "com.google.api.grpc:proto-google-cloud-compute-v1:1.58.0",
+        "com.google.api-client:google-api-client:2.7.0",
+        "com.google.apis:google-api-services-cloudkms:v1-rev20240808-2.0.0",
+        "com.google.cloud.functions.invoker:java-function-invoker:1.3.1",
+        "com.google.auth:google-auth-library-oauth2-http:1.24.1",
+        "com.google.cloud.functions:functions-framework-api:1.1.0",
         "commons-logging:commons-logging:1.1.1",
         "com.google.api:gax:" + GOOGLE_GAX_VERSION,
         "com.google.http-client:google-http-client:1.42.3",
         "com.google.http-client:google-http-client-gson:1.42.3",
-        "com.google.cloud:google-cloud-monitoring:3.4.1",
+        "com.google.cloud:google-cloud-monitoring:3.38.0",
         "com.google.api.grpc:proto-google-cloud-monitoring-v3:3.4.1",
         "com.google.api.grpc:proto-google-common-protos:2.27.0",
         "com.google.guava:guava:30.1-jre",
@@ -295,6 +297,13 @@ maven_install(
         "com.kohlschutter.junixsocket:junixsocket-core:2.10.1",
         "io.github.resilience4j:resilience4j-core:" + RESILIENCE4J_VERSION,
         "io.github.resilience4j:resilience4j-retry:" + RESILIENCE4J_VERSION,
+        "io.opentelemetry:opentelemetry-api:1.24.0",
+        "io.opentelemetry:opentelemetry-sdk:1.24.0",
+        "io.opentelemetry:opentelemetry-sdk-common:1.24.0",
+        "io.opentelemetry:opentelemetry-sdk-metrics:1.24.0",
+        "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:1.24.0-alpha",
+        "com.google.cloud.opentelemetry:exporter-metrics:0.25.2",
+        "com.google.cloud.opentelemetry:detector-resources:0.25.2-alpha",
         "javax.annotation:javax.annotation-api:1.3.2",
         "javax.inject:javax.inject:1",
         "junit:junit:4.12",
@@ -307,8 +316,9 @@ maven_install(
         "org.apache.httpcomponents.client5:httpclient5:5.3.1",
         "org.apache.httpcomponents.core5:httpcore5:5.1.4",
         "org.apache.httpcomponents.core5:httpcore5-h2:5.1.4",  # Explicit transitive dependency to avoid https://issues.apache.org/jira/browse/HTTPCLIENT-2222
-        "org.apache.logging.log4j:log4j-1.2-api:2.17.0",
-        "org.apache.logging.log4j:log4j-core:2.17.0",
+        "org.apache.logging.log4j:log4j-api:2.19.0",
+        "org.apache.logging.log4j:log4j-core:2.19.0",
+        "org.apache.logging.log4j:log4j-slf4j2-impl:2.19.0",
         "org.awaitility:awaitility:3.0.0",
         "org.conscrypt:conscrypt-openjdk-uber:2.5.2",
         "org.mock-server:mockserver-core:5.15.0",
@@ -319,7 +329,6 @@ maven_install(
         "org.mockito:mockito-inline:3.11.2",
         "org.slf4j:slf4j-api:" + SLF4J_VERSION,
         "org.slf4j:slf4j-simple:" + SLF4J_VERSION,
-        "org.slf4j:slf4j-log4j12:" + SLF4J_VERSION,
         "org.testcontainers:testcontainers:1.18.1",
         "org.testcontainers:localstack:1.18.1",
         "org.testcontainers:mockserver:1.18.1",

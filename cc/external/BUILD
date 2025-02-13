@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -94,11 +94,6 @@ alias(
 alias(
     name = "google_protobuf",
     actual = "@com_google_protobuf//:protobuf",
-)
-
-alias(
-    name = "grpc_proto_converter",
-    actual = "@grpc_proto_converter//:all",
 )
 
 alias(

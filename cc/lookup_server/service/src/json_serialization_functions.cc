@@ -21,13 +21,13 @@
 #include "absl/status/status.h"
 #include "cc/core/interface/type_def.h"
 #include "google/protobuf/message.h"
-#include "google/protobuf/util/converter/legacy_json_util.h"
+#include "google/protobuf/util/json_util.h"
 
 namespace google::confidential_match::lookup_server {
 
 using ::google::protobuf::Message;
-using ::google::protobuf::util::legacy_json_util::JsonStringToMessage;
-using ::google::protobuf::util::legacy_json_util::MessageToJsonString;
+using google::protobuf::util::JsonStringToMessage;
+using google::protobuf::util::MessageToJsonString;
 using ::google::scp::core::BytesBuffer;
 
 absl::Status JsonBytesBufferToProto(const BytesBuffer& bytes_buffer,

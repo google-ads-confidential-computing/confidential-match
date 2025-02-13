@@ -24,10 +24,10 @@ import org.testcontainers.utility.MountableFile;
 /** Class for creating and accessing a container running a Cloud Function emulator. */
 public final class CloudFunctionEmulator extends TestingContainer<CloudFunctionEmulator> {
 
-  private static final String INVOKER_JAR_FILENAME = "java-function-invoker-1.1.0.jar";
+  private static final String INVOKER_JAR_FILENAME = "java-function-invoker-1.3.1.jar";
   private static final String INVOKER_JAR_PATH =
       "external/maven/v1/https/repo1.maven.org/maven2/"
-          + "com/google/cloud/functions/invoker/java-function-invoker/1.1.0/"
+          + "com/google/cloud/functions/invoker/java-function-invoker/1.3.1/"
           + INVOKER_JAR_FILENAME;
   private static final int INVOKER_PORT = 8080; // default port for the invoker process
 

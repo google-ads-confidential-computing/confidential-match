@@ -29,7 +29,6 @@ load("@com_google_adm_cloud_scp//build_defs/shared:google_cloud_sdk.bzl", "googl
 load("@com_google_adm_cloud_scp//build_defs/shared:google_java_format.bzl", "google_java_format")
 load("@com_google_adm_cloud_scp//build_defs/shared:rpm.bzl", "rpm")
 load("@com_google_adm_cloud_scp//build_defs/shared:packer.bzl", "packer")
-load("@com_google_adm_cloud_scp//build_defs/shared:terraform.bzl", "terraform")
 load("@com_google_adm_cloud_scp//build_defs/cc/shared:bazelisk.bzl", "bazelisk")
 load("@com_google_adm_cloud_scp//build_defs/tink:tink_defs.bzl", "import_tink_git")
 
@@ -61,7 +60,6 @@ def cfm_dependencies(protobuf_version, protobuf_repo_hash):
     packer()
     protobuf(protobuf_version, protobuf_repo_hash)
     rpm()
-    terraform()
     import_google_cloud_cpp()
     import_tink_git()
 

@@ -23,7 +23,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-  import com.google.cm.mrp.backend.ApplicationProto.ApplicationId;
+import com.google.cm.mrp.backend.ApplicationProto.ApplicationId;
 import com.google.common.collect.ImmutableMap;
 import com.google.scp.shared.clients.configclient.ParameterClient;
 import com.google.scp.shared.clients.configclient.ParameterClient.ParameterClientException;
@@ -54,6 +54,15 @@ public class StartupConfigProviderImplTest {
   }
 
   @Test
+  public void getStartupConfig_noParametersReturnDefault() throws Exception {
+    StartupConfig startupConfig = configProvider.getStartupConfig();
+
+    assertThat(startupConfig.conscryptEnabled()).isEqualTo(false);
+    assertThat(startupConfig.loggingLevel()).isEqualTo(Optional.empty());
+    assertThat(startupConfig.notificationTopics()).isEqualTo(ImmutableMap.of());
+  }
+
+  @Test
   public void getStartupConfig_nonEmptyTopicsReturnsExpectedMap() throws Exception {
     when(mockParameterClient.getParameter(
         Parameter.NOTIFICATION_TOPIC_PREFIX + ApplicationId.MIC.name(),
@@ -74,10 +83,29 @@ public class StartupConfigProviderImplTest {
   }
 
   @Test
-  public void getStartupConfig_emptyTopicsReturnsEmptyMap() throws Exception {
+  public void getStartupConfig_returnsLoggingParameter() throws Exception {
+    when(mockParameterClient.getParameter(
+        Parameter.LOGGING_LEVEL.name(),
+        Optional.of(Parameter.CFM_PREFIX),
+        true))
+        .thenReturn(Optional.of("WARN"));
+
     StartupConfig startupConfig = configProvider.getStartupConfig();
 
-    assertThat(startupConfig.notificationTopics()).isEqualTo(ImmutableMap.of());
+    assertThat(startupConfig.loggingLevel()).isEqualTo(Optional.of("WARN"));
+  }
+
+  @Test
+  public void getStartupConfig_handlesInvalidLog() throws Exception {
+    when(mockParameterClient.getParameter(
+        Parameter.LOGGING_LEVEL.name(),
+        Optional.of(Parameter.CFM_PREFIX),
+        true))
+        .thenReturn(Optional.of("invalid"));
+
+    StartupConfig startupConfig = configProvider.getStartupConfig();
+
+    assertThat(startupConfig.loggingLevel()).isEqualTo(Optional.empty());
   }
 
   @Test

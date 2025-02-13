@@ -102,7 +102,7 @@ constexpr char kLookupPath[] = "/v1/lookup";
 constexpr absl::string_view kErrorReasonInvalidScheme = "INVALID_SCHEME";
 
 constexpr char kMetricNameSpace[] = "gce_instance";
-constexpr uint64_t kMetricWriteDelayMs = 5000;
+constexpr uint64_t kMetricWriteDelayMs = 30000;
 constexpr absl::string_view kRequestCountMetricName = "request_count";
 constexpr char kRequestCountMetricLabel[] = "Count";
 constexpr char kRequestErrorMetricLabel[] = "Error";

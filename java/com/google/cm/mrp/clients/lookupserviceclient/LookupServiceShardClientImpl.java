@@ -59,7 +59,9 @@ public final class LookupServiceShardClientImpl implements LookupServiceShardCli
   @Override
   public LookupResponse lookupRecords(String shardEndpoint, LookupRequest lookupRequest)
       throws LookupServiceShardClientException {
-    logger.debug("LookupServiceShardClient starting to send request to lookup service.");
+    logger.info(
+        "LookupServiceShardClient starting to send request to lookup service for Shard: {}",
+        shardEndpoint);
     Stopwatch stopwatch = Stopwatch.createStarted();
     try {
       var request = SimpleHttpRequest.create(Method.POST, URI.create(shardEndpoint));
@@ -72,6 +74,13 @@ public final class LookupServiceShardClientImpl implements LookupServiceShardCli
       long totalRequestTimeMs = stopwatch.elapsed(TimeUnit.MILLISECONDS);
 
       if (!Code.isSuccessStatusCode(response.getCode())) {
+        logger.info(
+            "LookupServiceShardClient successfully received response. "
+                + "Record count: {}, Total request time: {} ms (request setup: {} ms), Shard: {}",
+            lookupRequest.getDataRecordsCount(),
+            totalRequestTimeMs,
+            requestSetupTimeMs,
+            shardEndpoint);
         int statusCode = response.getCode();
         String httpStatusCodeName = Code.fromHttpStatusCode(statusCode).name();
         String message =
@@ -97,7 +106,7 @@ public final class LookupServiceShardClientImpl implements LookupServiceShardCli
       }
 
       var result = lookupProtoFormatHandler.getLookupResponse(response);
-      logger.debug(
+      logger.info(
           "LookupServiceShardClient successfully received response. "
               + "Record count: {}, Total request time: {} ms (request setup: {} ms), Shard: {}",
           lookupRequest.getDataRecordsCount(),

@@ -19,6 +19,7 @@ package com.google.cm.mrp;
 import com.google.auto.value.AutoValue;
 import com.google.common.collect.ImmutableMap;
 import java.util.Map;
+import java.util.Optional;
 
 /** Encapsulates startup config. */
 // TODO(b/347031972): Consider moving the existing startup parameters to this class.
@@ -41,6 +42,9 @@ public abstract class StartupConfig {
   /** Returns if conscrypt is enabled. */
   public abstract boolean conscryptEnabled();
 
+  /** Returns desired logging level for MRP. */
+  public abstract Optional<String> loggingLevel();
+
   /** Builder for {@link StartupConfig}. */
   @AutoValue.Builder
   public abstract static class Builder {
@@ -57,6 +61,9 @@ public abstract class StartupConfig {
 
     /** Sets conscrypt enabled. */
     public abstract StartupConfig.Builder setConscryptEnabled(boolean conscryptEnabled);
+
+    /** Sets desired logging level for MRP. */
+    public abstract Builder setLoggingLevel(String loggingLevel);
 
     /** Create a new {@link StartupConfig} from the builder. */
     public abstract StartupConfig build();

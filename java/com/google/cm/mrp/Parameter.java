@@ -30,6 +30,9 @@ public enum Parameter {
   LOOKUP_PROTO_FORMAT,
   JOB_PROCESSOR_MAX_RETRIES,
   JOB_QUEUE_RETRY_DELAY_SEC,
+
+  // MRP Startup Configs
+  LOGGING_LEVEL,
   CONSCRYPT_ENABLED,
 
   // MRP add-on feature flags

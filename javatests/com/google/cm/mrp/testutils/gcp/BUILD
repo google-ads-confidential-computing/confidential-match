@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -90,7 +90,10 @@ java_binary(
     name = "LocalGcpWorker",
     testonly = True,
     main_class = "com.google.cm.mrp.testutils.gcp.LocalGcpWorkerApplication",
-    runtime_deps = [":LocalGcpWorkerApplication"],
+    runtime_deps = [
+        ":LocalGcpWorkerApplication",
+        "//java/external:slf4j_simple",
+    ],
 )
 
 alias(

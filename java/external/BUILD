@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -140,6 +140,21 @@ alias(
 alias(
     name = "jcommander",
     actual = "@maven//:com_beust_jcommander",
+)
+
+alias(
+    name = "log4j_api",
+    actual = "@maven//:org_apache_logging_log4j_log4j_api",
+)
+
+alias(
+    name = "log4j_core",
+    actual = "@maven//:org_apache_logging_log4j_log4j_core",
+)
+
+alias(
+    name = "log4j_slf4j2_impl",
+    actual = "@maven//:org_apache_logging_log4j_log4j_slf4j2_impl",
 )
 
 alias(

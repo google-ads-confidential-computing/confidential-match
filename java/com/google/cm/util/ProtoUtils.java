@@ -32,7 +32,7 @@ public final class ProtoUtils {
   public static String getJsonFromProto(MessageOrBuilder proto)
       throws InvalidProtocolBufferException {
     return JsonFormat.printer()
-        .includingDefaultValueFields()
+        .alwaysPrintFieldsWithNoPresence()
         .omittingInsignificantWhitespace()
         .print(proto);
   }

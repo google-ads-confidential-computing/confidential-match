@@ -21,5 +21,5 @@ import com.google.scp.shared.clients.configclient.ParameterClient;
 /** Provider interface for getting MRP {@link StartupConfig} */
 public interface StartupConfigProvider {
   /** Gets {@link StartupConfig} from cloud parameter store with {@link ParameterClient} */
-  public StartupConfig getStartupConfig();
+  StartupConfig getStartupConfig();
 }

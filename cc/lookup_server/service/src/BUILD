@@ -1,4 +1,4 @@
-# Copyright 2024 Google LLC
+# Copyright 2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -34,7 +34,6 @@ cc_library(
         "//cc/external:absl_strings",
         "//cc/external:absl_time",
         "//cc/external:google_protobuf",
-        "//cc/external:grpc_proto_converter",
         "//cc/external:scp_core_async_context_lib",
         "//cc/external:scp_core_common_serialization",
         "//cc/external:scp_core_errors_lib",

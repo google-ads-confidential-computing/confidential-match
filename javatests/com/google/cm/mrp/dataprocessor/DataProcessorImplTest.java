@@ -320,7 +320,7 @@ public final class DataProcessorImplTest {
         .create(any(DataOwner.DataLocation.class), eq(CM_CONFIG), any(), any(FeatureFlags.class));
     verify(mockStreamDataSource, times(5)).size();
     verify(mockStreamDataSource, times(2)).next();
-    verify(mockStreamDataSource, times(3)).getSchema();
+    verify(mockStreamDataSource, times(4)).getSchema();
     assertThat(destinationInfoCaptor.getValue().getGcsDestination().getOutputBucket())
         .isEqualTo(OUTPUT_BUCKET);
     assertThat(destinationInfoCaptor.getValue().getGcsDestination().getOutputPrefix())

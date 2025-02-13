@@ -23,8 +23,8 @@ import static com.google.cm.util.JumpConsistentHasher.hash;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 
 import com.google.cm.lookupserver.api.LookupProto.DataRecord;
-import com.google.cm.lookupserver.api.LookupProto.LookupRequest;
 import com.google.cm.lookupserver.api.LookupProto.EncryptionKeyInfo;
+import com.google.cm.lookupserver.api.LookupProto.LookupRequest;
 import com.google.cm.lookupserver.api.LookupProto.LookupRequest.HashInfo;
 import com.google.cm.lookupserver.api.LookupProto.LookupRequest.SerializableDataRecords;
 import com.google.cm.lookupserver.api.LookupProto.LookupRequest.ShardingScheme;
@@ -192,6 +192,7 @@ public final class LookupServiceClientImpl implements LookupServiceClient {
                           : toRequestFuture(entry, lookupRequestBuilder.build()))
               .collect(toImmutableList());
 
+      logger.info("LookupServiceClient sending async requests to LookupServiceShardClient.");
       List<LookupResult> results =
           futureResults.stream()
               .flatMap(future -> future.join().getLookupResultsList().stream())
@@ -307,15 +308,15 @@ public final class LookupServiceClientImpl implements LookupServiceClient {
    * then fetch the current sharding scheme from the orchestrator first.
    */
   private void refreshShardingScheme() throws OrchestratorClientException {
+    logger.info("LookupServiceClient refreshing sharding scheme.");
+
     GetCurrentShardingSchemeResponse response =
         orchestratorClient.getCurrentShardingScheme(clusterGroupId);
-
     shardingScheme =
         ShardingScheme.newBuilder()
             .setNumShards(response.getShardsCount())
             .setType(response.getType())
             .build();
-
     shards =
         response.getShardsList().stream()
             .sorted(Comparator.comparingLong(Shard::getShardNumber))

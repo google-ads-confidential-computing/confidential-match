@@ -108,7 +108,7 @@ constexpr absl::string_view kFalseMetricValue = "false";
 constexpr int kLoadErrorRetryDelaySeconds = 30;
 // Logs the duration since the last successful data refresh to cloud metrics
 // roughly once every N iterations of the data refresh loop.
-constexpr int kLogLastRefreshMetricsEveryNIterations = 60;
+constexpr int kLogLastRefreshMetricsEveryNIterations = 300;
 // Logs progress of data loading, showing the count roughly once every N threads
 constexpr int kLogRecordCountEveryNThreads = 100;
 

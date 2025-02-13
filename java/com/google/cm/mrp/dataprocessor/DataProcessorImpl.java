@@ -35,6 +35,7 @@ import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.SchemaProto.Schema;
 import com.google.cm.mrp.backend.SchemaProto.Schema.Column;
 import com.google.cm.mrp.backend.SchemaProto.Schema.ColumnType;
+import com.google.cm.mrp.backend.SchemaProto.Schema.DataFormat;
 import com.google.cm.mrp.backend.SchemaProto.Schema.OutputColumn;
 import com.google.cm.mrp.clients.cryptoclient.AeadCryptoClientFactory;
 import com.google.cm.mrp.clients.cryptoclient.AeadProvider;
@@ -290,7 +291,7 @@ public final class DataProcessorImpl implements DataProcessor {
       MatchConfig matchConfig,
       Optional<CryptoClient> cryptoClient,
       Optional<EncryptionMetadata> encryptionMetadata) {
-    if (!featureFlags.enableMIC()) {
+    if (!featureFlags.enableMIC() || streamDataSource.getSchema().getDataFormat() == SERIALIZED_PROTO) {
       return Optional.empty();
     }
     DataSourceFormatter formatter;
