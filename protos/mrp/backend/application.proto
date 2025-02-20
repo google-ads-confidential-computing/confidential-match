@@ -26,4 +26,5 @@ enum ApplicationId {
   MIC = 3;
   MIC_PROTO = 4;
   COPLA = 5;
+  MIC_AUDIENCE = 6;
 }

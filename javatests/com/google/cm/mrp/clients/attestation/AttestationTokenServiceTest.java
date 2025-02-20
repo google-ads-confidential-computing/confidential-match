@@ -17,6 +17,7 @@
 package com.google.cm.mrp.clients.attestation;
 
 import static com.google.common.truth.Truth.assertThat;
+import static java.util.Base64.getUrlEncoder;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
@@ -55,7 +56,7 @@ public class AttestationTokenServiceTest {
   private static final List<String> SIGNATURES = List.of("keyId1");
   @Mock private CloseableHttpClient httpClient;
   private @Captor ArgumentCaptor<ClassicHttpRequest> requestCaptor;
-  private final String testToken = getJsonToken();
+  private final String testToken = createFakeJwt(getJsonToken());
   private AttestationTokenService tokenService;
 
   @Before
@@ -160,6 +161,15 @@ public class AttestationTokenServiceTest {
         + "}";
   }
 
+  public static String createFakeJwt(String jsonPayload) {
+    String header = "{\"alg\":\"HS256\",\"typ\":\"JWT\"}";
+    String encodedHeader = getUrlEncoder().encodeToString(header.getBytes());
+    String encodedPayload = getUrlEncoder().encodeToString(jsonPayload.getBytes());
+    String signature = "fakesignature";
+
+    return encodedHeader + "." + encodedPayload + "." + signature;
+  }
+
   private static ConfidentialSpaceTokenRequest getExpectedConfidentialSpaceTokenRequest(
       String audience) throws Exception {
     String signatureString = String.join(",", SIGNATURES);
@@ -167,8 +177,8 @@ public class AttestationTokenServiceTest {
         "{\"audience\":\""
             + audience
             + "\","
-            + "\"token_type\":\"PKI\","
-            + "\"token_type_options\":{"
+            + "\"token_type\":\"AWS_PRINCIPALTAGS\","
+            + "\"aws_principal_tag_options\":{"
             + "\"allowed_principal_tags\":{"
             + "\"container_image_signatures\":{"
             + "\"key_ids\":[\""

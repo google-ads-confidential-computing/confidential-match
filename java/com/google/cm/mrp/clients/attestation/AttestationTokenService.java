@@ -32,6 +32,7 @@ import com.google.scp.shared.mapper.GuavaObjectMapper;
 import java.io.IOException;
 import java.net.URI;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -49,14 +50,13 @@ public final class AttestationTokenService {
 
   private static final Logger logger = LoggerFactory.getLogger(AttestationTokenService.class);
   private static final ObjectMapper mapper = new GuavaObjectMapper();
-  private static final String EMPTY_AUDIENCE = "";
   private static final int CACHE_EXPIRATION_BUFFER_SEC = 5;
   private static final int MAX_CACHE_SIZE = 10;
   private static final long CACHE_TTL_SEC = 3600;
   protected static final int CONCURRENCY_LEVEL = Runtime.getRuntime().availableProcessors();
 
   private static final String LOCALHOST_PATH = "http://localhost/v1/token";
-  private static final String TOKEN_TYPE = "PKI";
+  private static final String TOKEN_TYPE = "AWS_PRINCIPALTAGS";
   private static final String EXPIRATION_NAME = "exp";
 
   private final CloseableHttpClient httpClient;
@@ -82,7 +82,7 @@ public final class AttestationTokenService {
 
   /** Gets a cached token using default audience. */
   public String getCachedToken() throws AttestationTokenServiceException {
-    return getCachedTokenWithAudience(EMPTY_AUDIENCE);
+    return getCachedTokenWithAudience(defaultAudience);
   }
 
   /** Gets a cached token using the given audience. */
@@ -103,7 +103,7 @@ public final class AttestationTokenService {
         | ExecutionException
         | UncheckedExecutionException e) {
       String msg = "Could not get token from cache.";
-      logger.error(msg);
+      logger.error(msg, e);
       throw new AttestationTokenServiceException(msg, e);
     }
   }
@@ -125,14 +125,13 @@ public final class AttestationTokenService {
               logger.error(msg);
               throw new UncheckedAttestationTokenServiceException(msg);
             } else {
-              JsonNode responseJson = mapper.readTree(responseBody);
-              long exp = responseJson.get(EXPIRATION_NAME).asLong();
+              long exp = decodeAndGetExpirationFromToken(responseBody);
               return new AwsToken(responseBody, exp);
             }
           });
     } catch (IOException e) {
       String msg = "Could not get attestation token from confidential space service.";
-      logger.error(msg);
+      logger.error(msg, e);
       throw new UncheckedAttestationTokenServiceException(msg, e);
     }
   }
@@ -145,8 +144,27 @@ public final class AttestationTokenService {
       return mapper.writeValueAsString(request);
     } catch (JsonProcessingException e) {
       String msg = "Could not convert ConfidentialSpaceTokenRequest to JSON.";
-      logger.error(msg);
+      logger.error(msg, e);
       throw new AttestationTokenServiceException(msg, e);
+    }
+  }
+
+  private long decodeAndGetExpirationFromToken(String rawResponse) {
+    // Need to decode the JWT token to get the expiration
+    String[] chunks = rawResponse.split("\\.");
+    if (chunks.length != 3) {
+      String msg = "Could not split attestationToken JWT";
+      logger.error(msg);
+      throw new UncheckedAttestationTokenServiceException(msg);
+    }
+    String payload = new String(Base64.getUrlDecoder().decode(chunks[1]));
+    try {
+      JsonNode responseJson = mapper.readTree(payload);
+      return responseJson.get(EXPIRATION_NAME).asLong();
+    } catch (JsonProcessingException e) {
+      String msg = "Could not decode attestationToken JWT";
+      logger.error(msg, e);
+      throw new UncheckedAttestationTokenServiceException(msg, e);
     }
   }
 

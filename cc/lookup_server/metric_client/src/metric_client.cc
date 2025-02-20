@@ -110,17 +110,11 @@ ExecutionResult MetricClient::RecordMetric(
 
   put_metrics_context.callback = [](auto& context) -> void {
     if (!context.result.Successful()) {
-      SCP_ERROR(kComponentName, kZeroUuid, context.result,
-                absl::StrFormat("Failed to record metric: %s",
-                                GetErrorMessage(context.result.status_code)));
-
-      ExecutionResult response_result(context.response->result());
-      if (!response_result.Successful()) {
-        SCP_ERROR(
-            kComponentName, kZeroUuid, response_result,
-            absl::StrFormat("Failed to record metric (error in response): %s",
-                            GetErrorMessage(context.result.status_code)));
-      }
+      SCP_ERROR(
+          kComponentName, kZeroUuid, context.result,
+          absl::StrFormat("Failed to record metric. Error: %s, metric: %s",
+                          GetErrorMessage(context.result.status_code),
+                          context.request->DebugString()));
     }
   };
 

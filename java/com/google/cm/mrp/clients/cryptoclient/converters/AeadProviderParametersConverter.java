@@ -22,6 +22,7 @@ import com.google.cm.mrp.JobProcessorException;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.WrappedEncryptionKeys;
 import com.google.cm.mrp.clients.cryptoclient.models.AeadProviderParameters;
+import com.google.cm.mrp.clients.cryptoclient.models.AeadProviderParameters.AwsParameters;
 import com.google.cm.mrp.clients.cryptoclient.models.AeadProviderParameters.GcpParameters;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,6 +43,12 @@ public class AeadProviderParametersConverter {
           builder.setGcpParameters(
               GcpParameters.builder()
                   .setWipProvider(wrappedKeys.getGcpWrappedKeys().getWipProvider())
+                  .build());
+        } else if (wrappedKeys.hasAwsWrappedKeys()) {
+          builder.setAwsParameters(
+              AwsParameters.builder()
+                  .setRoleArn(wrappedKeys.getAwsWrappedKeys().getRoleArn())
+                  .setAudience(wrappedKeys.getAwsWrappedKeys().getAudience())
                   .build());
         }
         return builder.build();

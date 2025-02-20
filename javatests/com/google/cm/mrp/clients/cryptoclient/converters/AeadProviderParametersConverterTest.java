@@ -25,8 +25,10 @@ import com.google.cm.mrp.JobProcessorException;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.CoordinatorKey;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.WrappedEncryptionKeys;
+import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.WrappedEncryptionKeys.AwsWrappedKeys;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.WrappedEncryptionKeys.GcpWrappedKeys;
 import com.google.cm.mrp.clients.cryptoclient.models.AeadProviderParameters;
+import java.util.Optional;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -56,6 +58,28 @@ public class AeadProviderParametersConverterTest {
     assertThat(result.gcpParameters()).isPresent();
     assertThat(result.gcpParameters().get().wipProvider()).isEqualTo(testWip);
     assertThat(result.gcpParameters().get().serviceAccountToImpersonate()).isEmpty();
+    assertThat(result.awsParameters()).isEmpty();
+  }
+
+  @Test
+  public void convertAwsToAeadProviderParameters_success() {
+    String testRole = "role";
+    var awsEncryptionKeys =
+        DataRecordEncryptionKeys.newBuilder()
+            .setWrappedEncryptionKeys(
+                WrappedEncryptionKeys.newBuilder()
+                    .setEncryptedDek("dek")
+                    .setKekUri("kek")
+                    .setAwsWrappedKeys(AwsWrappedKeys.newBuilder().setRoleArn(testRole)))
+            .build();
+
+    AeadProviderParameters result =
+        AeadProviderParametersConverter.convertToAeadProviderParameters(awsEncryptionKeys);
+
+    assertThat(result.awsParameters()).isPresent();
+    assertThat(result.awsParameters().get().roleArn()).isEqualTo(testRole);
+    assertThat(result.awsParameters().get().audience()).isEqualTo(Optional.of(""));
+    assertThat(result.gcpParameters()).isEmpty();
   }
 
   @Test

@@ -108,7 +108,7 @@ constexpr absl::string_view kFalseMetricValue = "false";
 constexpr int kLoadErrorRetryDelaySeconds = 30;
 // Logs the duration since the last successful data refresh to cloud metrics
 // roughly once every N iterations of the data refresh loop.
-constexpr int kLogLastRefreshMetricsEveryNIterations = 300;
+constexpr int kLogLastRefreshMetricsEveryNIterations = 60;
 // Logs progress of data loading, showing the count roughly once every N threads
 constexpr int kLogRecordCountEveryNThreads = 100;
 
@@ -137,7 +137,7 @@ absl::flat_hash_map<std::string, std::string> BuildMetricLabels(
   labels[kShardingSchemeTypeMetricKey] =
       data_export_info.sharding_scheme().type();
   labels[kShardingSchemeNumShardsMetricKey] =
-      data_export_info.sharding_scheme().num_shards();
+      std::to_string(data_export_info.sharding_scheme().num_shards());
   return labels;
 }
 

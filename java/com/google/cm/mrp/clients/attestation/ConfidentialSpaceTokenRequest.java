@@ -40,8 +40,8 @@ public abstract class ConfidentialSpaceTokenRequest {
     return Builder.builder()
         .setAudience(audience)
         .setTokenType(tokenType)
-        .setTokenTypeOptions(
-            TokenTypeOptions.builder()
+        .setAwsPrincipalTagOptions(
+            AwsPrincipalTagOptions.builder()
                 .setAllowedPrincipalTags(
                     AllowedPrincipalTags.builder()
                         .setContainerImageSignatures(
@@ -60,8 +60,8 @@ public abstract class ConfidentialSpaceTokenRequest {
   public abstract String tokenType();
 
   /** Token type options. */
-  @JsonProperty("token_type_options")
-  public abstract TokenTypeOptions tokenTypeOptions();
+  @JsonProperty("aws_principal_tag_options")
+  public abstract AwsPrincipalTagOptions awsPrincipalTagOptions();
 
   /** Builder class */
   @AutoValue.Builder
@@ -82,17 +82,18 @@ public abstract class ConfidentialSpaceTokenRequest {
     public abstract Builder setTokenType(String tokenType);
 
     /** Token type options. */
-    @JsonProperty("token_type_options")
-    public abstract Builder setTokenTypeOptions(TokenTypeOptions tokenTypeOptions);
+    @JsonProperty("aws_principal_tag_options")
+    public abstract Builder setAwsPrincipalTagOptions(
+        AwsPrincipalTagOptions awsPrincipalTagOptions);
 
     /** Constructs new instance. */
     public abstract ConfidentialSpaceTokenRequest build();
   }
 
   @AutoValue
-  @JsonDeserialize(builder = TokenTypeOptions.Builder.class)
-  @JsonSerialize(as = TokenTypeOptions.class)
-  public abstract static class TokenTypeOptions {
+  @JsonDeserialize(builder = AwsPrincipalTagOptions.Builder.class)
+  @JsonSerialize(as = AwsPrincipalTagOptions.class)
+  public abstract static class AwsPrincipalTagOptions {
 
     /** Returns a new builder. */
     public static Builder builder() {
@@ -110,7 +111,7 @@ public abstract class ConfidentialSpaceTokenRequest {
       /** Returns a new instance of the builder. */
       @JsonCreator
       public static Builder builder() {
-        return new AutoValue_ConfidentialSpaceTokenRequest_TokenTypeOptions.Builder();
+        return new AutoValue_ConfidentialSpaceTokenRequest_AwsPrincipalTagOptions.Builder();
       }
 
       /** Sets allowed principal tags. */
@@ -118,7 +119,7 @@ public abstract class ConfidentialSpaceTokenRequest {
       public abstract Builder setAllowedPrincipalTags(AllowedPrincipalTags allowedPrincipalTags);
 
       /** Constructs new instance. */
-      public abstract TokenTypeOptions build();
+      public abstract AwsPrincipalTagOptions build();
     }
   }
 

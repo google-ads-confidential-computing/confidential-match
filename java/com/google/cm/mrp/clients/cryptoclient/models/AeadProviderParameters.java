@@ -51,24 +51,57 @@ public abstract class AeadProviderParameters {
   }
 
   /** {@link GcpParameters}. */
-  public abstract Optional<AeadProviderParameters.GcpParameters> gcpParameters();
+  public abstract Optional<GcpParameters> gcpParameters();
+
+  /** {@link AwsParameters}. */
+  public abstract Optional<AwsParameters> awsParameters();
 
   @AutoValue.Builder
   public abstract static class Builder {
 
     /** Sets {@link GcpParameters}. */
-    public abstract AeadProviderParameters.Builder setGcpParameters(
-        AeadProviderParameters.GcpParameters value);
+    public abstract Builder setGcpParameters(GcpParameters gcpParameters);
+
+    /** Sets {@link AwsParameters}. */
+    public abstract Builder setAwsParameters(AwsParameters awsParameters);
 
     /** Creates new instance of {@link AeadProviderParameters}. */
     public abstract AeadProviderParameters build();
   }
 
   @AutoValue
+  public abstract static class AwsParameters {
+
+    /** Returns a new builder. */
+    public static Builder builder() {
+      return new AutoValue_AeadProviderParameters_AwsParameters.Builder();
+    }
+
+    /** Role ARN */
+    public abstract String roleArn();
+
+    /** Job-specific audience */
+    public abstract Optional<String> audience();
+
+    @AutoValue.Builder
+    public abstract static class Builder {
+
+      /** Sets Role ARN. */
+      public abstract Builder setRoleArn(String roleArn);
+
+      /** Sets job-specific audience */
+      public abstract Builder setAudience(String audience);
+
+      /** Creates new instance of {@link AwsParameters}. */
+      public abstract AwsParameters build();
+    }
+  }
+
+  @AutoValue
   public abstract static class GcpParameters {
 
     /** Returns a new builder. */
-    public static AeadProviderParameters.GcpParameters.Builder builder() {
+    public static Builder builder() {
       return new AutoValue_AeadProviderParameters_GcpParameters.Builder();
     }
 
