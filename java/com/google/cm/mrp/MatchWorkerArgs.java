@@ -137,6 +137,16 @@ public final class MatchWorkerArgs {
           "Delay to use when sending a job back to the JobQueue for retrying. Defaults to 600sec.")
   private int jobQueueRetryDelaySec = 600;
 
+  @Parameter(
+      names = "--aws_default_kms_audience",
+      description = "The audience of credentials in AWS KMS operations.")
+  private String awsDefaultKmsAudience = "";
+
+  @Parameter(
+      names = "--aws_signatures_list",
+      description = "Comma-delineated list of signatures to send with AWS KMS operations.")
+  private String awsKmsSignaturesList = "";
+
   public BlobStorageClientSelector getBlobStorageClientSelector() {
     return blobStorageClientSelector;
   }
@@ -223,5 +233,13 @@ public final class MatchWorkerArgs {
 
   public int getJobQueueRetryDelaySec() {
     return jobQueueRetryDelaySec;
+  }
+
+  public String getAwsDefaultKmsAudience() {
+    return awsDefaultKmsAudience;
+  }
+
+  public String getAwsKmsSignaturesList() {
+    return awsKmsSignaturesList;
   }
 }

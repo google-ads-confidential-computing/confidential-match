@@ -116,6 +116,9 @@ public final class DataOutputFormatterImpl implements DataOutputFormatter {
     for (List<DataRecord> dataRecordGroup : dataRecordGroups) {
       DataRecord.Builder dataRecordBuilder = DataRecord.newBuilder();
       dataRecordBuilder.setErrorCode(dataRecordGroup.get(0).getErrorCode());
+      if (dataRecordGroup.get(0).hasProcessingMetadata()) {
+        dataRecordBuilder.setProcessingMetadata(dataRecordGroup.get(0).getProcessingMetadata());
+      }
       for (String keyValueName : outputColumns) {
         if (keyValueName.equals(condensedResponseColumnName) && dataOutputCondenser.isPresent()) {
           // Condenses KeyValues from a dataRecordGroup into a single KeyValue if condensing is

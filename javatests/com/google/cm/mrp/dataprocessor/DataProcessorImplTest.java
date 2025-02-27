@@ -17,6 +17,7 @@
 package com.google.cm.mrp.dataprocessor;
 
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.CRYPTO_CLIENT_CONFIGURATION_ERROR;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_PARAMETERS;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.UNSUPPORTED_DEK_KEY_TYPE;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
@@ -783,6 +784,50 @@ public final class DataProcessorImplTest {
         mockDataMatcher,
         mockDataWriter,
         mockDataChunk,
+        mockDataDestination);
+  }
+
+  @Test
+  public void process_whenEncryptedDataButNoWrappedKeyEncryptionInfoThenThrows()
+      throws JobProcessorException {
+    var encryptionMetadata =
+        EncryptionMetadata.newBuilder()
+            .setEncryptionKeyInfo(
+                EncryptionKeyInfo.newBuilder()
+                    .setWrappedKeyInfo(
+                        WrappedKeyInfo.newBuilder().setKeyType(KeyType.XCHACHA20_POLY1305)))
+            .build();
+
+    var ex =
+        assertThrows(
+            JobProcessorException.class,
+            () ->
+                dataProcessor.process(
+                    FeatureFlags.builder().setEnableMIC(false).build(),
+                    DATA_OWNER_LIST,
+                    OUTPUT_BUCKET,
+                    OUTPUT_PREFIX,
+                    JOB_REQUEST_ID,
+                    CM_CONFIG,
+                    Optional.of(encryptionMetadata),
+                    Optional.empty()));
+
+    assertThat(ex.getMessage()).isEqualTo("Job parameters missing cloud wrappedKeyInfo.");
+    assertThat(ex.getErrorCode()).isEqualTo(INVALID_PARAMETERS);
+    verifyNoMoreInteractions(
+        mockStreamDataSourceFactory,
+        mockDataMatcherFactory,
+        mockLookupDataSourceFactory,
+        mockStreamDataSourceFactory,
+        mockDataDestinationFactory,
+        mockStreamDataSource,
+        mockLookupDataSource,
+        mockDataReader,
+        mockDataMatcher,
+        mockDataWriter,
+        mockDataChunk,
+        mockAeadCryptoClientFactory,
+        mockAeadProviderFactory,
         mockDataDestination);
   }
 

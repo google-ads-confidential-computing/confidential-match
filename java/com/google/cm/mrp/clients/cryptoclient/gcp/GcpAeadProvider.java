@@ -25,9 +25,12 @@ import com.google.scp.shared.crypto.tink.CloudAeadSelector;
 import java.io.IOException;
 import java.security.GeneralSecurityException;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Gets AEADs from GCP KMS using attested credentials if necessary */
 public final class GcpAeadProvider implements AeadProvider {
+  private static final Logger logger = LoggerFactory.getLogger(GcpAeadProvider.class);
 
   public GcpAeadProvider() {}
 
@@ -35,7 +38,15 @@ public final class GcpAeadProvider implements AeadProvider {
   @Override
   public CloudAeadSelector getAeadSelector(AeadProviderParameters aeadProviderParameters)
       throws AeadProviderException {
-    GcpParameters gcpParameters = aeadProviderParameters.gcpParameters().orElseThrow();
+    GcpParameters gcpParameters =
+        aeadProviderParameters
+            .gcpParameters()
+            .orElseThrow(
+                () -> {
+                  String msg = "GCP parameters not found in GcpAeadProvider";
+                  logger.error(msg);
+                  return new AeadProviderException(msg);
+                });
     GoogleCredentials credentials =
         getCredentials(gcpParameters.wipProvider(), gcpParameters.serviceAccountToImpersonate());
     return getKmsClient(credentials);
@@ -47,7 +58,9 @@ public final class GcpAeadProvider implements AeadProvider {
     try {
       return CredentialsHelper.getAttestedCredentials(kmsWipProvider, serviceAccountToImpersonate);
     } catch (IOException e) {
-      throw new AeadProviderException(e.getCause());
+      String msg = "Could not get GCP credentials.";
+      logger.error(msg);
+      throw new AeadProviderException(msg, e);
     }
   }
 
@@ -65,5 +78,10 @@ public final class GcpAeadProvider implements AeadProvider {
         throw new UncheckedAeadProviderException(message, e);
       }
     };
+  }
+
+  @Override
+  public void close() throws IOException {
+    // No-op
   }
 }

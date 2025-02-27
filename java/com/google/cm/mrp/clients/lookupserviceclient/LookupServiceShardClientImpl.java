@@ -16,6 +16,7 @@
 
 package com.google.cm.mrp.clients.lookupserviceclient;
 
+import static com.google.cm.mrp.Constants.CustomLogLevel.DETAIL;
 import static com.google.cm.mrp.dataprocessor.converters.ErrorCodeConverter.isInvalidShardingSchemeErrorReason;
 import static com.google.cm.mrp.dataprocessor.converters.ErrorCodeConverter.isValidRowLevelErrorReason;
 
@@ -35,13 +36,14 @@ import org.apache.hc.client5.http.async.methods.SimpleHttpResponse;
 import org.apache.hc.client5.http.impl.async.CloseableHttpAsyncClient;
 import org.apache.hc.core5.http.HttpHeaders;
 import org.apache.hc.core5.http.Method;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /** Client for a single shard in the lookup service. */
 public final class LookupServiceShardClientImpl implements LookupServiceShardClient {
 
-  private static final Logger logger = LoggerFactory.getLogger(LookupServiceShardClientImpl.class);
+  private static final Logger logger = LogManager.getLogger(LookupServiceShardClientImpl.class);
 
   private final CloseableHttpAsyncClient httpClient;
   private final LookupProtoFormatHandler lookupProtoFormatHandler;
@@ -59,7 +61,8 @@ public final class LookupServiceShardClientImpl implements LookupServiceShardCli
   @Override
   public LookupResponse lookupRecords(String shardEndpoint, LookupRequest lookupRequest)
       throws LookupServiceShardClientException {
-    logger.info(
+    logger.log(
+        Level.getLevel(DETAIL.name()),
         "LookupServiceShardClient starting to send request to lookup service for Shard: {}",
         shardEndpoint);
     Stopwatch stopwatch = Stopwatch.createStarted();
@@ -74,7 +77,8 @@ public final class LookupServiceShardClientImpl implements LookupServiceShardCli
       long totalRequestTimeMs = stopwatch.elapsed(TimeUnit.MILLISECONDS);
 
       if (!Code.isSuccessStatusCode(response.getCode())) {
-        logger.info(
+        logger.log(
+            Level.getLevel(DETAIL.name()),
             "LookupServiceShardClient successfully received response. "
                 + "Record count: {}, Total request time: {} ms (request setup: {} ms), Shard: {}",
             lookupRequest.getDataRecordsCount(),
@@ -106,7 +110,8 @@ public final class LookupServiceShardClientImpl implements LookupServiceShardCli
       }
 
       var result = lookupProtoFormatHandler.getLookupResponse(response);
-      logger.info(
+      logger.log(
+          Level.getLevel(DETAIL.name()),
           "LookupServiceShardClient successfully received response. "
               + "Record count: {}, Total request time: {} ms (request setup: {} ms), Shard: {}",
           lookupRequest.getDataRecordsCount(),

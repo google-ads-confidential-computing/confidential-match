@@ -20,6 +20,7 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/strings/string_view.h"
 #include "cc/core/interface/async_context.h"
@@ -36,8 +37,13 @@ namespace google::confidential_match::lookup_server {
 /** @brief Provides a CryptoKey object used for encryption and decryption. */
 class AeadCryptoClient : public CryptoClientInterface {
  public:
-  explicit AeadCryptoClient(std::shared_ptr<KmsClientInterface> kms_client)
-      : kms_client_(std::move(kms_client)) {}
+  explicit AeadCryptoClient(
+      std::shared_ptr<KmsClientInterface> aws_kms_client,
+      std::shared_ptr<KmsClientInterface> gcp_kms_client,
+      const std::vector<std::string>& kms_default_signatures)
+      : aws_kms_client_(std::move(aws_kms_client)),
+        gcp_kms_client_(std::move(gcp_kms_client)),
+        kms_default_signatures_(kms_default_signatures) {}
 
   scp::core::ExecutionResult Init() noexcept override;
   scp::core::ExecutionResult Run() noexcept override;
@@ -48,6 +54,9 @@ class AeadCryptoClient : public CryptoClientInterface {
                         key_context) noexcept override;
 
  private:
+  DecryptRequest BuildKmsDecryptRequest(
+      const proto_backend::EncryptionKeyInfo& encryption_key_info) noexcept;
+
   void OnDecryptWrappedKmsKeyCallback(
       const scp::core::AsyncContext<DecryptRequest, std::string>&
           decrypt_context,
@@ -55,7 +64,12 @@ class AeadCryptoClient : public CryptoClientInterface {
                               CryptoKeyInterface>
           key_context) noexcept;
 
-  std::shared_ptr<KmsClientInterface> kms_client_;
+  // An instance of the AWS KMS client.
+  std::shared_ptr<KmsClientInterface> aws_kms_client_;
+  // An instance of the GCP KMS client.
+  std::shared_ptr<KmsClientInterface> gcp_kms_client_;
+  // A list of signatures to send with AWS KMS requests.
+  const std::vector<std::string> kms_default_signatures_;
 };
 
 }  // namespace google::confidential_match::lookup_server

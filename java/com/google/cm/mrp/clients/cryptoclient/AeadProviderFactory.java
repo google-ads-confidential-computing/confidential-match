@@ -21,6 +21,10 @@ import com.google.inject.name.Named;
 /** Factory interface for {@link AeadProvider}. */
 public interface AeadProviderFactory {
 
+  /** Creates {@link com.google.cm.mrp.clients.cryptoclient.aws.AwsAeadProvider}. */
+  @Named("aws")
+  AeadProvider createAwsAeadProvider();
+
   /** Creates {@link com.google.cm.mrp.clients.cryptoclient.gcp.GcpAeadProvider}. */
   @Named("gcp")
   AeadProvider createGcpAeadProvider();

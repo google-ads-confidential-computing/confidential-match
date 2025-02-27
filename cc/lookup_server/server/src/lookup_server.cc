@@ -37,7 +37,10 @@
 #include "cc/core/logger/src/log_utils.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "cc/public/cpio/interface/blob_storage_client/blob_storage_client_interface.h"
+#include "cc/public/cpio/interface/cloud_initializer/cloud_initializer_factory.h"
 #include "cc/public/cpio/interface/cpio.h"
+#include "cc/public/cpio/interface/kms_client/aws/aws_kms_client_factory.h"
+#include "cc/public/cpio/interface/kms_client/aws/type_def.h"
 #include "cc/public/cpio/interface/metric_client/metric_client_interface.h"
 #include "cc/public/cpio/interface/parameter_client/parameter_client_interface.h"
 #include "cc/public/cpio/utils/metric_instance/interface/metric_instance_factory_interface.h"
@@ -101,9 +104,12 @@ using ::google::scp::core::TimeDuration;
 using ::google::scp::core::common::kZeroUuid;
 using ::google::scp::core::common::RetryStrategyOptions;
 using ::google::scp::core::common::RetryStrategyType;
+using ::google::scp::cpio::AwsKmsClientFactory;
+using ::google::scp::cpio::AwsKmsClientOptions;
 using ::google::scp::cpio::BlobStorageClientFactory;
 using ::google::scp::cpio::BlobStorageClientInterface;
 using ::google::scp::cpio::BlobStorageClientOptions;
+using ::google::scp::cpio::CloudInitializerFactory;
 using ::google::scp::cpio::Cpio;
 using ::google::scp::cpio::CpioOptions;
 using ::google::scp::cpio::KmsClientFactory;
@@ -142,9 +148,10 @@ constexpr absl::string_view kDataProviderServiceName = "DataProvider";
 constexpr absl::string_view kStreamedMatchDataProviderServiceName =
     "StreamedMatchDataProvider";
 constexpr absl::string_view kMatchDataStorageServiceName = "MatchDataStorage";
-constexpr absl::string_view kCpioKmsClientName = "CpioKmsClient";
-constexpr absl::string_view kKmsClientName = "KmsClient";
-constexpr absl::string_view kCachedKmsClientName = "CachedKmsClient";
+constexpr absl::string_view kAwsKmsClientName = "AwsKmsClient";
+constexpr absl::string_view kAwsCachedKmsClientName = "AwsCachedKmsClient";
+constexpr absl::string_view kGcpKmsClientName = "GcpKmsClient";
+constexpr absl::string_view kGcpCachedKmsClientName = "GcpCachedKmsClient";
 constexpr absl::string_view kPrivateKeyClientName = "PrivateKeyClient";
 constexpr absl::string_view kCoordinatorClientName = "CoordinatorClient";
 constexpr absl::string_view kCachedCoordinatorClientName =
@@ -186,6 +193,9 @@ constexpr char kHttp2ServerHealthServiceMetricName[] =
 
 // The issuer to use for authentication of incoming request JWTs.
 constexpr absl::string_view kJwtIssuer = "https://accounts.google.com";
+
+// The default region at creation time for the AwsKmsClient
+constexpr absl::string_view kAwsDefaultRegion = "us-east-2";
 
 // Helper to initialize a service and log information.
 ExecutionResult InitService(ServiceInterface& service,
@@ -528,6 +538,30 @@ ExecutionResult LookupServer::LoadParameters() noexcept {
     }
   }
 
+  std::list<std::string> kms_default_signatures;
+  if (!parameter_client_
+           ->GetStringList(kKmsDefaultSignatures, kms_default_signatures)
+           .Successful()) {
+    SCP_WARNING(kComponentName, kZeroUuid,
+                absl::StrFormat(
+                    "Failed to fetch %s from parameter client. Trying env vars",
+                    kKmsDefaultSignatures));
+    ExecutionResult result = config_provider_->Get(
+        std::string(kKmsDefaultSignatures), kms_default_signatures);
+    if (!result.Successful()) {
+      SCP_CRITICAL(kComponentName, kZeroUuid, result,
+                   "Failed to read the kms default signatures.");
+      return result;
+    }
+  }
+  parameters_.kms_default_signatures =
+      std::make_shared<std::vector<std::string>>();
+  for (const auto& signature : kms_default_signatures) {
+    if (!signature.empty()) {
+      parameters_.kms_default_signatures->push_back(signature);
+    }
+  }
+
   parameters_.jwt_audience = std::make_shared<std::string>();
   if (!parameter_client_->GetString(kJwtAudience, *parameters_.jwt_audience)
            .Successful()) {
@@ -701,6 +735,9 @@ ExecutionResult LookupServer::LoadParameters() noexcept {
 }
 
 ExecutionResult LookupServer::CreateComponents() noexcept {
+  auto aws_cloud_initializer = CloudInitializerFactory().CreateAwsInitializer();
+  aws_cloud_initializer->InitCloud();
+
   std::unique_ptr<CloudPlatformDependencyFactoryInterface>
       platform_dependency_factory =
           GetPlatformDependencyFactoryForCurrentEnv(config_provider_);
@@ -763,9 +800,17 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
   blob_storage_client_ =
       BlobStorageClientFactory::Create(blob_storage_client_options);
 
-  kms_client_ = std::make_shared<KmsClient>();
-  cached_kms_client_ =
-      std::make_shared<CachedKmsClient>(async_executor_, kms_client_);
+  gcp_kms_client_ = std::make_shared<KmsClient>();
+  gcp_cached_kms_client_ =
+      std::make_shared<CachedKmsClient>(async_executor_, gcp_kms_client_);
+
+  AwsKmsClientOptions options;
+  // TODO(b/398112417): Remove when no longer necessary
+  options.region = kAwsDefaultRegion;
+  aws_kms_client_ =
+      std::make_shared<KmsClient>(AwsKmsClientFactory::Create(options));
+  aws_cached_kms_client_ =
+      std::make_shared<CachedKmsClient>(async_executor_, aws_kms_client_);
 
   private_key_client_ =
       PrivateKeyClientFactory::Create(PrivateKeyClientOptions());
@@ -774,7 +819,9 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
   cached_coordinator_client_ = std::make_shared<CachedCoordinatorClient>(
       async_executor_, coordinator_client_);
 
-  aead_crypto_client_ = std::make_shared<AeadCryptoClient>(cached_kms_client_);
+  aead_crypto_client_ = std::make_shared<AeadCryptoClient>(
+      aws_cached_kms_client_, gcp_cached_kms_client_,
+      *parameters_.kms_default_signatures);
   hpke_crypto_client_ = HpkeCryptoClient::Create(cached_coordinator_client_);
 
   orchestrator_client_ = std::make_shared<OrchestratorClient>(
@@ -856,8 +903,12 @@ ExecutionResult LookupServer::Init() noexcept {
                                 kPassThruAuthorizationProxyServiceName));
   RETURN_IF_FAILURE(
       InitService(*blob_storage_client_, kBlobStorageClientServiceName));
-  RETURN_IF_FAILURE(InitService(*kms_client_, kKmsClientName));
-  RETURN_IF_FAILURE(InitService(*cached_kms_client_, kCachedKmsClientName));
+  RETURN_IF_FAILURE(InitService(*gcp_kms_client_, kGcpKmsClientName));
+  RETURN_IF_FAILURE(
+      InitService(*gcp_cached_kms_client_, kGcpCachedKmsClientName));
+  RETURN_IF_FAILURE(InitService(*aws_kms_client_, kAwsKmsClientName));
+  RETURN_IF_FAILURE(
+      InitService(*aws_cached_kms_client_, kAwsCachedKmsClientName));
   RETURN_IF_FAILURE(InitService(*private_key_client_, kPrivateKeyClientName));
   RETURN_IF_FAILURE(InitService(*coordinator_client_, kCoordinatorClientName));
   RETURN_IF_FAILURE(
@@ -898,8 +949,12 @@ ExecutionResult LookupServer::Run() noexcept {
                                kPassThruAuthorizationProxyServiceName));
   RETURN_IF_FAILURE(
       RunService(*blob_storage_client_, kBlobStorageClientServiceName));
-  RETURN_IF_FAILURE(RunService(*kms_client_, kKmsClientName));
-  RETURN_IF_FAILURE(RunService(*cached_kms_client_, kCachedKmsClientName));
+  RETURN_IF_FAILURE(RunService(*gcp_kms_client_, kGcpKmsClientName));
+  RETURN_IF_FAILURE(
+      RunService(*gcp_cached_kms_client_, kGcpCachedKmsClientName));
+  RETURN_IF_FAILURE(RunService(*aws_kms_client_, kAwsKmsClientName));
+  RETURN_IF_FAILURE(
+      RunService(*aws_cached_kms_client_, kAwsCachedKmsClientName));
   RETURN_IF_FAILURE(RunService(*private_key_client_, kPrivateKeyClientName));
   RETURN_IF_FAILURE(RunService(*coordinator_client_, kCoordinatorClientName));
   RETURN_IF_FAILURE(
@@ -950,8 +1005,12 @@ ExecutionResult LookupServer::Stop() noexcept {
       StopService(*cached_coordinator_client_, kCachedCoordinatorClientName));
   RETURN_IF_FAILURE(StopService(*coordinator_client_, kCoordinatorClientName));
   RETURN_IF_FAILURE(StopService(*private_key_client_, kPrivateKeyClientName));
-  RETURN_IF_FAILURE(StopService(*kms_client_, kKmsClientName));
-  RETURN_IF_FAILURE(StopService(*cached_kms_client_, kCachedKmsClientName));
+  RETURN_IF_FAILURE(
+      StopService(*aws_cached_kms_client_, kGcpCachedKmsClientName));
+  RETURN_IF_FAILURE(StopService(*aws_kms_client_, kAwsKmsClientName));
+  RETURN_IF_FAILURE(
+      StopService(*gcp_cached_kms_client_, kAwsCachedKmsClientName));
+  RETURN_IF_FAILURE(StopService(*gcp_kms_client_, kAwsKmsClientName));
   RETURN_IF_FAILURE(
       StopService(*blob_storage_client_, kBlobStorageClientServiceName));
   RETURN_IF_FAILURE(StopService(*pass_thru_authorization_proxy_,

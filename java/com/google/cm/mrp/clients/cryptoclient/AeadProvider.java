@@ -18,9 +18,10 @@ package com.google.cm.mrp.clients.cryptoclient;
 
 import com.google.cm.mrp.clients.cryptoclient.models.AeadProviderParameters;
 import com.google.scp.shared.crypto.tink.CloudAeadSelector;
+import java.io.Closeable;
 
 /** Interface to config getting {@link CloudAeadSelector} from different cloud KMS providers. */
-public interface AeadProvider {
+public interface AeadProvider extends Closeable {
 
   /** Gets the selector to retrieve Aeads from Cloud KMS using {@link AeadProviderParameters} */
   CloudAeadSelector getAeadSelector(AeadProviderParameters aeadCloudParameters)
@@ -32,6 +33,10 @@ public interface AeadProvider {
       super(cause);
     }
 
+    public AeadProviderException(String message) {
+      super(message);
+    }
+
     public AeadProviderException(String message, Throwable cause) {
       super(message, cause);
     }
@@ -41,6 +46,10 @@ public interface AeadProvider {
 
     public UncheckedAeadProviderException(Throwable cause) {
       super(cause);
+    }
+
+    public UncheckedAeadProviderException(String message) {
+      super(message);
     }
 
     public UncheckedAeadProviderException(String message, Throwable cause) {

@@ -36,6 +36,7 @@ java_test(
 java_test(
     name = "LookupServiceShardClientImplTest",
     srcs = ["LookupServiceShardClientImplTest.java"],
+    classpath_resources = ["//java/com/google/cm/mrp:log4j2config_prod"],
     tags = [
         "exclusive",
     ],
@@ -46,6 +47,7 @@ java_test(
         "//java/com/google/cm/util",
         "//java/external:apache_httpclient5",
         "//java/external:google_truth",
+        "//java/external:log4j_core",
         "//java/external:mockito",
         "//java/external:mockito_inline",
         "//protos/lookup_server/api:java_proto",

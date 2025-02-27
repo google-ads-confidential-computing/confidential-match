@@ -77,10 +77,13 @@ struct LookupServerParameters {
   // The host address to use for the Orchestrator
   std::shared_ptr<std::string> orchestrator_host_address;
 
-  // KMS parameters
+  // GCP KMS parameters
   std::shared_ptr<std::string> kms_resource_name;
   std::shared_ptr<std::string> kms_region;
   std::shared_ptr<std::string> kms_wip_provider;
+
+  // AWS KMS parameters
+  std::shared_ptr<std::vector<std::string>> kms_default_signatures;
 
   // Parameters used for JWT authentication of incoming requests
   std::shared_ptr<std::string> jwt_audience;
@@ -131,8 +134,10 @@ class LookupServer : public scp::core::ServiceInterface {
   std::shared_ptr<scp::core::AuthorizationProxyInterface>
       pass_thru_authorization_proxy_;
   std::shared_ptr<scp::cpio::BlobStorageClientInterface> blob_storage_client_;
-  std::shared_ptr<KmsClientInterface> kms_client_;
-  std::shared_ptr<KmsClientInterface> cached_kms_client_;
+  std::shared_ptr<KmsClientInterface> aws_kms_client_;
+  std::shared_ptr<KmsClientInterface> aws_cached_kms_client_;
+  std::shared_ptr<KmsClientInterface> gcp_kms_client_;
+  std::shared_ptr<KmsClientInterface> gcp_cached_kms_client_;
   std::shared_ptr<scp::cpio::PrivateKeyClientInterface> private_key_client_;
   std::shared_ptr<CoordinatorClientInterface> coordinator_client_;
   std::shared_ptr<CoordinatorClientInterface> cached_coordinator_client_;

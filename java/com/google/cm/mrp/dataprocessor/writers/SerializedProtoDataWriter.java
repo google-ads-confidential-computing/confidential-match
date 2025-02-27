@@ -16,6 +16,7 @@
 
 package com.google.cm.mrp.dataprocessor.writers;
 
+import static com.google.cm.mrp.backend.DataRecordProto.DataRecord.ProtoEncryptionLevel.ROW_LEVEL;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.OUTPUT_FILE_WRITE_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.SUCCESS;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WRITER_MISSING_COORDINATOR_KEY;
@@ -215,12 +216,20 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
       List<DataRecord> groupedRecords) {
     ConfidentialMatchOutputDataRecord.Builder confidentialMatchOutputDataRecordBuilder =
         ConfidentialMatchOutputDataRecord.newBuilder();
+    boolean hasRowLevelEncryption =
+        isValidIndex(groupedRecords.size(), 0)
+            && groupedRecords.get(0).hasProcessingMetadata()
+            && groupedRecords.get(0).getProcessingMetadata().getProtoEncryptionLevel() == ROW_LEVEL;
+    Optional<EncryptionKey> rowLevelEncryptionKey =
+        hasRowLevelEncryption ? getEncryptionKey(groupedRecords.get(0)) : Optional.empty();
     for (DataRecord dataRecord : groupedRecords) {
-      Optional<EncryptionKey> encryptionKey = getEncryptionKey(dataRecord);
+      Optional<EncryptionKey> encryptionKey =
+          hasRowLevelEncryption ? Optional.empty() : getEncryptionKey(dataRecord);
       confidentialMatchOutputDataRecordBuilder.addAllMatchKeys(
           getMatchKeys(dataRecord, encryptionKey));
       confidentialMatchOutputDataRecordBuilder.addAllMetadata(getMetadata(dataRecord));
     }
+    rowLevelEncryptionKey.ifPresent(confidentialMatchOutputDataRecordBuilder::setEncryptionKey);
     recordStatusFieldIndex.ifPresent(
         index ->
             confidentialMatchOutputDataRecordBuilder.setStatus(getStatus(groupedRecords, index)));

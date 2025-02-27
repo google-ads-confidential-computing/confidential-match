@@ -18,11 +18,12 @@ package com.google.cm.mrp.clients.cryptoclient;
 
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys;
 import com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode;
+import java.io.Closeable;
 
 /**
  * Interface for encrypting and decrypting records by using a given {@link DataRecordEncryptionKeys}
  */
-public interface CryptoClient {
+public interface CryptoClient extends Closeable {
   /** Encrypts a String, returning a Base64-encoded String. */
   String encrypt(DataRecordEncryptionKeys dataRecordEncryptionKeys, String plaintext)
       throws CryptoClientException;

@@ -17,6 +17,7 @@
 package com.google.cm.mrp.dataprocessor;
 
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.CRYPTO_CLIENT_CONFIGURATION_ERROR;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_PARAMETERS;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PARTIAL_SUCCESS_CONFIG_ERROR;
 import static com.google.cm.mrp.backend.SchemaProto.Schema.DataFormat.SERIALIZED_PROTO;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -35,7 +36,6 @@ import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.SchemaProto.Schema;
 import com.google.cm.mrp.backend.SchemaProto.Schema.Column;
 import com.google.cm.mrp.backend.SchemaProto.Schema.ColumnType;
-import com.google.cm.mrp.backend.SchemaProto.Schema.DataFormat;
 import com.google.cm.mrp.backend.SchemaProto.Schema.OutputColumn;
 import com.google.cm.mrp.clients.cryptoclient.AeadCryptoClientFactory;
 import com.google.cm.mrp.clients.cryptoclient.AeadProvider;
@@ -62,6 +62,7 @@ import com.google.cm.mrp.dataprocessor.readers.DataReader;
 import com.google.cm.mrp.dataprocessor.writers.DataWriter;
 import com.google.common.collect.ImmutableList;
 import java.io.File;
+import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
@@ -282,6 +283,14 @@ public final class DataProcessorImpl implements DataProcessor {
       } else {
         throw e;
       }
+    } finally {
+      try {
+        if (cryptoClient.isPresent()) {
+          cryptoClient.get().close();
+        }
+      } catch (IOException e) {
+        logger.warn("CryptoClient failed to close", e);
+      }
     }
   }
 
@@ -291,7 +300,8 @@ public final class DataProcessorImpl implements DataProcessor {
       MatchConfig matchConfig,
       Optional<CryptoClient> cryptoClient,
       Optional<EncryptionMetadata> encryptionMetadata) {
-    if (!featureFlags.enableMIC() || streamDataSource.getSchema().getDataFormat() == SERIALIZED_PROTO) {
+    if (!featureFlags.enableMIC()
+        || streamDataSource.getSchema().getDataFormat() == SERIALIZED_PROTO) {
       return Optional.empty();
     }
     DataSourceFormatter formatter;
@@ -404,8 +414,16 @@ public final class DataProcessorImpl implements DataProcessor {
 
   private CryptoClient getAeadCryptoClient(EncryptionKeyInfo encryptionKeyInfo) {
     try {
-      // TODO(b/377983978): Select between GCP and AWS
-      AeadProvider aeadProvider = aeadProviderFactory.createGcpAeadProvider();
+      AeadProvider aeadProvider;
+      if (encryptionKeyInfo.getWrappedKeyInfo().hasAwsWrappedKeyInfo()) {
+        aeadProvider = aeadProviderFactory.createAwsAeadProvider();
+      } else if (encryptionKeyInfo.getWrappedKeyInfo().hasGcpWrappedKeyInfo()) {
+        aeadProvider = aeadProviderFactory.createGcpAeadProvider();
+      } else {
+        String msg = "Job parameters missing cloud wrappedKeyInfo.";
+        logger.error(msg);
+        throw new JobProcessorException(msg, INVALID_PARAMETERS);
+      }
       return aeadCryptoClientFactory.create(aeadProvider, encryptionKeyInfo);
     } catch (CryptoClientException e) {
       logger.error("Could not create AeadCryptoClient ", e);

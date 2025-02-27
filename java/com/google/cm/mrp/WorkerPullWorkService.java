@@ -36,9 +36,6 @@ import java.security.Security;
 import java.time.Duration;
 import java.util.Optional;
 import javax.inject.Inject;
-import org.apache.logging.log4j.Level;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.core.config.Configurator;
 import org.conscrypt.Conscrypt;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -52,6 +49,7 @@ public class WorkerPullWorkService extends AbstractExecutionThreadService {
   private final JobProcessor jobProcessor;
   private final int jobRetryDelaySec;
   private final StartupConfigProvider startupConfigProvider;
+  private final DynamicLogProvider dynamicLogProvider;
   private volatile boolean isRunning;
 
   @Inject
@@ -59,11 +57,13 @@ public class WorkerPullWorkService extends AbstractExecutionThreadService {
       JobClient jobClient,
       JobProcessor jobProcessor,
       @JobQueueRetryDelaySec int jobRetryDelaySec,
-      StartupConfigProvider startupConfigProvider) {
+      StartupConfigProvider startupConfigProvider,
+      DynamicLogProvider dynamicLogProvider) {
     this.jobClient = jobClient;
     this.jobProcessor = jobProcessor;
     this.jobRetryDelaySec = jobRetryDelaySec;
     this.startupConfigProvider = startupConfigProvider;
+    this.dynamicLogProvider = dynamicLogProvider;
     isRunning = true;
   }
 
@@ -71,19 +71,7 @@ public class WorkerPullWorkService extends AbstractExecutionThreadService {
   protected void run() {
     logger.info("Worker starting run.");
 
-    try {
-      startupConfigProvider
-          .getStartupConfig()
-          .loggingLevel()
-          .ifPresent(
-              logLevel -> {
-                logger.info("Setting MRP log level to: {}", logLevel);
-                Configurator.setAllLevels(
-                    LogManager.getRootLogger().getName(), Level.getLevel(logLevel));
-              });
-    } catch (Exception e) {
-      logger.warn("Could not set logging level", e);
-    }
+    dynamicLogProvider.getAndSetDynamicLogLevel();
 
     if (startupConfigProvider.getStartupConfig().conscryptEnabled()) {
       // Initialize conscrypt

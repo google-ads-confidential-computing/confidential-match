@@ -157,7 +157,10 @@ public class AeadCryptoClientTest {
     String rowLevelWip = "rowWip";
     var encryptionKeyInfo =
         EncryptionKeyInfo.newBuilder()
-            .setWrappedKeyInfo(WrappedKeyInfo.newBuilder().setKeyType(XCHACHA20_POLY1305))
+            .setWrappedKeyInfo(
+                WrappedKeyInfo.newBuilder()
+                    .setKeyType(XCHACHA20_POLY1305)
+                    .setGcpWrappedKeyInfo(GcpWrappedKeyInfo.getDefaultInstance()))
             .build();
     var testParams = AeadProviderParameters.forWipProvider(rowLevelWip);
     when(mockAeadProvider.getAeadSelector(eq(testParams))).thenReturn(getDefaultAeadSelector());
@@ -170,6 +173,27 @@ public class AeadCryptoClientTest {
     String encrypted = encryptString(encryptedDek, plaintext);
 
     assertThat(cryptoClient.decrypt(encryptionKeys, encrypted)).isEqualTo(plaintext);
+  }
+
+  @Test
+  public void decrypt_whenNoCloudWrappedKeys_throws() throws Exception {
+    var encryptionKeyInfo =
+        EncryptionKeyInfo.newBuilder()
+            .setWrappedKeyInfo(WrappedKeyInfo.newBuilder().setKeyType(XCHACHA20_POLY1305))
+            .build();
+    when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
+    String testKek = generateAeadUri();
+    var keyset = generateXChaChaKeyset();
+    var encryptedDek = encryptDek(keyset);
+    var encryptionKeys = getDataRecordEncryptionKeys(testKek, encryptedDek);
+    var cryptoClient = new AeadCryptoClient(mockAeadProvider, encryptionKeyInfo);
+    String plaintext = "TestString";
+    String encrypted = encryptString(encryptedDek, plaintext);
+
+    var ex =
+        assertThrows(
+            CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, encrypted));
+    assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.CRYPTO_CLIENT_CONFIGURATION_ERROR);
   }
 
   @Test

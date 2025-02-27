@@ -16,8 +16,8 @@
 
 package com.google.cm.mrp.clients.cryptoclient;
 
-import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.COORDINATOR_KEY_MISSING_IN_RECORD;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.COORDINATOR_KEY_ENCRYPTION_ERROR;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.COORDINATOR_KEY_MISSING_IN_RECORD;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.COORDINATOR_KEY_SERVICE_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.CRYPTO_CLIENT_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DECRYPTION_ERROR;
@@ -36,6 +36,7 @@ import com.google.inject.assistedinject.Assisted;
 import com.google.inject.assistedinject.AssistedInject;
 import com.google.scp.operator.cpio.cryptoclient.HybridEncryptionKeyService;
 import com.google.scp.operator.cpio.cryptoclient.HybridEncryptionKeyService.KeyFetchException;
+import java.io.IOException;
 import java.security.GeneralSecurityException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -119,7 +120,7 @@ public final class HybridCryptoClient extends BaseCryptoClient {
     HybridEncrypt encrypter = getEncrypter(encryptionKeys.getCoordinatorKey().getKeyId());
     try {
       return base64Encode(encrypter.encrypt(plaintextBytes, NO_BYTES));
-    } catch (RuntimeException| GeneralSecurityException e) {
+    } catch (RuntimeException | GeneralSecurityException e) {
       throw new CryptoClientException(e, COORDINATOR_KEY_ENCRYPTION_ERROR);
     }
   }
@@ -185,6 +186,11 @@ public final class HybridCryptoClient extends BaseCryptoClient {
     } catch (ExecutionException | UncheckedExecutionException e) {
       throw new CryptoClientException(e, CRYPTO_CLIENT_ERROR);
     }
+  }
+
+  @Override
+  public void close() throws IOException {
+    // No-op
   }
 
   private static class HybridPair {

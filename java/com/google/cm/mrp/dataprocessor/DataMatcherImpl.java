@@ -493,6 +493,9 @@ public final class DataMatcherImpl implements DataMatcher {
                 KeyValue.newBuilder()
                     .setKey(successConfig.getPartialSuccessAttributes().getRecordStatusFieldName())
                     .setStringValue(status)));
+    if (dataRecord.hasProcessingMetadata()) {
+      result.setProcessingMetadata(dataRecord.getProcessingMetadata());
+    }
     return result.build();
   }
 

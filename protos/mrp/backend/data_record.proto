@@ -37,9 +37,23 @@ message DataRecord {
     }
   }
 
+  enum ProtoEncryptionLevel {
+    UNSPECIFIED_ENCRYPTION_LEVEL = 0;
+    MATCH_KEY_LEVEL = 1;
+    ROW_LEVEL = 2;
+  }
+
+  // Metadata used during internal processing of DataRecord in MRP.
+  message ProcessingMetadata {
+    // Whether encryption keys are populated at MatchKey or Row level in
+    // proto format.
+    ProtoEncryptionLevel protoEncryptionLevel = 1;
+  }
+
   repeated KeyValue key_values = 2;
   // Map of the encrypted key's position within the KeyValues field to its
   // corresponding encrypted value.
   map<uint32, string> encrypted_key_values = 3;
   optional JobResultCode error_code = 4;
+  ProcessingMetadata processing_metadata = 5;
 }

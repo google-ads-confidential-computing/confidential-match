@@ -63,7 +63,7 @@ public abstract class StartupConfig {
     public abstract StartupConfig.Builder setConscryptEnabled(boolean conscryptEnabled);
 
     /** Sets desired logging level for MRP. */
-    public abstract Builder setLoggingLevel(String loggingLevel);
+    public abstract Builder setLoggingLevel(Optional<String> loggingLevel);
 
     /** Create a new {@link StartupConfig} from the builder. */
     public abstract StartupConfig build();

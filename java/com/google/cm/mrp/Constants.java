@@ -19,6 +19,18 @@ package com.google.cm.mrp;
 /** Reusable constants for MRP */
 public interface Constants {
 
+  /** Define custom log levels. Must match log4j2 properties file. */
+  enum CustomLogLevel {
+    /** Custom log level name between INFO and DEBUG. */
+    DETAIL(450);
+
+    public final int value;
+
+    CustomLogLevel(int value) {
+      this.value = value;
+    }
+  }
+
   /** Log prefix to use for MRP log-based alerting. */
   String INTERNAL_ERROR_ALERT_LOG = "INTERNAL_ERROR";
 }

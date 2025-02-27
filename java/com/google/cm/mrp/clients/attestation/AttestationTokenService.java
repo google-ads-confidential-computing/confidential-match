@@ -80,14 +80,13 @@ public final class AttestationTokenService {
     this.signatures = signatures;
   }
 
-  /** Gets a cached token using default audience. */
-  public String getCachedToken() throws AttestationTokenServiceException {
-    return getCachedTokenWithAudience(defaultAudience);
+  /** Gets a token using default audience. */
+  public String getToken() throws AttestationTokenServiceException {
+    return getTokenWithAudience(defaultAudience);
   }
 
-  /** Gets a cached token using the given audience. */
-  public String getCachedTokenWithAudience(String audience)
-      throws AttestationTokenServiceException {
+  /** Gets a token using the given audience. */
+  public String getTokenWithAudience(String audience) throws AttestationTokenServiceException {
     if (audience.isBlank()) {
       audience = defaultAudience;
     }

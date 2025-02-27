@@ -28,7 +28,9 @@ java_library(
         "configs/mic_proto_config.json",
     ],
     deps = [
+        "//java/com/google/cm/mrp/clients/attestation",
         "//java/com/google/cm/mrp/clients/cryptoclient",
+        "//java/com/google/cm/mrp/clients/cryptoclient/aws",
         "//java/com/google/cm/mrp/clients/cryptoclient/gcp",
         "//java/com/google/cm/mrp/clients/lookupserviceclient/gcp",
         "//java/com/google/cm/mrp/dataprocessor",
@@ -72,6 +74,11 @@ java_library(
     deps = [
         "//protos/mrp/backend:java_proto",
     ],
+)
+
+java_library(
+    name = "constants",
+    srcs = ["Constants.java"],
 )
 
 # TODO(b/376719449): refactor to package

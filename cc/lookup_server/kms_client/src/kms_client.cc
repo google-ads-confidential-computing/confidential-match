@@ -16,9 +16,7 @@
 
 #include <utility>
 
-#include "absl/strings/match.h"
 #include "absl/strings/string_view.h"
-#include "absl/strings/strip.h"
 #include "cc/core/common/concurrent_map/src/error_codes.h"
 #include "cc/core/common/uuid/src/uuid.h"
 #include "cc/core/interface/async_context.h"
@@ -45,7 +43,6 @@ using ::google::scp::cpio::SyncUtils;
 using ::std::placeholders::_1;
 
 constexpr absl::string_view kComponentName = "KmsClient";
-constexpr absl::string_view kGcpKmsResourcePrefix = "gcp-kms://";
 
 }  // namespace
 
@@ -65,14 +62,6 @@ ExecutionResult KmsClient::Decrypt(
     AsyncContext<DecryptRequest, std::string> decrypt_context) noexcept {
   AsyncContext<DecryptRequest, DecryptResponse> cpio_context;
   cpio_context.request = decrypt_context.request;
-  if (absl::StartsWith(cpio_context.request->key_resource_name(),
-                       kGcpKmsResourcePrefix)) {
-    cpio_context.request =
-        std::make_shared<DecryptRequest>(*cpio_context.request);
-    cpio_context.request->set_key_resource_name(absl::StripPrefix(
-        cpio_context.request->key_resource_name(), kGcpKmsResourcePrefix));
-  }
-
   cpio_context.callback = [decrypt_context](
                               AsyncContext<DecryptRequest, DecryptResponse>&
                                   callback_context) mutable {

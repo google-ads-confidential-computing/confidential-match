@@ -16,12 +16,14 @@
 
 package com.google.cm.mrp.dataprocessor.writers;
 
+import static com.google.cm.mrp.backend.DataRecordProto.DataRecord.ProtoEncryptionLevel.ROW_LEVEL;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_PARTIAL_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.SUCCESS;
 import static com.google.cm.mrp.dataprocessor.common.Constants.ROW_MARKER_COLUMN_NAME;
 import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -29,6 +31,7 @@ import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.ConfidentialMatchO
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.Field;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.KeyValue;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
+import com.google.cm.mrp.backend.DataRecordProto.DataRecord.ProcessingMetadata;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.SchemaProto.Schema;
 import com.google.cm.mrp.dataprocessor.destinations.DataDestination;
@@ -182,6 +185,53 @@ public final class SerializedProtoDataWriterTest {
   }
 
   @Test
+  public void write_withRowLevelEncryptionKey() throws Exception {
+    TestDataDestination testDataDestination = new TestDataDestination();
+    Schema schema = getSchema("testdata/proto_schema_wrapped_key.json");
+
+    // One MatchKey using row level wrapped key encryption
+    List<Entry<String, Optional<String>>> keyValues = new ArrayList<>();
+    keyValues.add(Map.entry("email", Optional.of("FAKE.1@google.com")));
+    keyValues.add(Map.entry("encrypted_dek", Optional.of("dek")));
+    keyValues.add(Map.entry("kek_uri", Optional.of("kek")));
+    keyValues.add(Map.entry("wip_alias", Optional.of("wip")));
+    DataRecord dataRecord =
+        getDataRecord(keyValues)
+            .setProcessingMetadata(
+                ProcessingMetadata.newBuilder().setProtoEncryptionLevel(ROW_LEVEL).build())
+            .build();
+    DataChunk dataChunk = DataChunk.builder().addRecord(dataRecord).setSchema(schema).build();
+
+    // Run the write method
+    SerializedProtoDataWriter dataWriter =
+        new SerializedProtoDataWriter(
+            1000, testDataDestination, "proto_writer_test.txt", schema, matchConfig);
+    dataWriter.write(dataChunk);
+    dataWriter.close();
+
+    // Validate the written out file
+    assertThat(testDataDestination.file.exists()).isFalse(); // the temp file should've been deleted
+    assertThat(testDataDestination.name).isEqualTo("proto_writer_test_1.txt");
+    assertThat(testDataDestination.fileLines).hasSize(1);
+
+    // Validate the file's record
+    ConfidentialMatchOutputDataRecord returnedRecord =
+        base64Decode(testDataDestination.fileLines.get(0)).get();
+    assertEquals("", returnedRecord.getStatus());
+    assertThat(returnedRecord.getMetadataCount()).isEqualTo(0);
+    assertThat(returnedRecord.getMatchKeysCount()).isEqualTo(1);
+    var matchKey = returnedRecord.getMatchKeys(0);
+    assertThat(matchKey.getField().getKeyValue().getKey()).isEqualTo("email");
+    assertThat(matchKey.getField().getKeyValue().getStringValue()).isEqualTo("FAKE.1@google.com");
+    assertFalse(returnedRecord.getMatchKeys(0).hasEncryptionKey());
+    assertTrue(returnedRecord.hasEncryptionKey());
+    var encryptionKey = returnedRecord.getEncryptionKey().getWrappedKey();
+    assertThat(encryptionKey.getEncryptedDek()).isEqualTo("dek");
+    assertThat(encryptionKey.getKekUri()).isEqualTo("kek");
+    assertThat(encryptionKey.getWip()).isEqualTo("wip");
+  }
+
+  @Test
   public void write_groupByRowMarker() throws Exception {
     TestDataDestination testDataDestination = new TestDataDestination();
     Schema schema = getSchema("testdata/proto_schema.json");
@@ -205,7 +255,7 @@ public final class SerializedProtoDataWriterTest {
     keyValueEntries1.add(Map.entry("metadata", Optional.of("metadata_value")));
     keyValueEntries1.add(Map.entry("row_status", Optional.of(SUCCESS.toString())));
     keyValueEntries1.add(Map.entry(ROW_MARKER_COLUMN_NAME, Optional.of("1")));
-    dataRecords.add(getDataRecord(keyValueEntries1));
+    dataRecords.add(getDataRecord(keyValueEntries1).build());
     // DataRecord 2
     List<Entry<String, Optional<String>>> keyValueEntries2 = new ArrayList<>();
     keyValueEntries2.add(Map.entry("email", Optional.of("FAKE.2@google.com")));
@@ -220,7 +270,7 @@ public final class SerializedProtoDataWriterTest {
     keyValueEntries2.add(Map.entry("metadata", Optional.empty()));
     keyValueEntries2.add(Map.entry("row_status", Optional.of(INVALID_PARTIAL_ERROR.toString())));
     keyValueEntries2.add(Map.entry(ROW_MARKER_COLUMN_NAME, Optional.of("1")));
-    dataRecords.add(getDataRecord(keyValueEntries2));
+    dataRecords.add(getDataRecord(keyValueEntries2).build());
 
     // Set up maps to be used in validating the output record proto for DataRecord 1 and 2.
     // Fields
@@ -265,7 +315,7 @@ public final class SerializedProtoDataWriterTest {
     keyValueEntries3.add(Map.entry("metadata", Optional.empty()));
     keyValueEntries3.add(Map.entry("row_status", Optional.of(SUCCESS.toString())));
     keyValueEntries3.add(Map.entry(ROW_MARKER_COLUMN_NAME, Optional.of("2")));
-    dataRecords.add(getDataRecord(keyValueEntries3));
+    dataRecords.add(getDataRecord(keyValueEntries3).build());
 
     // Set up maps to be used in validating the output record proto for third input DataRecord.
     Map<String, String> fieldMap2 = new HashMap<>();
@@ -400,7 +450,7 @@ public final class SerializedProtoDataWriterTest {
     }
   }
 
-  private DataRecord getDataRecord(List<Entry<String, Optional<String>>> keyValueEntries) {
+  private DataRecord.Builder getDataRecord(List<Entry<String, Optional<String>>> keyValueEntries) {
     return DataRecord.newBuilder()
         .addAllKeyValues(
             keyValueEntries.stream()
@@ -412,8 +462,7 @@ public final class SerializedProtoDataWriterTest {
                           ? keyValue.setStringValue(entry.getValue().get()).build()
                           : keyValue.build();
                     })
-                .collect(Collectors.toList()))
-        .build();
+                .collect(Collectors.toList()));
   }
 
   private static class TestDataDestination implements DataDestination {

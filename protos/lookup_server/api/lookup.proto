@@ -204,8 +204,11 @@ message EncryptionKeyInfo {
       // The ARN of the role required to send KMS requests
       string role_arn = 1;
 
-      // Optional: the audience to use to request a Confidential Space token
+      // The audience to use to request a Confidential Space token
       string audience = 2;
+
+      // Optional: A list of signatures to send with KMS request
+      repeated string signatures = 3;
     }
 
     // GCP-specific info for keys using GCP KMS.

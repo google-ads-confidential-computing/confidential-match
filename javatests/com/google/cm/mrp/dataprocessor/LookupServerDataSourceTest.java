@@ -66,6 +66,7 @@ import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.Coor
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.CoordinatorKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo;
+import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.AwsWrappedKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.GcpWrappedKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.KeyType;
 import com.google.cm.mrp.backend.LookupDataRecordProto.LookupDataRecord;
@@ -118,6 +119,8 @@ public final class LookupServerDataSourceTest {
   private static final String TEST_WIP_B = "testWipB";
   private static final String TEST_IDENTITY_B = "testIdentityB";
   private static final String TEST_ENDPOINT_B = "testEndpointB";
+  private static final String TEST_AUDIENCE = "testAudience";
+  private static final String TEST_ROLE = "testRole";
   private static final EncryptionMetadata WRAPPED_ENCRYPTION_METADATA =
       EncryptionMetadata.newBuilder()
           .setEncryptionKeyInfo(
@@ -127,6 +130,19 @@ public final class LookupServerDataSourceTest {
                           .setKeyType(KeyType.XCHACHA20_POLY1305)
                           .setGcpWrappedKeyInfo(
                               GcpWrappedKeyInfo.newBuilder().setWipProvider(TEST_WIP))))
+          .build();
+
+  private static final EncryptionMetadata AWS_WRAPPED_ENCRYPTION_METADATA =
+      EncryptionMetadata.newBuilder()
+          .setEncryptionKeyInfo(
+              EncryptionKeyInfo.newBuilder()
+                  .setWrappedKeyInfo(
+                      WrappedKeyInfo.newBuilder()
+                          .setKeyType(KeyType.XCHACHA20_POLY1305)
+                          .setAwsWrappedKeyInfo(
+                              AwsWrappedKeyInfo.newBuilder()
+                                  .setAudience(TEST_AUDIENCE)
+                                  .setRoleArn(TEST_ROLE))))
           .build();
 
   private static final EncryptionMetadata NO_WIP_WRAPPED_ENCRYPTION_METADATA =
@@ -1650,6 +1666,138 @@ public final class LookupServerDataSourceTest {
     assertEquals("locations/testRegion/testKek", lookupServiceWrappedKey.getKekKmsResourceId());
     assertEquals(KEY_TYPE_XCHACHA20_POLY1305, lookupServiceWrappedKey.getKeyType());
     assertEquals(TEST_WIP, lookupServiceWrappedKey.getKmsWipProvider());
+    // Verify individual records
+    List<LookupDataRecord> lookupRequestRecords =
+        sortLookupDataRecordsByKeyLength(lookupRequest.records());
+    assertEquals(3, lookupRequestRecords.size());
+    // results are nondeterministic. Only reproducible sort is phone,email,address
+    lookupRequestRecords = sortLookupDataRecordsByKeyLength(lookupRequestRecords);
+    // Check Phone
+    assertTrue(lookupRequest.records().get(0).getLookupKey().hasDecryptedKey());
+    assertEquals("999-999-9999", lookupRequestRecords.get(0).getLookupKey().getDecryptedKey());
+    assertEquals(encryptedPhone, lookupRequestRecords.get(0).getLookupKey().getKey());
+    assertEquals(0, lookupRequestRecords.get(0).getMetadataCount());
+    // Check Email
+    assertTrue(lookupRequest.records().get(1).getLookupKey().hasDecryptedKey());
+    assertEquals(
+        "fake.email@google.com", lookupRequestRecords.get(1).getLookupKey().getDecryptedKey());
+    assertEquals(encryptedEmail, lookupRequestRecords.get(1).getLookupKey().getKey());
+    assertEquals(0, lookupRequestRecords.get(1).getMetadataCount());
+    // Check Address
+    assertTrue(lookupRequest.records().get(2).getLookupKey().hasDecryptedKey());
+    assertEquals(
+        hashString("fake_first_namefake_last_nameUS99999"),
+        lookupRequestRecords.get(2).getLookupKey().getDecryptedKey());
+    assertEquals(
+        hashString("fake_first_namefake_last_nameUS99999"),
+        decryptString(dek, lookupRequestRecords.get(2).getLookupKey().getKey()));
+    assertEquals(0, lookupRequestRecords.get(2).getMetadataCount());
+  }
+
+  @Test
+  public void lookup_singleAwsWrappedKeyEncryptionRowAllMatchReturnsCompleteRecord()
+      throws Exception {
+    var dek = generateEncryptedDek();
+    String encryptedEmail = encryptString(dek, "fake.email@google.com");
+    String encryptedPhone = encryptString(dek, "999-999-9999");
+    String encryptedFirstName = encryptString(dek, "fake_first_name");
+    String encryptedLastName = encryptString(dek, "fake_last_name");
+    when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+        .thenAnswer(
+            invocation -> {
+              var responseBuilder = LookupServiceClientResponse.builder();
+              responseBuilder
+                  .addResult(
+                      LookupProto.LookupResult.newBuilder()
+                          .setStatus(Status.STATUS_SUCCESS)
+                          .addMatchedDataRecords(
+                              LookupProto.MatchedDataRecord.newBuilder()
+                                  .setLookupKey(
+                                      LookupProto.LookupKey.newBuilder().setKey(encryptedEmail))))
+                  .addResult(
+                      LookupProto.LookupResult.newBuilder()
+                          .setStatus(Status.STATUS_SUCCESS)
+                          .addMatchedDataRecords(
+                              LookupProto.MatchedDataRecord.newBuilder()
+                                  .setLookupKey(
+                                      LookupProto.LookupKey.newBuilder().setKey(encryptedPhone))));
+              // Address response must be based on request input since encryption is
+              // non-deterministic
+              LookupServiceClientRequest request = invocation.getArgument(0);
+              var encryptedAddressKey =
+                  sortLookupDataRecordsByKeyLength(request.records())
+                      .get(2)
+                      .getLookupKey()
+                      .getKey();
+              return responseBuilder
+                  .addResult(
+                      LookupProto.LookupResult.newBuilder()
+                          .setStatus(Status.STATUS_SUCCESS)
+                          .addMatchedDataRecords(
+                              LookupProto.MatchedDataRecord.newBuilder()
+                                  .setLookupKey(
+                                      LookupProto.LookupKey.newBuilder()
+                                          .setKey(encryptedAddressKey))))
+                  .build();
+            });
+    String[][] testData = {
+      {"email", "email", "fake.email@google.com"},
+      {"phone", "phone", "999-999-9999"},
+      {"first_name", "first_name", "fake_first_name"},
+      {"last_name", "last_name", "fake_last_name"},
+      {"zip_code", "zip_code", "99999"},
+      {"country_code", "country_code", "US"},
+      {"encrypted_dek", "encrypted_dek", dek},
+      {"kek_uri", "kek_uri", "arn:test-region:123"},
+    };
+    String[][] encryptedData = {
+      {"email", encryptedEmail},
+      {"phone", encryptedPhone},
+      {"first_name", encryptedFirstName},
+      {"last_name", encryptedLastName},
+    };
+    DataChunk dataChunk =
+        DataChunk.builder()
+            .setSchema(getSchema(testData))
+            .addRecord(getDataRecord(testData, encryptedData))
+            .setEncryptionColumns(
+                DataRecordEncryptionColumns.newBuilder()
+                    .addAllEncryptedColumnIndices(ImmutableList.of(0, 1, 2, 3))
+                    .setEncryptionKeyColumnIndices(
+                        getWrappedKeyColumnIndices(Optional.of(6), Optional.of(7)))
+                    .build())
+            .build();
+
+    DataChunk result =
+        lookupServerDataSourceForEncryption
+            .lookup(dataChunk, Optional.of(AWS_WRAPPED_ENCRYPTION_METADATA))
+            .lookupResults();
+
+    assertEquals(3, result.records().size());
+    var dataRecords = result.records();
+    assertEquals(1, dataRecords.get(0).getKeyValuesCount());
+    assertEquals(PII_VALUE, dataRecords.get(0).getKeyValues(0).getKey());
+    assertEquals("fake.email@google.com", dataRecords.get(0).getKeyValues(0).getStringValue());
+    assertEquals(1, dataRecords.get(1).getKeyValuesCount());
+    assertEquals(PII_VALUE, dataRecords.get(1).getKeyValues(0).getKey());
+    assertEquals("999-999-9999", dataRecords.get(1).getKeyValues(0).getStringValue());
+    assertEquals(1, dataRecords.get(2).getKeyValuesCount());
+    assertEquals(PII_VALUE, dataRecords.get(2).getKeyValues(0).getKey());
+    assertEquals(
+        hashString("fake_first_namefake_last_nameUS99999"),
+        dataRecords.get(2).getKeyValues(0).getStringValue());
+    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
+    var lookupRequest = lookupServiceClientRequestCaptor.getValue();
+    assertEquals(KeyFormat.KEY_FORMAT_HASHED_ENCRYPTED, lookupRequest.keyFormat());
+    // Verify EncryptionKeyInfo
+    assertTrue(lookupRequest.encryptionKeyInfo().isPresent());
+    var lookupServiceWrappedKey = lookupRequest.encryptionKeyInfo().get().getWrappedKeyInfo();
+    assertEquals(dek, lookupServiceWrappedKey.getEncryptedDek());
+    assertEquals("arn:test-region:123", lookupServiceWrappedKey.getKekKmsResourceId());
+    assertEquals(KEY_TYPE_XCHACHA20_POLY1305, lookupServiceWrappedKey.getKeyType());
+    assertEquals(TEST_AUDIENCE, lookupServiceWrappedKey.getAwsWrappedKeyInfo().getAudience());
+    assertEquals(TEST_ROLE, lookupServiceWrappedKey.getAwsWrappedKeyInfo().getRoleArn());
     // Verify individual records
     List<LookupDataRecord> lookupRequestRecords =
         sortLookupDataRecordsByKeyLength(lookupRequest.records());

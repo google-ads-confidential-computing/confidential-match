@@ -17,6 +17,7 @@
 package com.google.cm.mrp.dataprocessor.readers;
 
 import static com.google.cm.mrp.MatchConfigProvider.getMatchConfig;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_ENCRYPTION_COLUMN;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.UNSUPPORTED_ENCRYPTION_TYPE;
 import static com.google.cm.mrp.dataprocessor.common.Constants.ROW_MARKER_COLUMN_NAME;
 import static com.google.cm.mrp.testutils.AeadKeyGenerator.generateAeadUri;
@@ -41,6 +42,7 @@ import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.EncryptionKey.GcpW
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.Field;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.KeyValue;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.MatchKey;
+import com.google.cm.mrp.backend.DataRecordProto.DataRecord.ProtoEncryptionLevel;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.CoordinatorInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.CoordinatorKeyInfo;
@@ -187,6 +189,8 @@ public final class SerializedProtoDataReaderTest {
       assertThat(record.getKeyValues(1).getStringValue()).isEqualTo(testCoordinatorKey);
       assertThat(record.getKeyValues(2).getStringValue()).isEqualTo("fakeemail@fake.com");
       assertThat(record.getEncryptedKeyValuesMap().get(2)).isEqualTo(encryptedEmail);
+      assertThat(record.getProcessingMetadata().getProtoEncryptionLevel())
+          .isEqualTo(ProtoEncryptionLevel.MATCH_KEY_LEVEL);
     }
   }
 
@@ -292,6 +296,115 @@ public final class SerializedProtoDataReaderTest {
       assertThat(record.getKeyValues(2).getStringValue()).isEqualTo(kekUri);
       assertThat(record.getKeyValues(3).getStringValue()).isEqualTo("fakeemail@fake.com");
       assertThat(record.getEncryptedKeyValuesMap().get(3)).isEqualTo(encryptedEmail);
+      assertThat(record.getProcessingMetadata().getProtoEncryptionLevel())
+          .isEqualTo(ProtoEncryptionLevel.MATCH_KEY_LEVEL);
+    }
+  }
+
+  @Test
+  public void next_rowLevelWrappedKey_returnsDecryptedRecords() throws Exception {
+    when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
+    AeadCryptoClient aeadCryptoClient = makeAeadCryptoClient();
+    Schema schema =
+        ProtoUtils.getProtoFromJson(
+            Resources.toString(
+                Objects.requireNonNull(
+                    getClass().getResource("testdata/mic_proto_schema_wrapped_encrypted.json")),
+                UTF_8),
+            Schema.class);
+    var file = File.createTempFile("mrp_test", "txt");
+    String dek = generateEncryptedDek();
+    String kekUri = generateAeadUri();
+    String encryptedEmail = AeadKeyGenerator.encryptString(dek, "fakeemail@fake.com");
+    MatchKey email =
+        MatchKey.newBuilder()
+            .setField(
+                Field.newBuilder()
+                    .setKeyValue(
+                        KeyValue.newBuilder()
+                            .setKey("email")
+                            .setStringValue(encryptedEmail)
+                            .build())
+                    .build())
+            .build();
+    List<MatchKey> matchKeyList = Arrays.asList(email);
+    ConfidentialMatchDataRecord testRecord =
+        ConfidentialMatchDataRecord.newBuilder()
+            .addAllMatchKeys(matchKeyList)
+            .setEncryptionKey(
+                EncryptionKey.newBuilder()
+                    .setWrappedKey(
+                        GcpWrappedKey.newBuilder().setEncryptedDek(dek).setKekUri(kekUri).build())
+                    .build())
+            .addMetadata(
+                KeyValue.newBuilder().setKey("metadata").setStringValue("fake metadata").build())
+            .build();
+    try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+      writer.newLine();
+      writer.write(base64().encode(testRecord.toByteArray()));
+      writer.newLine();
+    }
+    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any()))
+        .thenReturn(
+            new ConfidentialMatchDataRecordParserImpl(
+                micMatchConfig,
+                generateInternalSchema(schema),
+                SuccessMode.ALLOW_PARTIAL_SUCCESS,
+                WRAPPED_ENCRYPTION_METADATA));
+
+    try (DataReader dataReader =
+        new SerializedProtoDataReader(
+            mockCfmDataRecordParserFactory,
+            1000,
+            new FileInputStream(file),
+            schema,
+            "test",
+            micMatchConfig,
+            SuccessMode.ALLOW_PARTIAL_SUCCESS,
+            WRAPPED_ENCRYPTION_METADATA,
+            aeadCryptoClient)) {
+      assertThat(dataReader.getSchema()).isNotNull();
+      assertThat(
+              ImmutableList.copyOf(SchemaConverter.convertToColumnAliases(dataReader.getSchema())))
+          .containsExactly(
+              "metadata",
+              "encrypted_dek",
+              "kek_uri",
+              "email",
+              "phone",
+              "first_name",
+              "last_name",
+              "country_code",
+              "zip_code",
+              ROW_MARKER_COLUMN_NAME);
+
+      DataChunk dataChunk = dataReader.next();
+
+      assertThat(dataChunk.encryptionColumns().isPresent()).isTrue();
+      var encryptionColumns = dataChunk.encryptionColumns().get();
+      assertThat(encryptionColumns.getEncryptedColumnIndicesList()).containsExactly(3, 4, 5, 6);
+      assertThat(
+              encryptionColumns
+                  .getEncryptionKeyColumnIndices()
+                  .getWrappedKeyColumnIndices()
+                  .getEncryptedDekColumnIndex())
+          .isEqualTo(1);
+      assertThat(
+              encryptionColumns
+                  .getEncryptionKeyColumnIndices()
+                  .getWrappedKeyColumnIndices()
+                  .getKekUriColumnIndex())
+          .isEqualTo(2);
+      var dataRecords = dataChunk.records();
+      assertThat(dataRecords).hasSize(1);
+      var record = dataRecords.get(0);
+      assertThat(record.getKeyValues(0).getStringValue()).isEqualTo("fake metadata");
+      assertThat(record.getKeyValues(1).getStringValue()).isEqualTo(dek);
+      assertThat(record.getKeyValues(2).getStringValue()).isEqualTo(kekUri);
+      assertThat(record.getKeyValues(3).getStringValue()).isEqualTo("fakeemail@fake.com");
+      assertThat(record.getEncryptedKeyValuesMap().get(3)).isEqualTo(encryptedEmail);
+      assertThat(record.getProcessingMetadata().getProtoEncryptionLevel())
+          .isEqualTo(ProtoEncryptionLevel.ROW_LEVEL);
     }
   }
 
@@ -411,6 +524,8 @@ public final class SerializedProtoDataReaderTest {
       assertThat(record.getKeyValues(3).getStringValue()).isEqualTo(TEST_WIP);
       assertThat(record.getKeyValues(4).getStringValue()).isEqualTo("fakeemail@fake.com");
       assertThat(record.getEncryptedKeyValuesMap().get(4)).isEqualTo(encryptedEmail);
+      assertThat(record.getProcessingMetadata().getProtoEncryptionLevel())
+          .isEqualTo(ProtoEncryptionLevel.MATCH_KEY_LEVEL);
     }
   }
 
@@ -481,6 +596,8 @@ public final class SerializedProtoDataReaderTest {
       var record = dataRecords.get(0);
       assertThat(record.getKeyValues(0).getStringValue()).isEqualTo("fake metadata");
       assertThat(record.getKeyValues(1).getStringValue()).isEqualTo(fakeEmail);
+      assertThat(record.getProcessingMetadata().getProtoEncryptionLevel())
+          .isEqualTo(ProtoEncryptionLevel.UNSPECIFIED_ENCRYPTION_LEVEL);
     }
   }
 
@@ -526,6 +643,113 @@ public final class SerializedProtoDataReaderTest {
     } catch (Exception e) {
       assertTrue(e instanceof JobProcessorException);
       assertThat(((JobProcessorException) e).getErrorCode()).isEqualTo(UNSUPPORTED_ENCRYPTION_TYPE);
+    }
+  }
+
+  @Test
+  public void next_encryptionKeyAtRowAndMatchKey_returnsInvalidEncryptionException()
+      throws Exception {
+    when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
+    AeadCryptoClient aeadCryptoClient = makeAeadCryptoClient();
+    Schema schema =
+        ProtoUtils.getProtoFromJson(
+            Resources.toString(
+                Objects.requireNonNull(
+                    getClass().getResource("testdata/mic_proto_schema_wrapped_encrypted.json")),
+                UTF_8),
+            Schema.class);
+    var file = File.createTempFile("mrp_test", "txt");
+    String dek = generateEncryptedDek();
+    String kekUri = generateAeadUri();
+    String encryptedEmail = AeadKeyGenerator.encryptString(dek, "fakeemail@fake.com");
+    MatchKey email =
+        MatchKey.newBuilder()
+            .setEncryptionKey(
+                EncryptionKey.newBuilder()
+                    .setWrappedKey(
+                        GcpWrappedKey.newBuilder().setEncryptedDek(dek).setKekUri(kekUri).build())
+                    .build())
+            .setField(
+                Field.newBuilder()
+                    .setKeyValue(
+                        KeyValue.newBuilder()
+                            .setKey("email")
+                            .setStringValue(encryptedEmail)
+                            .build())
+                    .build())
+            .build();
+    List<MatchKey> matchKeyList = Arrays.asList(email);
+    ConfidentialMatchDataRecord testRecord =
+        ConfidentialMatchDataRecord.newBuilder()
+            .addAllMatchKeys(matchKeyList)
+            .setEncryptionKey(
+                EncryptionKey.newBuilder()
+                    .setWrappedKey(
+                        GcpWrappedKey.newBuilder().setEncryptedDek(dek).setKekUri(kekUri).build())
+                    .build())
+            .addMetadata(
+                KeyValue.newBuilder().setKey("metadata").setStringValue("fake metadata").build())
+            .build();
+    try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+      writer.newLine();
+      writer.write(base64().encode(testRecord.toByteArray()));
+      writer.newLine();
+    }
+    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any()))
+        .thenReturn(
+            new ConfidentialMatchDataRecordParserImpl(
+                micMatchConfig,
+                generateInternalSchema(schema),
+                SuccessMode.ALLOW_PARTIAL_SUCCESS,
+                WRAPPED_ENCRYPTION_METADATA));
+
+    try (DataReader dataReader =
+        new SerializedProtoDataReader(
+            mockCfmDataRecordParserFactory,
+            1000,
+            new FileInputStream(file),
+            schema,
+            "test",
+            micMatchConfig,
+            SuccessMode.ALLOW_PARTIAL_SUCCESS,
+            WRAPPED_ENCRYPTION_METADATA,
+            aeadCryptoClient)) {
+      assertThat(dataReader.getSchema()).isNotNull();
+      assertThat(
+              ImmutableList.copyOf(SchemaConverter.convertToColumnAliases(dataReader.getSchema())))
+          .containsExactly(
+              "metadata",
+              "encrypted_dek",
+              "kek_uri",
+              "email",
+              "phone",
+              "first_name",
+              "last_name",
+              "country_code",
+              "zip_code",
+              ROW_MARKER_COLUMN_NAME);
+
+      DataChunk dataChunk = dataReader.next();
+
+      assertThat(dataChunk.encryptionColumns().isPresent()).isTrue();
+      var encryptionColumns = dataChunk.encryptionColumns().get();
+      assertThat(encryptionColumns.getEncryptedColumnIndicesList()).containsExactly(3, 4, 5, 6);
+      assertThat(
+              encryptionColumns
+                  .getEncryptionKeyColumnIndices()
+                  .getWrappedKeyColumnIndices()
+                  .getEncryptedDekColumnIndex())
+          .isEqualTo(1);
+      assertThat(
+              encryptionColumns
+                  .getEncryptionKeyColumnIndices()
+                  .getWrappedKeyColumnIndices()
+                  .getKekUriColumnIndex())
+          .isEqualTo(2);
+      var dataRecords = dataChunk.records();
+      assertThat(dataRecords).hasSize(1);
+      var record = dataRecords.get(0);
+      assertThat(record.getErrorCode()).isEqualTo(INVALID_ENCRYPTION_COLUMN);
     }
   }
 

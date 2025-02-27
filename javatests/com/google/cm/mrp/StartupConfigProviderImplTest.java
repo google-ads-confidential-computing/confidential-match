@@ -96,19 +96,6 @@ public class StartupConfigProviderImplTest {
   }
 
   @Test
-  public void getStartupConfig_handlesInvalidLog() throws Exception {
-    when(mockParameterClient.getParameter(
-        Parameter.LOGGING_LEVEL.name(),
-        Optional.of(Parameter.CFM_PREFIX),
-        true))
-        .thenReturn(Optional.of("invalid"));
-
-    StartupConfig startupConfig = configProvider.getStartupConfig();
-
-    assertThat(startupConfig.loggingLevel()).isEqualTo(Optional.empty());
-  }
-
-  @Test
   public void getStartupConfig_callsParameterClientForAllValidApplicationIds() throws Exception {
     configProvider.getStartupConfig();
 

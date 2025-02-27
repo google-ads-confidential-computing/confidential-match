@@ -20,6 +20,7 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.CRYPTO_
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.ENCRYPTION_COLUMNS_CONFIG_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_ENCRYPTION_COLUMN;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_NESTED_SCHEMA_FILE_ERROR;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_PARAMETERS;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_SCHEMA_FILE_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.MISSING_ENCRYPTION_COLUMN;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.UNSUPPORTED_ENCRYPTION_TYPE;
@@ -205,6 +206,13 @@ public final class DataSourceFormatterImpl implements DataSourceFormatter {
           logger.info(msg);
           throw new JobProcessorException(msg, UNSUPPORTED_ENCRYPTION_TYPE);
         }
+        if (!encryptionKeyInfo.getWrappedKeyInfo().hasGcpWrappedKeyInfo()
+            && !encryptionKeyInfo.getWrappedKeyInfo().hasAwsWrappedKeyInfo()) {
+          String msg = "Encrypted job without Gcp or Aws WrappedKeyInfo";
+          logger.info(msg);
+          throw new JobProcessorException(msg, INVALID_PARAMETERS);
+        }
+
         WrappedKeyColumns wrappedKeyColumns = encryptionKeyColumns.getWrappedKeyColumns();
         var wrappedKeyIndicesBuilder =
             WrappedKeyColumnIndices.newBuilder()
@@ -222,9 +230,9 @@ public final class DataSourceFormatterImpl implements DataSourceFormatter {
                                 new JobProcessorException(
                                     "KEK column missing in schema.", MISSING_ENCRYPTION_COLUMN)));
 
-        // if WIP is not in request, then try to get it from the schema
-        if (!encryptionKeyInfo.getWrappedKeyInfo().hasGcpWrappedKeyInfo()
-            || encryptionKeyInfo
+        // For GCP, if WIP is not in request, then try to get it from the schema
+        if (encryptionKeyInfo.getWrappedKeyInfo().hasGcpWrappedKeyInfo()
+            && encryptionKeyInfo
                 .getWrappedKeyInfo()
                 .getGcpWrappedKeyInfo()
                 .getWipProvider()
@@ -559,6 +567,9 @@ public final class DataSourceFormatterImpl implements DataSourceFormatter {
       setRowMarkerKeyValue(keyValuesList, rowMarkerUuid);
 
       DataRecord.Builder dataRecordBuilder = DataRecord.newBuilder().addAllKeyValues(keyValuesList);
+      if (dataRecord.hasProcessingMetadata()) {
+        dataRecordBuilder.setProcessingMetadata(dataRecord.getProcessingMetadata());
+      }
       // Add encrypted key values if cryptoClient and dataRecordEncryptionColumns are present and
       // batch encryption is disabled.
       if (cryptoClient.isPresent() && dataRecordEncryptionColumns.isPresent()) {

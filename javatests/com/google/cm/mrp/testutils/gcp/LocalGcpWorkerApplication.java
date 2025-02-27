@@ -87,6 +87,7 @@ import com.google.scp.shared.clients.configclient.ParameterClient;
 import com.google.scp.shared.clients.configclient.gcp.Annotations.GcpProjectId;
 import com.google.scp.shared.crypto.tink.CloudAeadSelector;
 import com.google.scp.shared.mapper.TimeObjectMapper;
+import java.io.IOException;
 import java.util.Optional;
 import javax.net.ssl.HttpsURLConnection;
 import org.apache.hc.client5.http.HttpRequestRetryStrategy;
@@ -147,6 +148,7 @@ public final class LocalGcpWorkerApplication {
       bind(ParameterClient.class).toInstance(createParameterClient());
       install(
           new FactoryModuleBuilder()
+              .implement(AeadProvider.class, Names.named("aws"), MockAwsAeadProvider.class)
               .implement(AeadProvider.class, Names.named("gcp"), MockGcpAeadProvider.class)
               .build(AeadProviderFactory.class));
     }
@@ -280,11 +282,29 @@ public final class LocalGcpWorkerApplication {
     };
   }
 
+  private static class MockAwsAeadProvider implements AeadProvider {
+
+    @Override
+    public CloudAeadSelector getAeadSelector(AeadProviderParameters aeadProviderParameters) {
+      return (unusedKekUri) -> getAeadFromJsonKeyset(TEST_KEK_JSON);
+    }
+
+    @Override
+    public void close() throws IOException {
+      // No-op
+    }
+  }
+
   private static class MockGcpAeadProvider implements AeadProvider {
 
     @Override
     public CloudAeadSelector getAeadSelector(AeadProviderParameters aeadProviderParameters) {
       return (unusedKekUri) -> getAeadFromJsonKeyset(TEST_KEK_JSON);
+    }
+
+    @Override
+    public void close() throws IOException {
+      // No-op
     }
   }
 }

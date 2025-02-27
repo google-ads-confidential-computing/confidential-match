@@ -237,6 +237,11 @@ alias(
 )
 
 alias(
+    name = "scp_cpio_cloud_initializer",
+    actual = "@com_google_adm_cloud_scp//cc/public/cpio/interface/cloud_initializer",
+)
+
+alias(
     name = "scp_cpio_blob_storage_client_interface",
     actual = "@com_google_adm_cloud_scp//cc/public/cpio/interface/blob_storage_client:blob_storage_client",
 )
@@ -279,6 +284,11 @@ alias(
 alias(
     name = "scp_cpio_kms_proto",
     actual = "@com_google_adm_cloud_scp//cc/public/cpio/proto/kms_service/v1:kms_service_cc_proto",
+)
+
+alias(
+    name = "scp_cpio_aws_kms_client",
+    actual = "@com_google_adm_cloud_scp//cc/public/cpio/interface/kms_client/aws:aws_kms_client",
 )
 
 alias(

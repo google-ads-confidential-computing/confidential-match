@@ -17,11 +17,9 @@
 package com.google.cm.mrp;
 
 import com.google.cm.mrp.backend.ApplicationProto.ApplicationId;
-import com.google.common.collect.ImmutableSet;
 import com.google.scp.shared.clients.configclient.ParameterClient;
 import com.google.scp.shared.clients.configclient.ParameterClient.ParameterClientException;
 import java.util.Optional;
-import java.util.Set;
 import javax.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -29,9 +27,6 @@ import org.slf4j.LoggerFactory;
 /** Concrete class implementing {@link StartupConfigProvider} interface. */
 // TODO(b/347031972): Look into removing the interface, which is needed only for mocking.
 public final class StartupConfigProviderImpl implements StartupConfigProvider {
-
-  // These should correspond exactly with the Logging backend
-  private final Set<String> ACCEPTED_LEVELS = ImmutableSet.of("DEBUG", "INFO", "WARN", "ERROR");
 
   private static final Logger logger = LoggerFactory.getLogger(StartupConfigProviderImpl.class);
   // Parameter client used to fetch the parameter from cloud.
@@ -51,18 +46,7 @@ public final class StartupConfigProviderImpl implements StartupConfigProvider {
         getValue(Parameter.CONSCRYPT_ENABLED.name()).map(Boolean::parseBoolean).orElse(false);
     builder.setConscryptEnabled(conscryptEnabled);
 
-    Optional<String> logLevelParam = getValue(Parameter.LOGGING_LEVEL.name());
-    if (logLevelParam.isPresent()) {
-      String logLevel = logLevelParam.get();
-      if (ACCEPTED_LEVELS.contains(logLevel)) {
-        builder.setLoggingLevel(logLevel);
-      } else {
-        logger.warn(
-            "Log level {} in parameter client does not match of the accepted levels: {}",
-            logLevel,
-            ACCEPTED_LEVELS);
-      }
-    }
+    builder.setLoggingLevel(getValue(Parameter.LOGGING_LEVEL.name()));
 
     // Get notification topics
     for (ApplicationId applicationId : ApplicationId.values()) {

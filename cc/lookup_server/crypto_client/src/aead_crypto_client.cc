@@ -17,9 +17,12 @@
 #include <memory>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "absl/strings/escaping.h"
+#include "absl/strings/str_split.h"
 #include "absl/strings/string_view.h"
+#include "absl/strings/strip.h"
 #include "cc/core/interface/async_context.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "tink/aead.h"
@@ -57,21 +60,9 @@ using ::google::scp::core::common::kZeroUuid;
 using ::std::placeholders::_1;
 
 constexpr absl::string_view kComponentName = "AeadCryptoClient";
-
-// Helper to build a request for decrypting a wrapped KMS key.
-DecryptRequest BuildKmsDecryptRequest(
-    const EncryptionKeyInfo& encryption_key_info) noexcept {
-  DecryptRequest decrypt_request;
-  const EncryptionKeyInfo::WrappedKeyInfo& wrapped_key_info =
-      encryption_key_info.wrapped_key_info();
-  decrypt_request.set_ciphertext(wrapped_key_info.encrypted_dek());
-  decrypt_request.set_key_resource_name(wrapped_key_info.kek_kms_resource_id());
-  decrypt_request.set_gcp_wip_provider(
-      wrapped_key_info.gcp_wrapped_key_info().wip_provider());
-  decrypt_request.set_account_identity(
-      wrapped_key_info.gcp_wrapped_key_info().service_account_to_impersonate());
-  return decrypt_request;
-}
+constexpr absl::string_view kAwsKmsResourcePrefix = "aws-kms://";
+constexpr absl::string_view kGcpKmsResourcePrefix = "gcp-kms://";
+constexpr absl::string_view kAwsResourceDelimiter = ":";
 
 }  // namespace
 
@@ -95,6 +86,49 @@ ExecutionResult AeadCryptoClient::Stop() noexcept {
   return SuccessExecutionResult();
 }
 
+// Helper to build a request for decrypting a wrapped KMS key.
+DecryptRequest AeadCryptoClient::BuildKmsDecryptRequest(
+    const EncryptionKeyInfo& encryption_key_info) noexcept {
+  DecryptRequest decrypt_request;
+  const EncryptionKeyInfo::WrappedKeyInfo& wrapped_key_info =
+      encryption_key_info.wrapped_key_info();
+  decrypt_request.set_ciphertext(wrapped_key_info.encrypted_dek());
+  decrypt_request.set_key_resource_name(wrapped_key_info.kek_kms_resource_id());
+
+  // Normalize prefix
+  if (absl::StartsWith(wrapped_key_info.kek_kms_resource_id(),
+                       kGcpKmsResourcePrefix)) {
+    decrypt_request.set_key_resource_name(absl::StripPrefix(
+        wrapped_key_info.kek_kms_resource_id(), kGcpKmsResourcePrefix));
+  } else if (absl::StartsWith(wrapped_key_info.kek_kms_resource_id(),
+                              kAwsKmsResourcePrefix)) {
+    decrypt_request.set_key_resource_name(absl::StripPrefix(
+        wrapped_key_info.kek_kms_resource_id(), kAwsKmsResourcePrefix));
+  }
+
+  if (wrapped_key_info.has_gcp_wrapped_key_info()) {
+    decrypt_request.set_gcp_wip_provider(
+        wrapped_key_info.gcp_wrapped_key_info().wip_provider());
+    decrypt_request.set_account_identity(wrapped_key_info.gcp_wrapped_key_info()
+                                             .service_account_to_impersonate());
+  } else if (wrapped_key_info.has_aws_wrapped_key_info()) {
+    decrypt_request.set_account_identity(
+        wrapped_key_info.aws_wrapped_key_info().role_arn());
+    decrypt_request.set_target_audience_for_web_identity(
+        wrapped_key_info.aws_wrapped_key_info().audience());
+    // Must include region
+    std::vector<absl::string_view> vector = absl::StrSplit(
+        decrypt_request.key_resource_name(), kAwsResourceDelimiter);
+    // Region is in the 3rd index. Eg: `arn:aws:kms:<region>:<###>`
+    decrypt_request.set_kms_region(vector[3]);
+
+    for (const auto& signature : kms_default_signatures_) {
+      decrypt_request.add_key_ids(signature);
+    }
+  }
+  return decrypt_request;
+}
+
 void AeadCryptoClient::GetCryptoKey(
     AsyncContext<EncryptionKeyInfo, CryptoKeyInterface> key_context) noexcept {
   AsyncContext<DecryptRequest, std::string> decrypt_context;
@@ -102,7 +136,13 @@ void AeadCryptoClient::GetCryptoKey(
       BuildKmsDecryptRequest(*key_context.request));
   decrypt_context.callback = std::bind(
       &AeadCryptoClient::OnDecryptWrappedKmsKeyCallback, this, _1, key_context);
-  ExecutionResult start_decrypt_result = kms_client_->Decrypt(decrypt_context);
+  ExecutionResult start_decrypt_result;
+  if (key_context.request->wrapped_key_info().has_aws_wrapped_key_info()) {
+    start_decrypt_result = aws_kms_client_->Decrypt(decrypt_context);
+  } else {
+    start_decrypt_result = gcp_kms_client_->Decrypt(decrypt_context);
+  }
+
   if (!start_decrypt_result.Successful()) {
     SCP_ERROR_CONTEXT(kComponentName, key_context, start_decrypt_result,
                       "Failed to start the KMS decryption process.");

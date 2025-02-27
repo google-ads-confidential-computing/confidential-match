@@ -1,3 +1,3 @@
 # How to Contribute
 
-Presently this project is not accepting contributions.
+This project is not accepting contributions.

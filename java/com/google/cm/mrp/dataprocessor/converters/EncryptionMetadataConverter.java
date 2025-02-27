@@ -132,16 +132,17 @@ public final class EncryptionMetadataConverter {
                 .setKeyType(convertToLookupKeyType(jobWrappedKeyInfo.getKeyType()));
         if (jobWrappedKeyInfo.hasAwsWrappedKeyInfo()) {
           lookupWrappedKeyInfo.setAwsWrappedKeyInfo(
-              EncryptionKeyInfo.WrappedKeyInfo.AwsWrappedKeyInfo.newBuilder().build());
+              EncryptionKeyInfo.WrappedKeyInfo.AwsWrappedKeyInfo.newBuilder()
+                  .setAudience(jobWrappedKeyInfo.getAwsWrappedKeyInfo().getAudience())
+                  .setRoleArn(jobWrappedKeyInfo.getAwsWrappedKeyInfo().getRoleArn())
+                  .build());
         } else if (jobWrappedKeyInfo.hasGcpWrappedKeyInfo()) {
           String wipProvider =
               !jobWrappedKeyInfo.getGcpWrappedKeyInfo().getWipProvider().isBlank()
                   ? jobWrappedKeyInfo.getGcpWrappedKeyInfo().getWipProvider()
                   : wrappedEncryptionKeys.getGcpWrappedKeys().getWipProvider();
           // TODO(b/384782105): Migrate to use Lookup GCP WrappedKeyInfo
-          lookupWrappedKeyInfo
-              .setKeyType(convertToLookupKeyType(jobWrappedKeyInfo.getKeyType()))
-              .setKmsWipProvider(wipProvider.trim());
+          lookupWrappedKeyInfo.setKmsWipProvider(wipProvider.trim());
         } else {
           String msg = "WrappedKeyInfo must have either AWS or GCP details.";
           logger.error(msg);

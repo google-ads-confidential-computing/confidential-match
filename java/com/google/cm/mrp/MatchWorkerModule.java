@@ -19,9 +19,11 @@ package com.google.cm.mrp;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.cm.mrp.Annotations.JobProcessorMaxRetries;
 import com.google.cm.mrp.Annotations.JobQueueRetryDelaySec;
+import com.google.cm.mrp.clients.attestation.AttestationTokenModule;
 import com.google.cm.mrp.clients.cryptoclient.AeadProvider;
 import com.google.cm.mrp.clients.cryptoclient.AeadProviderFactory;
 import com.google.cm.mrp.clients.cryptoclient.HybridEncryptionKeyServiceProvider;
+import com.google.cm.mrp.clients.cryptoclient.aws.AwsAeadProvider;
 import com.google.cm.mrp.clients.cryptoclient.gcp.GcpAeadProvider;
 import com.google.cm.mrp.clients.cryptoclient.gcp.MultiPartyHybridEncryptionKeyServiceProvider;
 import com.google.cm.mrp.clients.lookupserviceclient.gcp.LookupServiceClientGcpModule;
@@ -29,6 +31,7 @@ import com.google.cm.mrp.dataprocessor.DataProcessorModule;
 import com.google.cm.mrp.selectors.LookupProtoFormatSelector;
 import com.google.cm.mrp.selectors.LookupProtoFormatSelector.LookupProtoFormatHandler;
 import com.google.common.base.Suppliers;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.crypto.tink.aead.AeadConfig;
 import com.google.inject.AbstractModule;
@@ -47,6 +50,7 @@ import java.nio.file.FileSystem;
 import java.nio.file.FileSystems;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
+import java.util.List;
 import java.util.Optional;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
@@ -100,10 +104,12 @@ public final class MatchWorkerModule extends AbstractModule {
             getMrpThreadPoolSize(), getInputDataChunkSize(), getMaxRecordsPerOutputFile()));
     install(
         new FactoryModuleBuilder()
+            .implement(AeadProvider.class, Names.named("aws"), AwsAeadProvider.class)
             .implement(AeadProvider.class, Names.named("gcp"), GcpAeadProvider.class)
             .build(AeadProviderFactory.class));
     bind(HybridEncryptionKeyServiceProvider.class)
         .to(MultiPartyHybridEncryptionKeyServiceProvider.class);
+    install(new AttestationTokenModule(getAwsDefaultKmsAudience(), getAwsSignaturesList()));
 
     // TODO(b/309462840): LookupServiceClientGcpModule should be in a selector
     install(
@@ -235,6 +241,16 @@ public final class MatchWorkerModule extends AbstractModule {
     return getValue(Parameter.JOB_QUEUE_RETRY_DELAY_SEC)
         .map(Integer::parseInt)
         .orElse(args.getJobQueueRetryDelaySec());
+  }
+
+  private String getAwsDefaultKmsAudience() {
+    return getValue(Parameter.AWS_KMS_DEFAULT_AUDIENCE).orElse(args.getAwsDefaultKmsAudience());
+  }
+
+  private List<String> getAwsSignaturesList() {
+    String stringList =
+        getValue(Parameter.AWS_KMS_DEFAULT_SIGNATURES).orElse(args.getAwsKmsSignaturesList());
+    return ImmutableList.copyOf(stringList.split(","));
   }
 
   private Optional<String> getValue(Parameter parameter) {

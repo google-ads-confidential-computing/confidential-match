@@ -30,6 +30,8 @@ import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.Field;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.KeyValue;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.MatchKey;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
+import com.google.cm.mrp.backend.DataRecordProto.DataRecord.ProcessingMetadata;
+import com.google.cm.mrp.backend.DataRecordProto.DataRecord.ProtoEncryptionLevel;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
 import com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
@@ -125,6 +127,7 @@ public final class ConfidentialMatchDataRecordParserImpl
     Map<EncryptionKey, Map<String, List<CompositeField>>> compositeFieldMap = new HashMap<>();
     EncryptionKey rowLevelEncryptionKey = cfmDataRecord.getEncryptionKey();
     List<DataRecord> internalRecords = new ArrayList<>();
+    ProtoEncryptionLevel encryptionLevel = ProtoEncryptionLevel.UNSPECIFIED_ENCRYPTION_LEVEL;
 
     // Handle invalid CFM DataRecord without match keys.
     if (cfmDataRecord.getMatchKeysList().isEmpty()) {
@@ -139,8 +142,25 @@ public final class ConfidentialMatchDataRecordParserImpl
 
     // Put match keys in corresponding map for field or composite field.
     for (MatchKey matchKey : cfmDataRecord.getMatchKeysList()) {
-      EncryptionKey encryptionKey =
-          matchKey.hasEncryptionKey() ? matchKey.getEncryptionKey() : rowLevelEncryptionKey;
+      if (matchKey.hasEncryptionKey() && cfmDataRecord.hasEncryptionKey()) {
+        String message =
+            "Invalid ConfidentialMatchDataRecord with encryption key specified at MatchKey and Row"
+                + " level.";
+        if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS) {
+          logger.info(message);
+          return ImmutableList.of(
+                  generateErrorDataRecord(JobResultCode.INVALID_ENCRYPTION_COLUMN, rowId));
+        }
+        throw new JobProcessorException(message, JobResultCode.INVALID_ENCRYPTION_COLUMN);
+      }
+
+      EncryptionKey encryptionKey = rowLevelEncryptionKey;
+      if (matchKey.hasEncryptionKey()) {
+        encryptionLevel = ProtoEncryptionLevel.MATCH_KEY_LEVEL;
+        encryptionKey = matchKey.getEncryptionKey();
+      } else if (cfmDataRecord.hasEncryptionKey()) {
+        encryptionLevel = ProtoEncryptionLevel.ROW_LEVEL;
+      }
 
       if (matchKey.hasField()) {
         singleFieldMap
@@ -175,9 +195,8 @@ public final class ConfidentialMatchDataRecordParserImpl
       String message = "Invalid ConfidentialMatchDataRecord with duplicate metadata key.";
       if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS) {
         logger.info(message);
-        return new ArrayList<>(
-            Arrays.asList(
-                generateErrorDataRecord(JobResultCode.PROTO_DUPLICATE_METADATA_KEY, rowId)));
+        return ImmutableList.of(
+                generateErrorDataRecord(JobResultCode.PROTO_DUPLICATE_METADATA_KEY, rowId));
       }
       throw new JobProcessorException(message, JobResultCode.PROTO_DUPLICATE_METADATA_KEY);
     }
@@ -191,10 +210,9 @@ public final class ConfidentialMatchDataRecordParserImpl
             String.format("CFM DataRecord metadata contains restricted alias: %s", metadataAlias);
         if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS) {
           logger.info(message);
-          return new ArrayList<>(
-              Arrays.asList(
+          return ImmutableList.of(
                   generateErrorDataRecord(
-                      JobResultCode.PROTO_METADATA_CONTAINING_RESTRICTED_ALIAS, rowId)));
+                      JobResultCode.PROTO_METADATA_CONTAINING_RESTRICTED_ALIAS, rowId));
         }
         throw new JobProcessorException(
             message, JobResultCode.PROTO_METADATA_CONTAINING_RESTRICTED_ALIAS);
@@ -275,7 +293,15 @@ public final class ConfidentialMatchDataRecordParserImpl
                 DataRecord.KeyValue.newBuilder().setKey(column).setStringValue("").build());
           }
         }
-        DataRecord.Builder dataRecordBuilder = DataRecord.newBuilder().addAllKeyValues(keyValues);
+        ProcessingMetadata.Builder processingMetadata = ProcessingMetadata.newBuilder();
+        if (!encryptionKeyAliasesToType.isEmpty()
+            && encryptionLevel != ProtoEncryptionLevel.UNSPECIFIED_ENCRYPTION_LEVEL) {
+          processingMetadata.setProtoEncryptionLevel(encryptionLevel);
+        }
+        DataRecord.Builder dataRecordBuilder =
+            DataRecord.newBuilder()
+                .addAllKeyValues(keyValues)
+                .setProcessingMetadata(processingMetadata.build());
         if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS && rowLevelErrorCode.isPresent()) {
           dataRecordBuilder.setErrorCode(rowLevelErrorCode.get());
         }

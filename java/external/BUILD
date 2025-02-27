@@ -336,6 +336,26 @@ alias(
     actual = "@maven//:com_google_api_grpc_proto_google_common_protos",
 )
 
+alias(
+    name = "aws_apache_http",
+    actual = "@maven//:software_amazon_awssdk_apache_client",
+)
+
+alias(
+    name = "aws_auth",
+    actual = "@maven//:software_amazon_awssdk_auth",
+)
+
+alias(
+    name = "aws_core",
+    actual = "@maven//:software_amazon_awssdk_sdk_core",
+)
+
+alias(
+    name = "aws_http_client_spi",
+    actual = "@maven//:software_amazon_awssdk_http_client_spi",
+)
+
 ################################################################################
 # Cloud Libraries: End
 ################################################################################
@@ -506,6 +526,11 @@ alias(
 alias(
     name = "shared_api_util",
     actual = "@com_google_adm_cloud_scp//java/com/google/scp/shared/api/util",
+)
+
+alias(
+    name = "crypto_awskmsv2",
+    actual = "@com_google_adm_cloud_scp//java/com/google/crypto/tink/integration/awskmsv2",
 )
 
 alias(

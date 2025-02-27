@@ -78,7 +78,7 @@ public class AttestationTokenServiceTest {
               return handler.handleResponse(response);
             });
 
-    assertThat(tokenService.getCachedToken()).isEqualTo(testToken);
+    assertThat(tokenService.getToken()).isEqualTo(testToken);
 
     var request = requestCaptor.getValue();
     String requestBody = EntityUtils.toString(request.getEntity());
@@ -107,7 +107,7 @@ public class AttestationTokenServiceTest {
               return handler.handleResponse(response);
             });
 
-    assertThat(tokenService.getCachedToken()).isEqualTo(testToken);
+    assertThat(tokenService.getToken()).isEqualTo(testToken);
 
     var request = requestCaptor.getValue();
     String requestBody = EntityUtils.toString(request.getEntity());
@@ -134,8 +134,7 @@ public class AttestationTokenServiceTest {
               return handler.handleResponse(response);
             });
 
-    var ex =
-        assertThrows(AttestationTokenServiceException.class, () -> tokenService.getCachedToken());
+    var ex = assertThrows(AttestationTokenServiceException.class, () -> tokenService.getToken());
     assertThat(ex.getMessage()).isEqualTo("Could not get token from cache.");
   }
 
@@ -144,8 +143,7 @@ public class AttestationTokenServiceTest {
     when(httpClient.execute(any(), any(HttpClientResponseHandler.class)))
         .thenThrow(IOException.class);
 
-    var ex =
-        assertThrows(AttestationTokenServiceException.class, () -> tokenService.getCachedToken());
+    var ex = assertThrows(AttestationTokenServiceException.class, () -> tokenService.getToken());
     assertThat(ex.getMessage()).isEqualTo("Could not get token from cache.");
   }
 

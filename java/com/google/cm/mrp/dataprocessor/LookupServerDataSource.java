@@ -598,39 +598,54 @@ public final class LookupServerDataSource implements LookupDataSource {
       EncryptionKeyColumnIndices keyColumnIndices,
       Set<Integer> encryptedColumnIndices) {
     var encryptionKey = DataRecordEncryptionKeys.newBuilder();
-    if (keyColumnIndices.hasWrappedKeyColumnIndices()) {
-      WrappedKeyColumnIndices wrappedKeyColumnIndices =
-          keyColumnIndices.getWrappedKeyColumnIndices();
-      OptionalInt wipColumnIndex;
-      // Do not try to search if request has valid WIP Provider
-      if (encryptionKeyInfo.getWrappedKeyInfo().hasGcpWrappedKeyInfo()
-          && !encryptionKeyInfo
-              .getWrappedKeyInfo()
-              .getGcpWrappedKeyInfo()
-              .getWipProvider()
-              .isBlank()) {
-        wipColumnIndex = OptionalInt.empty();
-      } else if (!wrappedKeyColumnIndices.hasGcpColumnIndices()) {
-        String message = "No WIP in request and no WIP column index found.";
-        logger.error(message);
-        throw new JobProcessorException(message, ENCRYPTION_COLUMNS_PROCESSING_ERROR);
-      } else {
-        wipColumnIndex =
-            OptionalInt.of(wrappedKeyColumnIndices.getGcpColumnIndices().getWipProviderIndex());
-      }
-      encryptionKey.setWrappedEncryptionKeys(
-          getWrappedEncryptionKeys(
-              dataRecord,
-              wrappedKeyColumnIndices.getEncryptedDekColumnIndex(),
-              wrappedKeyColumnIndices.getKekUriColumnIndex(),
-              wipColumnIndex,
-              encryptedColumnIndices));
-    } else {
+    if (keyColumnIndices.hasCoordinatorKeyColumnIndices()) {
       encryptionKey.setCoordinatorKey(
           getCoordinatorKey(
               dataRecord,
               keyColumnIndices.getCoordinatorKeyColumnIndices().getCoordinatorKeyColumnIndex(),
               encryptedColumnIndices));
+    } else {
+      WrappedKeyColumnIndices wrappedKeyColumnIndices =
+          keyColumnIndices.getWrappedKeyColumnIndices();
+      if (encryptionKeyInfo.getWrappedKeyInfo().hasGcpWrappedKeyInfo()) {
+        OptionalInt wipColumnIndex;
+        // Do not try to search if request has valid WIP Provider
+        if (!encryptionKeyInfo
+            .getWrappedKeyInfo()
+            .getGcpWrappedKeyInfo()
+            .getWipProvider()
+            .isBlank()) {
+          wipColumnIndex = OptionalInt.empty();
+        } else if (!wrappedKeyColumnIndices.hasGcpColumnIndices()) {
+          String message = "No WIP in request and no WIP column index found.";
+          logger.error(message);
+          throw new JobProcessorException(message, ENCRYPTION_COLUMNS_PROCESSING_ERROR);
+        } else {
+          wipColumnIndex =
+              OptionalInt.of(wrappedKeyColumnIndices.getGcpColumnIndices().getWipProviderIndex());
+        }
+        encryptionKey.setWrappedEncryptionKeys(
+            getWrappedEncryptionKeys(
+                dataRecord,
+                wrappedKeyColumnIndices.getEncryptedDekColumnIndex(),
+                wrappedKeyColumnIndices.getKekUriColumnIndex(),
+                wipColumnIndex,
+                encryptedColumnIndices));
+      } else if (encryptionKeyInfo.getWrappedKeyInfo().hasAwsWrappedKeyInfo()) {
+        // TODO(b/384749925):Add row-level roleARN support
+        if (encryptionKeyInfo.getWrappedKeyInfo().getAwsWrappedKeyInfo().getRoleArn().isBlank()) {
+          String message = "No role ARN in request found.";
+          logger.error(message);
+          throw new JobProcessorException(message, ENCRYPTION_COLUMNS_PROCESSING_ERROR);
+        }
+        encryptionKey.setWrappedEncryptionKeys(
+            getWrappedEncryptionKeys(
+                dataRecord,
+                wrappedKeyColumnIndices.getEncryptedDekColumnIndex(),
+                wrappedKeyColumnIndices.getKekUriColumnIndex(),
+                OptionalInt.empty(),
+                encryptedColumnIndices));
+      }
     }
     return encryptionKey.build();
   }

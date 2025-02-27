@@ -87,6 +87,8 @@ lookup_server_lib_deps = [
     "//cc/external:scp_core_http2_server",
     "//cc/external:scp_core_config_provider",
     "//cc/external:scp_core_interface_lib",
+    "//cc/external:scp_cpio_cloud_initializer",
+    "//cc/external:scp_cpio_aws_kms_client",
     "//cc/external:scp_cpio_private_key_client_interface",
     "//cc/external:scp_cpio_blob_storage_client_interface",
     "//cc/external:scp_cpio_metric_client_interface",
