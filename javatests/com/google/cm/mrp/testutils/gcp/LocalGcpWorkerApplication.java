@@ -112,7 +112,7 @@ public final class LocalGcpWorkerApplication {
 
   private static final class LocalGcpWorkerModule extends AbstractModule {
 
-    private static final Timeout DEFAULT_TIMEOUT = Timeout.ofSeconds(2);
+    private static final Timeout DEFAULT_TIMEOUT = Timeout.ofMilliseconds(500);
     private static final String GCS_ENDPOINT = System.getenv("GCS_ENDPOINT");
     private static final Optional<String> PUBSUB_ENDPOINT =
         Optional.ofNullable(System.getenv("PUBSUB_ENDPOINT"));
@@ -169,7 +169,6 @@ public final class LocalGcpWorkerApplication {
       RequestConfig requestConfig =
           RequestConfig.custom()
               .setConnectionRequestTimeout(DEFAULT_TIMEOUT)
-              .setConnectTimeout(DEFAULT_TIMEOUT)
               .setResponseTimeout(DEFAULT_TIMEOUT)
               .build();
       CloseableHttpAsyncClient shardHttpClient =

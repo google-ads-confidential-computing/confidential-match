@@ -46,6 +46,7 @@ public final class LookupServiceShardClientGcpModule extends LookupServiceShardC
   private static final String AUTH_TOKEN_HEADER = "x-auth-token";
 
   private static final Timeout REQUEST_TIMEOUT = Timeout.ofMinutes(1);
+  private static final Timeout CONNECTION_TIMEOUT = Timeout.ofSeconds(15);
   private static final TimeValue BASE_RETRY_DELAY = TimeValue.ofMilliseconds(500);
   private static final int RETRY_DELAY_MULTIPLIER = 2; // double retry interval every attempt
   private static final long CACHE_EXPIRATION_MINUTES = 30L;
@@ -101,12 +102,13 @@ public final class LookupServiceShardClientGcpModule extends LookupServiceShardC
                     maxRequestRetries, BASE_RETRY_DELAY, RETRY_DELAY_MULTIPLIER))
             .setDefaultRequestConfig(
                 RequestConfig.custom()
-                    .setConnectionRequestTimeout(REQUEST_TIMEOUT) // Internal connection request
-                    .setConnectTimeout(REQUEST_TIMEOUT) // Establishing connection
+                    .setConnectionRequestTimeout(CONNECTION_TIMEOUT) // Internal connection request
                     .setResponseTimeout(REQUEST_TIMEOUT) // Waiting for server response
                     .build())
             .setDefaultConnectionConfig(
-                ConnectionConfig.custom().setConnectTimeout(REQUEST_TIMEOUT).build())
+                ConnectionConfig.custom()
+                    .setConnectTimeout(CONNECTION_TIMEOUT)
+                    .build()) // Establishing connection
             .setIOReactorConfig(IOReactorConfig.custom().setSoTimeout(REQUEST_TIMEOUT).build())
             .addRequestInterceptorLast(lookupServiceAuthHeadersInterceptor())
             .build();

@@ -16,7 +16,9 @@
 
 package com.google.cm.testutils.gcp;
 
+import static java.net.InetAddress.getLocalHost;
 import static java.nio.file.Files.newInputStream;
+import static org.testcontainers.dockerclient.DockerClientConfigUtils.IN_A_CONTAINER;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -29,12 +31,27 @@ import org.testcontainers.utility.TestcontainersConfiguration;
 /** Containers used for testing. */
 public class TestingContainer<T extends GenericContainer<T>> extends GenericContainer<T> {
 
-  // Hostname that can be used by containers to access the host
-  public static final String HOST_EGRESS_HOSTNAME = "host.docker.internal";
+  private static final String DOCKER_HOST_GATEWAY = "host.docker.internal";
+  private static final boolean RUNNING_IN_CLOUDBUILD =
+      !DockerClientFactory.instance()
+          .client()
+          .listNetworksCmd()
+          .withNameFilter("^cloudbuild$")
+          .exec()
+          .isEmpty();
+
+  /** Hostname for containers to access the testing environment, either a host OS or a container. */
+  public static final String TEST_RUNNER_HOSTNAME;
 
   static {
     // Disable pulling and using the test containers startup check container
     TestcontainersConfiguration.getInstance().updateUserConfig("checks.disable", "true");
+
+    try {
+      TEST_RUNNER_HOSTNAME = IN_A_CONTAINER ? getLocalHost().getHostAddress() : DOCKER_HOST_GATEWAY;
+    } catch (IOException ex) {
+      throw new RuntimeException(ex);
+    }
   }
 
   /**
@@ -44,8 +61,12 @@ public class TestingContainer<T extends GenericContainer<T>> extends GenericCont
    */
   public TestingContainer(TestingImage image) {
     super(image.load());
-    // Allow access to host ports without pulling and using the test containers sshd image
-    withExtraHost(HOST_EGRESS_HOSTNAME, "host-gateway");
+    // Allow access to the host without pulling or using the Test Containers sshd image
+    withExtraHost(DOCKER_HOST_GATEWAY, "host-gateway");
+    // When running in cloud build, use network "cloudbuild" instead of default "bridge"
+    if (RUNNING_IN_CLOUDBUILD) {
+      withNetworkMode("cloudbuild");
+    }
     // Never attempt remote pulls for these testing images during the tests
     withImagePullPolicy(unused -> false);
 

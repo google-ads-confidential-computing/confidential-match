@@ -1,9 +1,7 @@
 # Encryption Application Example
 
 This example application takes a CSV file as input and produces a formatted and
-encrypted CSV file. This file works with Data Manager’s file-based connectors,
-such as Google Cloud Storage, SFTP, and HTTPS. The application accepts plaintext
-data files, and then
+encrypted CSV file. The application accepts plaintext data files, and then
 it [formats](https://support.google.com/google-ads/answer/7659867), hashes, and
 encrypts this data with an encrypted keyset using Tink version 1.7. For more
 information and examples,

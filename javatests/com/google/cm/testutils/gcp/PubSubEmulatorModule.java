@@ -54,17 +54,14 @@ public final class PubSubEmulatorModule extends AbstractModule {
     var emulator = new PubSubEmulator(projectId);
     emulator.start();
     bind(PubSubEmulator.class).toInstance(emulator);
-
-    TransportChannelProvider transportChannelProvider =
-        FixedTransportChannelProvider.create(
-            GrpcTransportChannel.create(
-                ManagedChannelBuilder.forTarget(emulator.getHostEndpoint())
-                    .usePlaintext()
-                    .build()));
     var topicName = TopicName.of(projectId, topicId);
     var subName = ProjectSubscriptionName.of(projectId, subscriptionId);
 
-    try {
+    try (var channel =
+        GrpcTransportChannel.create(
+            ManagedChannelBuilder.forTarget(emulator.getHostEndpoint()).usePlaintext().build())) {
+      var transportChannelProvider = FixedTransportChannelProvider.create(channel);
+
       // Create topic
       var topicAdminSettings =
           TopicAdminSettings.newBuilder()

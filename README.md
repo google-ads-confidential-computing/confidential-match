@@ -1,8 +1,14 @@
-# Confidential Match Repository
+# Confidential Match
 
 Confidential Match allows matching between two sets of data on specific keys
 while providing technical guarantees around confidentiality, integrity, and
 privacy.
+
+The following two components run inside a Trusted Execution Environment (TEE),
+which provides a technical guarantee about how the data is processed.
+
+1. Lookup Service
+2. Match Request Processor (MRP)
 
 ## Build Instructions
 
@@ -45,10 +51,18 @@ $ gcloud auth configure-docker us-docker.pkg.dev
 Run `build_lookup_service.sh` to build the image and load it into Docker
 as `bazel/cc/lookup_server/deploy:lookup_server_gcp_image_48_vcpu`.
 
+### How to Run Lookup Service Tests
+
+Run `bazel test //cc/...` to execute these tests.
+
 ### How to Build the Match Request Processor (MRP)
 
 Run `build_mrp.sh` to build the image and load it into Docker
 as `bazel/java/com/google/cm/mrp:mrp_app_gcp_image`.
+
+### How to Run Match Request Processor Tests
+
+Run `bazel test //javatests/...` to execute these tests.
 
 ## How to Verify Image Signatures
 

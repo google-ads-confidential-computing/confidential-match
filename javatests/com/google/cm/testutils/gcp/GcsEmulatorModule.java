@@ -16,12 +16,12 @@
 
 package com.google.cm.testutils.gcp;
 
+import com.google.cloud.NoCredentials;
 import com.google.inject.AbstractModule;
 import com.google.inject.Provides;
 import com.google.inject.Singleton;
 import com.google.cloud.storage.Storage;
 import com.google.cloud.storage.StorageOptions;
-import org.testcontainers.utility.DockerImageName;
 
 /** Guice module providing GCS emulator bindings. */
 public final class GcsEmulatorModule extends AbstractModule {
@@ -47,6 +47,7 @@ public final class GcsEmulatorModule extends AbstractModule {
     return StorageOptions.newBuilder()
         .setProjectId(projectId)
         .setHost("http://" + localGcsContainer.getHostEndpoint())
+        .setCredentials(NoCredentials.getInstance())
         .build()
         .getService();
   }

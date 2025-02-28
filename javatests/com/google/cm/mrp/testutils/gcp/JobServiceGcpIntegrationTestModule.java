@@ -22,7 +22,7 @@ import static com.google.cm.mrp.testutils.gcp.Constants.PUBSUB_TOPIC_ID;
 import static com.google.cm.mrp.testutils.gcp.Constants.SPANNER_DATABASE_NAME;
 import static com.google.cm.mrp.testutils.gcp.Constants.SPANNER_INSTANCE_NAME;
 import static com.google.cm.testutils.gcp.Constants.JOB_DB_DDL;
-import static com.google.cm.testutils.gcp.TestingContainer.HOST_EGRESS_HOSTNAME;
+import static com.google.cm.testutils.gcp.TestingContainer.TEST_RUNNER_HOSTNAME;
 import static com.google.cm.testutils.gcp.TestingContainer.TestingImage.JAVA_BASE;
 
 import com.google.api.client.http.HttpRequestFactory;
@@ -70,12 +70,11 @@ public abstract class JobServiceGcpIntegrationTestModule extends AbstractModule 
       PubSubEmulator pubSubEmulator,
       SpannerEmulator spannerEmulator) {
     // Let mock server act as orchestrator, lookup service, and GCE metadata service
-    String mockServerEndpoint = "http://" + HOST_EGRESS_HOSTNAME + ":" + getMockServerPort();
+    String mockServerEndpoint = "http://" + TEST_RUNNER_HOSTNAME + ":" + getMockServerPort();
     String workerPath = "javatests/com/google/cm/mrp/testutils/gcp/LocalGcpWorker_deploy.jar";
     MountableFile workerJar = MountableFile.forHostPath(workerPath);
     GenericContainer<?> worker =
         new TestingContainer<>(JAVA_BASE)
-            .withExposedPorts(80)
             .withCopyFileToContainer(workerJar, "LocalGcpWorker_deploy.jar")
             .withCommand("LocalGcpWorker_deploy.jar")
             .dependsOn(gcsEmulator, pubSubEmulator, spannerEmulator)

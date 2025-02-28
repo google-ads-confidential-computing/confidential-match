@@ -39,7 +39,7 @@ import static com.google.cm.mrp.testutils.HybridKeyGenerator.getHybridDecryptFro
 import static com.google.cm.mrp.testutils.HybridKeyGenerator.getHybridEncryptFromJsonKeyset;
 import static com.google.cm.mrp.testutils.gcp.Constants.TEST_HYBRID_PRIVATE_KEYSET;
 import static com.google.cm.mrp.testutils.gcp.Constants.TEST_KEK_JSON;
-import static com.google.cm.testutils.gcp.TestingContainer.HOST_EGRESS_HOSTNAME;
+import static com.google.cm.testutils.gcp.TestingContainer.TEST_RUNNER_HOSTNAME;
 import static com.google.cm.util.ProtoUtils.getJsonFromProto;
 import static com.google.cm.util.ProtoUtils.getProtoFromJson;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -1428,7 +1428,7 @@ public final class MrpGcpIntegrationTest {
                 .setShardNumber(0)
                 .setServerAddressUri(
                     "https://"
-                        + HOST_EGRESS_HOSTNAME
+                        + TEST_RUNNER_HOSTNAME
                         + ":"
                         + mockClient.getPort()
                         + LOOKUP_API_PATH))
