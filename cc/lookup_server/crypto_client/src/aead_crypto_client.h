@@ -40,10 +40,12 @@ class AeadCryptoClient : public CryptoClientInterface {
   explicit AeadCryptoClient(
       std::shared_ptr<KmsClientInterface> aws_kms_client,
       std::shared_ptr<KmsClientInterface> gcp_kms_client,
-      const std::vector<std::string>& kms_default_signatures)
+      const std::vector<std::string>& kms_default_signatures,
+      absl::string_view aws_kms_default_audience)
       : aws_kms_client_(std::move(aws_kms_client)),
         gcp_kms_client_(std::move(gcp_kms_client)),
-        kms_default_signatures_(kms_default_signatures) {}
+        kms_default_signatures_(kms_default_signatures),
+        aws_kms_default_audience_(aws_kms_default_audience) {}
 
   scp::core::ExecutionResult Init() noexcept override;
   scp::core::ExecutionResult Run() noexcept override;
@@ -70,6 +72,8 @@ class AeadCryptoClient : public CryptoClientInterface {
   std::shared_ptr<KmsClientInterface> gcp_kms_client_;
   // A list of signatures to send with AWS KMS requests.
   const std::vector<std::string> kms_default_signatures_;
+  // The default audience to send with AWS KMS requests.
+  absl::string_view aws_kms_default_audience_;
 };
 
 }  // namespace google::confidential_match::lookup_server

@@ -47,7 +47,15 @@ message JobParameters {
     repeated DataOwner data_owners = 1;
   }
 
+  // The type of encoding for hashed and/or encrypted bytes
+  enum EncodingType {
+    UNSPECIFIED = 0;
+    BASE64 = 1; // Default
+    HEX = 2;
+  }
+
   DataOwnerList data_owner_list = 1;
   ApplicationId application_id = 2;
   optional EncryptionMetadata encryption_metadata = 3;
+  optional EncodingType encoding_type = 4;
 }

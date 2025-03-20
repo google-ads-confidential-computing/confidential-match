@@ -1,11 +1,14 @@
-build --compilation_mode=opt
-
 # C++
 build --action_env=BAZEL_CXXOPTS=-std=c++17
 build --client_env=BAZEL_CXXOPT=-std=c++17
 build --cxxopt=-std=c++17
 build --copt=-Werror=switch
 build --copt=-O3
+build --compilation_mode=opt
+# Force C++ opentelemetry to use ABI version 2 over the default of 1,
+# which is required to support capabilities used in the CPIO library
+build --@io_opentelemetry_cpp//api:abi_version_no=2
+
 # Silence noise coming from external libraries (Tink C++)
 build --copt=-Wno-deprecated-declarations
 

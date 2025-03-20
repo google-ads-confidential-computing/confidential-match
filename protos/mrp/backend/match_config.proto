@@ -47,12 +47,15 @@ message MatchConfig {
   }
 
   message Column {
-    int32 order = 1;  // order of columns is important for match key calculation
-                      // and output
+    // Order of columns is important for match key calculation
+    // and output
+    int32 order = 1;
     string column_alias = 2;
     string column_name = 4;
-    repeated MatchTransformation match_transformations =
-        3;  // ordered by insertion
+    // Ordered by insertion
+    repeated MatchTransformation match_transformations = 3;
+    // Ordered by insertion. Condition defined in code
+    repeated MatchTransformation conditional_match_transformations = 5;
   }
 
   // Transform column value before matching

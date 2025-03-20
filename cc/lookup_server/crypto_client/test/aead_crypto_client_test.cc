@@ -112,7 +112,8 @@ class AeadCryptoClientTest : public testing::Test {
       : mock_aws_kms_client_(std::make_shared<MockKmsClient>()),
         mock_gcp_kms_client_(std::make_shared<MockKmsClient>()),
         crypto_client_(std::make_unique<AeadCryptoClient>(
-            mock_aws_kms_client_, mock_gcp_kms_client_, kDefaultSignatures)) {}
+            mock_aws_kms_client_, mock_gcp_kms_client_, kDefaultSignatures,
+            kAudience)) {}
 
   std::shared_ptr<MockKmsClient> mock_aws_kms_client_;
   std::shared_ptr<MockKmsClient> mock_gcp_kms_client_;
@@ -120,13 +121,14 @@ class AeadCryptoClientTest : public testing::Test {
 };
 
 EncryptionKeyInfo GetAwsEncryptionKeyInfo(
-    absl::string_view kek_id = kAwsKmsResourceName) {
+    absl::string_view kek_id = kAwsKmsResourceName,
+    absl::string_view audience = kAudience) {
   EncryptionKeyInfo encryption_key_info;
   auto* wrapped_key_info = encryption_key_info.mutable_wrapped_key_info();
   wrapped_key_info->set_encrypted_dek(kTestDek);
   wrapped_key_info->set_kek_kms_resource_id(kek_id);
   wrapped_key_info->mutable_aws_wrapped_key_info()->set_role_arn(kRoleArn);
-  wrapped_key_info->mutable_aws_wrapped_key_info()->set_audience(kAudience);
+  wrapped_key_info->mutable_aws_wrapped_key_info()->set_audience(audience);
   return encryption_key_info;
 }
 
@@ -163,7 +165,7 @@ Keyset GetKeysetWithEmptyPrimitive() {
 TEST_F(AeadCryptoClientTest, StartStop) {
   AeadCryptoClient crypto_client(std::make_shared<MockKmsClient>(),
                                  std::make_shared<MockKmsClient>(),
-                                 kDefaultSignatures);
+                                 kDefaultSignatures, kAudience);
   EXPECT_SUCCESS(crypto_client.Init());
   EXPECT_SUCCESS(crypto_client.Run());
   EXPECT_SUCCESS(crypto_client.Stop());
@@ -298,6 +300,34 @@ TEST_F(AeadCryptoClientTest, GetAwsCryptoKeyWithAwsPrefixSuccess) {
   AsyncContext<EncryptionKeyInfo, CryptoKeyInterface> context;
   context.request = std::make_shared<EncryptionKeyInfo>(
       GetAwsEncryptionKeyInfo(kAwsKmsResourceNameWithResourcePrefix));
+  std::string decoded_dek;
+  EXPECT_TRUE(absl::Base64Unescape(kTestDek, &decoded_dek));
+  DecryptRequest expected_request;
+  expected_request.set_key_resource_name(kAwsKmsResourceName);
+  expected_request.set_ciphertext(kTestDek);
+  expected_request.set_account_identity(kRoleArn);
+  expected_request.set_target_audience_for_web_identity(kAudience);
+  expected_request.set_kms_region(kAwsKmsRegion);
+  expected_request.add_key_ids(kDefaultSignatures[0]);
+  EXPECT_CALL(*mock_aws_kms_client_, DecryptAsync)
+      .WillOnce(std::bind(MockKmsDecryptWithResponseValidatingRequest,
+                          expected_request, decoded_dek, _1));
+
+  std::atomic<bool> is_complete = false;
+  context.callback =
+      [&is_complete](AsyncContext<EncryptionKeyInfo, CryptoKeyInterface>& ctx) {
+        is_complete = true;
+        EXPECT_SUCCESS(ctx.result);
+      };
+
+  crypto_client_->GetCryptoKey(context);
+  WaitUntil([&]() { return is_complete.load(); });
+}
+
+TEST_F(AeadCryptoClientTest, GetAwsCryptoKeyUsesDefaultAudienceSuccess) {
+  AsyncContext<EncryptionKeyInfo, CryptoKeyInterface> context;
+  context.request = std::make_shared<EncryptionKeyInfo>(
+      GetAwsEncryptionKeyInfo(kAwsKmsResourceNameWithResourcePrefix, " "));
   std::string decoded_dek;
   EXPECT_TRUE(absl::Base64Unescape(kTestDek, &decoded_dek));
   DecryptRequest expected_request;

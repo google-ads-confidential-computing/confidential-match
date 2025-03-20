@@ -435,23 +435,24 @@ public final class DataMatcherImpl implements DataMatcher {
               .setValue(hashString(combinedValues))
               .build();
 
-      numValidMatchAttempts +=
-          columnGroupIndices.stream()
-                  .map(dataRecord::getKeyValues)
-                  .map(KeyValue::getStringValue)
-                  .allMatch(Predicate.not(String::isEmpty))
-              ? 1
-              : 0;
+      int matchesCount = keyValuePairCount.getOrDefault(kvPair, 0);
 
-      int count = keyValuePairCount.getOrDefault(kvPair, 0);
-      if (count > 0) {
+      // This variable counts the number of matching attempts that occur and are considered valid.
+      // An invalid match attempt is one where every column is empty, but it is still possible to
+      // match when only some columns are empty. The combined values variable will be empty when
+      // every column value is empty, so match attempt validity is checked using it. An attempt is
+      // also considered valid if there was a match, which acts as a failsafe to avoid reporting
+      // more matches than attempts.
+      numValidMatchAttempts += matchesCount == 0 && combinedValues.isEmpty() ? 0 : 1;
+
+      if (matchesCount > 0) {
         // Found a match.
         for (Integer columnIndex : columnGroupIndices) {
           matchedColumns.add(columnIndex);
         }
         matchedConditions.merge(conditionName, 1L, Long::sum);
         if (processedKvPairs.add(kvPair)) {
-          datasource2ConditionMatches.merge(conditionName, (long) count, Long::sum);
+          datasource2ConditionMatches.merge(conditionName, (long) matchesCount, Long::sum);
         }
       }
     }

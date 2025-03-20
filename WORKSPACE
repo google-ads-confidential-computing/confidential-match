@@ -19,7 +19,7 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_file"
 # Download all http_archives and git_repositories: Begin
 ################################################################################
 
-SCP_VERSION = "v0.234.0"  # latest as of Wed Feb 19 11:49:33 2025 +0000
+SCP_VERSION = "v0.242.0"  # latest as of Tue Mar 04 19:33:15 2025 +0000
 
 SCP_REPOSITORY = "https://github.com/google-ads-confidential-computing/conf-data-processing-architecture-reference"
 
@@ -150,9 +150,15 @@ rules_cc_toolchains()
 ###########################
 # CC Dependencies         #
 ###########################
+
+# OpenTelemetry (Part 1/2)
+# Add SCP's own newer opentelemetry before gcp c++ sdk
+load("@com_google_adm_cloud_scp//build_defs/shared:opentelemetry.bzl", "opentelemetry_cpp")
+
+opentelemetry_cpp()
+
 # Load indirect dependencies due to
 #     https://github.com/bazelbuild/bazel/issues/1943
-
 load("@com_github_googleapis_google_cloud_cpp//bazel:google_cloud_cpp_deps.bzl", "google_cloud_cpp_deps")
 
 google_cloud_cpp_deps()
@@ -208,6 +214,23 @@ rules_proto_toolchains()
 load("@com_google_protobuf//:protobuf_deps.bzl", "protobuf_deps")
 
 protobuf_deps()
+
+###########################
+# CC Dependencies (cont.) #
+###########################
+
+# OpenTelemetry (Part 2/2)
+# These are loaded separate from earlier dependencies to avoid gRPC errors
+#
+# (required after v1.8.0) Load extra dependencies required for OpenTelemetry
+load("@io_opentelemetry_cpp//bazel:repository.bzl", "opentelemetry_cpp_deps")
+
+opentelemetry_cpp_deps()
+
+# (required after v1.8.0) Load extra dependencies required for OpenTelemetry
+load("@io_opentelemetry_cpp//bazel:extra_deps.bzl", "opentelemetry_extra_deps")
+
+opentelemetry_extra_deps()
 
 ################################################################################
 # Download Indirect Dependencies: End
@@ -297,13 +320,14 @@ maven_install(
         "com.kohlschutter.junixsocket:junixsocket-core:2.10.1",
         "io.github.resilience4j:resilience4j-core:" + RESILIENCE4J_VERSION,
         "io.github.resilience4j:resilience4j-retry:" + RESILIENCE4J_VERSION,
-        "io.opentelemetry:opentelemetry-api:1.24.0",
-        "io.opentelemetry:opentelemetry-sdk:1.24.0",
-        "io.opentelemetry:opentelemetry-sdk-common:1.24.0",
-        "io.opentelemetry:opentelemetry-sdk-metrics:1.24.0",
-        "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:1.24.0-alpha",
-        "com.google.cloud.opentelemetry:exporter-metrics:0.25.2",
-        "com.google.cloud.opentelemetry:detector-resources:0.25.2-alpha",
+        "io.opentelemetry:opentelemetry-api:1.31.0",
+        "io.opentelemetry:opentelemetry-exporter-otlp:1.31.0",
+        "io.opentelemetry:opentelemetry-sdk:1.31.0",
+        "io.opentelemetry:opentelemetry-sdk-common:1.31.0",
+        "io.opentelemetry:opentelemetry-sdk-metrics:1.31.0",
+        "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:1.31.0",
+        "com.google.cloud.opentelemetry:exporter-metrics:0.26.0",
+        "com.google.cloud.opentelemetry:detector-resources:0.26.0-alpha",
         "javax.annotation:javax.annotation-api:1.3.2",
         "javax.inject:javax.inject:1",
         "junit:junit:4.12",

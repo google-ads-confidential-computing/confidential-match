@@ -746,6 +746,71 @@ public final class DataMatcherImplTest {
   }
 
   @Test
+  public void match_someAddressColumnsEmpty_matches() {
+    dataMatcher =
+        new DataMatcherImpl(
+            dataRecordTransformerFactory,
+            MatchConfig.newBuilder()
+                .mergeFrom(MatchConfigProvider.getMatchConfig("customer_match"))
+                .setRedactUnmatchedWith("REDACT")
+                .build());
+    String[][] testData = {
+      {"email", "email", "fake.email@google.com"},
+      {"phone", "phone", "999-999-9999"},
+      {"first_name", "first_name", "first"},
+      {"last_name", "last_name", ""},
+      {"zip_code", "zip_code", ""},
+      {"country_code", "country_code", "country"},
+    };
+    DataChunk dataChunk1 =
+        DataChunk.builder()
+            .setSchema(getSchema(testData))
+            .addRecord(getDataRecord(testData))
+            .build();
+    String[][] piiDataEmail = {{"pii_value", "pii_value", "fake.email@google.com"}};
+    String[][] piiDataPhone = {{"pii_value", "pii_value", "999-999-9999"}};
+    String[][] piiDataAddress = {{"pii_value", "pii_value", "firstcountry"}};
+    DataChunk dataChunk2 = buildDataChunk(piiDataEmail, piiDataPhone, piiDataAddress);
+
+    DataMatchResult dataMatchResult = dataMatcher.match(dataChunk1, dataChunk2);
+
+    DataChunk result = dataMatchResult.dataChunk();
+    Map<String, Long> conditionMatchCounts = dataMatchResult.matchStatistics().conditionMatches();
+    Map<String, Long> conditionValidCounts =
+        dataMatchResult.matchStatistics().validConditionChecks();
+    Map<String, Long> datasource1Errors = dataMatchResult.matchStatistics().datasource1Errors();
+    Map<String, Long> datasource2ConditionMatchCounts =
+        dataMatchResult.matchStatistics().datasource2ConditionMatches();
+    assertEquals(1, result.records().size());
+    assertEquals(6, result.records().get(0).getKeyValuesCount());
+    assertEquals("email", result.records().get(0).getKeyValues(0).getKey());
+    assertEquals("fake.email@google.com", result.records().get(0).getKeyValues(0).getStringValue());
+    assertEquals("phone", result.records().get(0).getKeyValues(1).getKey());
+    assertEquals("999-999-9999", result.records().get(0).getKeyValues(1).getStringValue());
+    assertEquals("first_name", result.records().get(0).getKeyValues(2).getKey());
+    assertEquals("first", result.records().get(0).getKeyValues(2).getStringValue());
+    assertEquals("last_name", result.records().get(0).getKeyValues(3).getKey());
+    assertEquals("", result.records().get(0).getKeyValues(3).getStringValue());
+    assertEquals("zip_code", result.records().get(0).getKeyValues(4).getKey());
+    assertEquals("", result.records().get(0).getKeyValues(4).getStringValue());
+    assertEquals("country_code", result.records().get(0).getKeyValues(5).getKey());
+    assertEquals("country", result.records().get(0).getKeyValues(5).getStringValue());
+    assertEquals(3, conditionValidCounts.size());
+    assertEquals(Long.valueOf(1), conditionValidCounts.get("phone"));
+    assertEquals(Long.valueOf(1), conditionValidCounts.get("email"));
+    assertEquals(Long.valueOf(1), conditionValidCounts.get("address"));
+    assertEquals(3, conditionMatchCounts.size());
+    assertEquals(Long.valueOf(1), conditionMatchCounts.get("phone"));
+    assertEquals(Long.valueOf(1), conditionMatchCounts.get("email"));
+    assertEquals(Long.valueOf(1), conditionMatchCounts.get("address"));
+    assertEquals(0, datasource1Errors.size());
+    assertEquals(3, datasource2ConditionMatchCounts.size());
+    assertEquals(Long.valueOf(1), datasource2ConditionMatchCounts.get("phone"));
+    assertEquals(Long.valueOf(1), datasource2ConditionMatchCounts.get("email"));
+    assertEquals(Long.valueOf(1), datasource2ConditionMatchCounts.get("address"));
+  }
+
+  @Test
   public void match_whenAllEmptyFieldsThenRemovesTheRow() {
     String[][] testData = {
       {"email", "email", ""},
@@ -1418,7 +1483,9 @@ public final class DataMatcherImplTest {
         ProtoUtils.getProtoFromJson(
             Resources.toString(
                 Objects.requireNonNull(
-                    getClass().getResource("/com/google/cm/mrp/dataprocessor/testdata/transformation_match_config.json")),
+                    getClass()
+                        .getResource(
+                            "/com/google/cm/mrp/dataprocessor/testdata/transformation_match_config.json")),
                 UTF_8),
             MatchConfig.class);
     DataMatcher testDataMatcher = new DataMatcherImpl(dataRecordTransformerFactory, testConfig);

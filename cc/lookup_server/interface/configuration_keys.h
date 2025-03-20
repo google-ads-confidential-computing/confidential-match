@@ -71,6 +71,8 @@ inline constexpr char kKmsWipProvider[] = "kms_wip_provider";
 // Configuration key for the comma-delineated list of signatures to send
 // when using AWS KMS.
 inline constexpr char kKmsDefaultSignatures[] = "kms_default_signatures";
+// Configuration key for the default audience to send when using AWS KMS.
+inline constexpr char kAwsKmsDefaulAudience[] = "aws_kms_default_audience";
 // The audience to use for authentication of incoming request JWTs.
 inline constexpr char kJwtAudience[] = "jwt_audience";
 // The emails within JWTs that are authorized to send incoming requests.

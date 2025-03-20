@@ -84,6 +84,7 @@ struct LookupServerParameters {
 
   // AWS KMS parameters
   std::shared_ptr<std::vector<std::string>> kms_default_signatures;
+  std::shared_ptr<std::string> aws_kms_default_audience;
 
   // Parameters used for JWT authentication of incoming requests
   std::shared_ptr<std::string> jwt_audience;

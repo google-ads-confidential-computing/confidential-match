@@ -562,6 +562,25 @@ ExecutionResult LookupServer::LoadParameters() noexcept {
     }
   }
 
+  parameters_.aws_kms_default_audience = std::make_shared<std::string>();
+  if (!parameter_client_
+           ->GetString(kAwsKmsDefaulAudience,
+                       *parameters_.aws_kms_default_audience)
+           .Successful()) {
+    SCP_WARNING(kComponentName, kZeroUuid,
+                absl::StrFormat(
+                    "Failed to fetch %s from parameter client. Trying env vars",
+                    kAwsKmsDefaulAudience));
+    ExecutionResult result =
+        config_provider_->Get(std::string(kAwsKmsDefaulAudience),
+                              *parameters_.aws_kms_default_audience);
+    if (!result.Successful()) {
+      SCP_CRITICAL(kComponentName, kZeroUuid, result,
+                   "Failed to read the AWS default KMS audience.");
+      return result;
+    }
+  }
+
   parameters_.jwt_audience = std::make_shared<std::string>();
   if (!parameter_client_->GetString(kJwtAudience, *parameters_.jwt_audience)
            .Successful()) {
@@ -821,7 +840,8 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
 
   aead_crypto_client_ = std::make_shared<AeadCryptoClient>(
       aws_cached_kms_client_, gcp_cached_kms_client_,
-      *parameters_.kms_default_signatures);
+      *parameters_.kms_default_signatures,
+      *parameters_.aws_kms_default_audience);
   hpke_crypto_client_ = HpkeCryptoClient::Create(cached_coordinator_client_);
 
   orchestrator_client_ = std::make_shared<OrchestratorClient>(

@@ -64,6 +64,10 @@ constexpr absl::string_view kAwsKmsResourcePrefix = "aws-kms://";
 constexpr absl::string_view kGcpKmsResourcePrefix = "gcp-kms://";
 constexpr absl::string_view kAwsResourceDelimiter = ":";
 
+bool isStringEmptyOrBlank(const std::string& str) {
+  return str.empty() || std::all_of(str.begin(), str.end(), ::isspace);
+}
+
 }  // namespace
 
 ExecutionResult AeadCryptoClient::Init() noexcept {
@@ -112,10 +116,18 @@ DecryptRequest AeadCryptoClient::BuildKmsDecryptRequest(
     decrypt_request.set_account_identity(wrapped_key_info.gcp_wrapped_key_info()
                                              .service_account_to_impersonate());
   } else if (wrapped_key_info.has_aws_wrapped_key_info()) {
+    // Add default audience if needed
+    if (isStringEmptyOrBlank(
+            wrapped_key_info.aws_wrapped_key_info().audience())) {
+      decrypt_request.set_target_audience_for_web_identity(
+          aws_kms_default_audience_);
+    } else {
+      decrypt_request.set_target_audience_for_web_identity(
+          wrapped_key_info.aws_wrapped_key_info().audience());
+    }
     decrypt_request.set_account_identity(
         wrapped_key_info.aws_wrapped_key_info().role_arn());
-    decrypt_request.set_target_audience_for_web_identity(
-        wrapped_key_info.aws_wrapped_key_info().audience());
+
     // Must include region
     std::vector<absl::string_view> vector = absl::StrSplit(
         decrypt_request.key_resource_name(), kAwsResourceDelimiter);
