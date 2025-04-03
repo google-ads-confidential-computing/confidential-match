@@ -25,7 +25,6 @@ java_library(
         "configs/customer_match_config.json",
         "configs/mic_audience_config.json",
         "configs/mic_config.json",
-        "configs/mic_proto_config.json",
     ],
     deps = [
         "//java/com/google/cm/mrp/clients/attestation",
@@ -36,6 +35,7 @@ java_library(
         "//java/com/google/cm/mrp/dataprocessor",
         "//java/com/google/cm/mrp/dataprocessor/converters",
         "//java/com/google/cm/mrp/dataprocessor/models",
+        "//java/com/google/cm/mrp/models",
         "//java/com/google/cm/mrp/selectors",
         "//java/com/google/cm/util",
         "//java/external:autovalue",
@@ -109,7 +109,6 @@ java_library(
         "configs/customer_match_config.json",
         "configs/mic_audience_config.json",
         "configs/mic_config.json",
-        "configs/mic_proto_config.json",
     ],
     deps = [
         "//java/com/google/cm/mrp:exceptions",

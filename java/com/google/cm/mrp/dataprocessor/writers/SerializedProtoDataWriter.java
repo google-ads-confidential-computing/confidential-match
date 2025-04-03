@@ -165,6 +165,12 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
   public void close() throws IOException {
     if (writer != null) {
       writer.close();
+      if (writer.checkError()) {
+        String message = "Serialized Proto data writer failed to close/flush the output file.";
+        logger.error(message);
+        deleteFile();
+        throw new JobProcessorException(message);
+      }
     }
     if (numberOfRecords > 0) {
       uploadThenDeleteFile();
@@ -566,6 +572,14 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
   }
 
   private void uploadThenDeleteFile() {
+    writer.close();
+    if (writer.checkError()) {
+      String message = "Serialized Proto data writer failed to close/flush the output file.";
+      logger.error(message);
+      deleteFile();
+      throw new JobProcessorException(message);
+    }
+
     try {
       dataDestination.write(file, getFilename(name, fileNumber));
     } catch (Exception e) {
@@ -586,6 +600,11 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
       writer = new PrintWriter(file);
     } catch (IOException ex) {
       writer.close(); // does not throw
+      String message =
+          writer.checkError()
+              ? "Writer failed to flush/close and IO Exception encountered."
+              : "IO Exception encountered.";
+      logger.error(message, ex);
       throw ex;
     }
   }

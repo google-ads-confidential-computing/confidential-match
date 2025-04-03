@@ -58,7 +58,7 @@ import org.junit.runners.JUnit4;
 @RunWith(JUnit4.class)
 public final class ConfidentialMatchDataRecordParserImplTest {
 
-  private static final MatchConfig micMatchConfig = getMatchConfig("mic_proto");
+  private static final MatchConfig micMatchConfig = getMatchConfig("mic");
 
   @Test
   public void parse_encryptedMultipleEncryptionKey() throws Exception {

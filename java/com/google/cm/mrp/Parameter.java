@@ -39,8 +39,6 @@ public enum Parameter {
 
   // MRP add-on feature flags
   MIC_FEATURE_ENABLED,
-  // Serialized proto feature flag
-  SERIALIZED_PROTO_FEATURE_ENABLED,
   // Coordinator batch encryption feature flag
   COORDINATOR_BATCH_ENCRYPTION_ENABLED;
 

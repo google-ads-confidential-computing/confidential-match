@@ -16,6 +16,10 @@
 
 package com.google.cm.mrp;
 
+import static com.google.cm.mrp.EncryptionType.COORDINATOR_KEY;
+import static com.google.cm.mrp.EncryptionType.INVALID_ENCRYPTION_TYPE;
+import static com.google.cm.mrp.EncryptionType.UNENCRYPTED;
+import static com.google.cm.mrp.EncryptionType.WRAPPED_KEY;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.FAILED_WITH_ROW_ERRORS;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_DATA_LOCATION_CONFIGURATION;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_PARAMETERS;
@@ -28,6 +32,7 @@ import static java.time.temporal.ChronoUnit.SECONDS;
 import com.google.cm.mrp.Annotations.JobProcessorMaxRetries;
 import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner.DataLocation;
 import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwnerList;
+import com.google.cm.mrp.api.EncryptionMetadataProto;
 import com.google.cm.mrp.backend.ApplicationProto.ApplicationId;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
 import com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode;
@@ -35,6 +40,8 @@ import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.dataprocessor.DataProcessor;
 import com.google.cm.mrp.dataprocessor.converters.EncryptionMetadataConverter;
 import com.google.cm.mrp.dataprocessor.models.MatchStatistics;
+import com.google.cm.mrp.models.JobParameters;
+import com.google.cm.mrp.models.JobParameters.OutputDataLocation;
 import com.google.cm.util.ProtoUtils;
 import com.google.common.base.Stopwatch;
 import com.google.common.collect.ImmutableMap;
@@ -78,7 +85,7 @@ public final class MatchJobProcessor implements JobProcessor {
   /** Return message for a failed job. */
   static final String RESULT_FAILURE_MESSAGE = "Job failed.";
 
-  /** Return message for a partially successfuul job. */
+  /** Return message for a partially successful job. */
   static final String RESULT_PARTIAL_SUCCESS_MESSAGE =
       "Job successfully processed with partial errors.";
 
@@ -220,13 +227,17 @@ public final class MatchJobProcessor implements JobProcessor {
                 logger.info("JobProcessorRetryCount: {}", jobProcessorRetryCount.getAndIncrement());
                 return dataProcessor.process(
                     featureFlags,
-                    dataOwnersList,
-                    job.requestInfo().getOutputDataBucketName(),
-                    job.requestInfo().getOutputDataBlobPrefix(),
-                    job.jobKey().getJobRequestId(),
                     matchConfig,
-                    encryptionMetadata,
-                    dataOwnerIdentity);
+                    JobParameters.builder()
+                        .setJobId(job.jobKey().getJobRequestId())
+                        .setDataOwnerList(dataOwnersList)
+                        .setDataOwnerIdentity(dataOwnerIdentity)
+                        .setOutputDataLocation(
+                            OutputDataLocation.forNameAndPrefix(
+                                job.requestInfo().getOutputDataBucketName(),
+                                job.requestInfo().getOutputDataBlobPrefix()))
+                        .setEncryptionMetadata(encryptionMetadata)
+                        .build());
               });
 
       return MatchJobResult.create(SUCCESS, stats);
@@ -411,13 +422,12 @@ public final class MatchJobProcessor implements JobProcessor {
         Optional.ofNullable(job.requestInfo().getJobParametersMap().get("application_id"))
             .filter(Predicate.not(String::isBlank))
             .orElse("Default");
-    String isEncrypted =
-        Boolean.toString(job.requestInfo().getJobParametersMap().containsKey(ENCRYPTION_METADATA));
+    String encryptionType = getEncryptionType(job).name();
     return ImmutableMap.ofEntries(
         Map.entry("CustomerServiceAccount", customerId),
         Map.entry("ApplicationId", applicationId),
         Map.entry("JobId", jobId),
-        Map.entry("IsEncrypted", isEncrypted));
+        Map.entry("EncryptionType", encryptionType));
   }
 
   /** Record statistics as logs, send as metrics to monitoring, and return in a list. */
@@ -427,7 +437,11 @@ public final class MatchJobProcessor implements JobProcessor {
     HashMap<String, String> result = new HashMap<>();
 
     // Matching statistics
-    ImmutableMap<String, String> matchLabels = getMetricLabels(job);
+    ImmutableMap<String, String> matchLabels =
+        ImmutableMap.<String, String>builder()
+            .putAll(getMetricLabels(job))
+            .put("FileFormat", stats.fileDataFormat().name())
+            .build();
     // At least partial success for this purpose
     boolean isSuccess = jobCode == SUCCESS || jobCode == PARTIAL_SUCCESS;
     boolean isNonRetryableError = jobCode.getNumber() >= 100;
@@ -492,6 +506,8 @@ public final class MatchJobProcessor implements JobProcessor {
           "matchpercentagepercondition", "Percent", conditionMatchPercentage, typeLabels, result);
     }
 
+    // Add the DataFormat to the result without recording it as a metric
+    result.put("fileformat", stats.fileDataFormat().name());
     return result;
   }
 
@@ -506,6 +522,7 @@ public final class MatchJobProcessor implements JobProcessor {
       ImmutableMap<String, String> typeLabels =
           ImmutableMap.<String, String>builder()
               .putAll(getMetricLabels(job))
+              .put("FileFormat", stats.fileDataFormat().name())
               .put("ErrorCode", errorCode)
               .build();
       long errorCount = Optional.ofNullable(datasource1Errors.get(errorEntry.getKey())).orElse(0L);
@@ -519,6 +536,30 @@ public final class MatchJobProcessor implements JobProcessor {
     errorSummary.addErrorCounts(
         ErrorCount.newBuilder().setCategory(TOTAL_ERRORS_PREFIX).setCount(totalCounts));
     return errorSummary.build();
+  }
+
+  /** Returns the encryption type used for a given job */
+  private EncryptionType getEncryptionType(Job job) {
+    var jobParamsMap = job.requestInfo().getJobParametersMap();
+    if (!jobParamsMap.containsKey(ENCRYPTION_METADATA)) return UNENCRYPTED;
+    EncryptionMetadataProto.EncryptionMetadata apiEncryptionMetadata;
+    try {
+      apiEncryptionMetadata =
+          getProtoFromJobParams(
+              jobParamsMap,
+              ENCRYPTION_METADATA,
+              com.google.cm.mrp.api.EncryptionMetadataProto.EncryptionMetadata.class);
+      if (apiEncryptionMetadata.hasEncryptionKeyInfo()) {
+        var encryptionKeyInfo = apiEncryptionMetadata.getEncryptionKeyInfo();
+        if (encryptionKeyInfo.hasCoordinatorKeyInfo()) return COORDINATOR_KEY;
+        if (encryptionKeyInfo.hasWrappedKeyInfo() || encryptionKeyInfo.hasAwsWrappedKeyInfo()) {
+          return WRAPPED_KEY;
+        }
+      }
+    } catch (Exception e) {
+      return INVALID_ENCRYPTION_TYPE;
+    }
+    return INVALID_ENCRYPTION_TYPE;
   }
 
   private Optional<String> getTopicId(Job job) {

@@ -27,7 +27,6 @@ import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.JobProcessorException;
 import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner;
 import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner.DataLocation;
-import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwnerList;
 import com.google.cm.mrp.backend.DestinationInfoProto.DestinationInfo;
 import com.google.cm.mrp.backend.DestinationInfoProto.DestinationInfo.GcsDestination;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
@@ -60,6 +59,7 @@ import com.google.cm.mrp.dataprocessor.preparers.DataSourcePreparer;
 import com.google.cm.mrp.dataprocessor.preparers.DataSourcePreparerFactory;
 import com.google.cm.mrp.dataprocessor.readers.DataReader;
 import com.google.cm.mrp.dataprocessor.writers.DataWriter;
+import com.google.cm.mrp.models.JobParameters;
 import com.google.common.collect.ImmutableList;
 import java.io.File;
 import java.io.IOException;
@@ -83,8 +83,7 @@ public final class DataProcessorImpl implements DataProcessor {
 
   private final ExecutorService executorService;
   private final DataMatcherFactory dataMatcherFactory;
-  private final CsvDataWriterFactory csvDataWriterFactory;
-  private final SerializedProtoDataWriterFactory serializedProtoDataWriterFactory;
+  private final DataWriterFactory dataWriterFactory;
   private final LookupDataSourceFactory lookupDataSourceFactory;
   private final StreamDataSourceFactory streamDataSourceFactory;
   private final DataDestinationFactory dataDestinationFactory;
@@ -103,8 +102,7 @@ public final class DataProcessorImpl implements DataProcessor {
   public DataProcessorImpl(
       @DataProcessorExecutorService ExecutorService executorService,
       DataMatcherFactory dataMatcherFactory,
-      CsvDataWriterFactory csvDataWriterFactory,
-      SerializedProtoDataWriterFactory serializedProtoDataWriterFactory,
+      DataWriterFactory dataWriterFactory,
       LookupDataSourceFactory lookupDataSourceFactory,
       StreamDataSourceFactory streamDataSourceFactory,
       DataDestinationFactory dataDestinationFactory,
@@ -119,8 +117,7 @@ public final class DataProcessorImpl implements DataProcessor {
       DataOutputPreparerFactory dataOutputPreparerFactory) {
     this.executorService = executorService;
     this.dataMatcherFactory = dataMatcherFactory;
-    this.csvDataWriterFactory = csvDataWriterFactory;
-    this.serializedProtoDataWriterFactory = serializedProtoDataWriterFactory;
+    this.dataWriterFactory = dataWriterFactory;
     this.lookupDataSourceFactory = lookupDataSourceFactory;
     this.streamDataSourceFactory = streamDataSourceFactory;
     this.dataDestinationFactory = dataDestinationFactory;
@@ -142,31 +139,28 @@ public final class DataProcessorImpl implements DataProcessor {
   @Override
   @SuppressWarnings("UnstableApiUsage") // ImmutableList::builderWithExpectedSize
   public MatchStatistics process(
-      FeatureFlags featureFlags,
-      DataOwnerList dataOwnerList,
-      String outputBucket,
-      String outputPrefix,
-      String jobRequestId,
-      MatchConfig matchConfig,
-      Optional<EncryptionMetadata> encryptionMetadata,
-      Optional<String> dataOwnerIdentity)
+      FeatureFlags featureFlags, MatchConfig matchConfig, JobParameters jobParameters)
       throws JobProcessorException {
-
+    String jobRequestId = jobParameters.jobId();
+    Optional<EncryptionMetadata> encryptionMetadata = jobParameters.encryptionMetadata();
     Optional<CryptoClient> cryptoClient = encryptionMetadata.flatMap(this::getCryptoClient);
     cryptoClient.ifPresent((unused) -> logger.info("Job {}: Created CryptoClient", jobRequestId));
 
     final Optional<DataOwner> dataOwnerOptional =
-        dataOwnerList.getDataOwnersList().stream().filter(DataOwner::hasLookupEndpoint).findAny();
+        jobParameters.dataOwnerList().getDataOwnersList().stream()
+            .filter(DataOwner::hasLookupEndpoint)
+            .findAny();
 
     // If the second data source is omitted, then Google data is assumed
     String lookupEndpoint = dataOwnerOptional.map(DataOwner::getLookupEndpoint).orElse("");
     DataLocation dataLocation =
-        dataOwnerList.getDataOwnersList().stream()
+        jobParameters.dataOwnerList().getDataOwnersList().stream()
             .filter(dataOwner -> dataOwner.getDataLocation().getIsStreamed())
             .findAny()
             .orElseThrow()
             .getDataLocation();
 
+    Optional<String> dataOwnerIdentity = jobParameters.dataOwnerIdentity();
     LookupDataSource lookupDataSource;
     final StreamDataSource streamDataSource;
     if (cryptoClient.isPresent()) {
@@ -202,12 +196,18 @@ public final class DataProcessorImpl implements DataProcessor {
                 .setGcsDestination(
                     dataOwnerIdentity.isPresent()
                         ? GcsDestination.newBuilder()
-                            .setOutputBucket(outputBucket)
-                            .setOutputPrefix(outputPrefix + File.separator + jobRequestId)
+                            .setOutputBucket(
+                                jobParameters.outputDataLocation().outputDataBucketName())
+                            .setOutputPrefix(
+                                jobParameters.outputDataLocation().outputDataBlobPrefix()
+                                    + File.separator
+                                    + jobRequestId)
                             .setDataOwnerIdentity(dataOwnerIdentity.get())
                         : GcsDestination.newBuilder()
-                            .setOutputBucket(outputBucket)
-                            .setOutputPrefix(outputPrefix))
+                            .setOutputBucket(
+                                jobParameters.outputDataLocation().outputDataBucketName())
+                            .setOutputPrefix(
+                                jobParameters.outputDataLocation().outputDataBlobPrefix()))
                 .build());
     logger.info("Job {}: Created DataDestination", jobRequestId);
 
@@ -332,10 +332,10 @@ public final class DataProcessorImpl implements DataProcessor {
       DataDestination dataDestination,
       String dataReaderName,
       MatchConfig matchConfig) {
-    return schema.getDataFormat() == SERIALIZED_PROTO && featureFlags.enableSerializedProto()
-        ? serializedProtoDataWriterFactory.create(
+    return schema.getDataFormat() == SERIALIZED_PROTO
+        ? dataWriterFactory.createSerializedProtoDataWriter(
             dataDestination, dataReaderName, schema, matchConfig)
-        : csvDataWriterFactory.create(
+        : dataWriterFactory.createCsvDataWriter(
             dataDestination,
             dataReaderName,
             schema,

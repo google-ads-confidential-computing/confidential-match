@@ -29,13 +29,13 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.MISSING_SCHEMA_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PARTIAL_SUCCESS;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.SUCCESS;
+import static com.google.cm.mrp.backend.SchemaProto.Schema.DataFormat.CSV;
 import static com.google.cm.util.ProtoUtils.getProtoFromJson;
 import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -52,6 +52,7 @@ import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.Wrap
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.KeyType;
 import com.google.cm.mrp.dataprocessor.DataProcessor;
 import com.google.cm.mrp.dataprocessor.models.MatchStatistics;
+import com.google.cm.mrp.models.JobParameters;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.io.Resources;
 import com.google.scp.operator.cpio.jobclient.model.Job;
@@ -113,13 +114,16 @@ public final class MatchJobProcessorTest {
           "nummatches",
           "0",
           "numpii",
-          "0");
+          "0",
+          "fileformat",
+          CSV.name());
 
   @Rule public final MockitoRule mockito = MockitoJUnit.rule();
   @Mock private DataProcessor mockDataProcessor;
   @Mock private FeatureFlagProvider mockFeatureFlagProvider;
   @Mock private StartupConfigProvider mockStartupConfigProvider;
   @Mock private MetricClient mockMetricClient;
+  @Captor private ArgumentCaptor<JobParameters> jobParametersCaptor;
   @Captor private ArgumentCaptor<CustomMetric> metricCaptor;
   private MatchJobProcessor processor;
 
@@ -159,7 +163,7 @@ public final class MatchJobProcessorTest {
                             .setGcpWrappedKeyInfo(
                                 GcpWrappedKeyInfo.newBuilder().setWipProvider("testWip"))))
             .build();
-    when(mockDataProcessor.process(any(), any(), any(), any(), any(), any(), any(), any()))
+    when(mockDataProcessor.process(any(), any(), any()))
         .thenReturn(MatchStatistics.emptyInstance());
     when(mockFeatureFlagProvider.getFeatureFlags())
         .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
@@ -167,16 +171,9 @@ public final class MatchJobProcessorTest {
     JobResult jobResult = processor.process(job);
 
     assertThat(jobResult).isEqualTo(expectedJobResult);
-    verify(mockDataProcessor)
-        .process(
-            any(),
-            any(),
-            any(),
-            any(),
-            any(),
-            any(),
-            eq(Optional.of(expectedEncryptionMetadataProto)),
-            any());
+    verify(mockDataProcessor).process(any(), any(), jobParametersCaptor.capture());
+    assertThat(jobParametersCaptor.getValue().encryptionMetadata())
+        .isEqualTo(Optional.of(expectedEncryptionMetadataProto));
     verifyNoMoreInteractions(mockDataProcessor);
   }
 
@@ -194,7 +191,7 @@ public final class MatchJobProcessorTest {
                     .putAllResultMetadata(DEFAULT_STATS_MAP)
                     .build())
             .build();
-    when(mockDataProcessor.process(any(), any(), any(), any(), any(), any(), any(), any()))
+    when(mockDataProcessor.process(any(), any(), any()))
         .thenReturn(MatchStatistics.emptyInstance());
     when(mockFeatureFlagProvider.getFeatureFlags())
         .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
@@ -202,8 +199,8 @@ public final class MatchJobProcessorTest {
     JobResult jobResult = processor.process(job);
 
     assertThat(jobResult).isEqualTo(expectedJobResult);
-    verify(mockDataProcessor)
-        .process(any(), any(), any(), any(), any(), any(), eq(Optional.empty()), any());
+    verify(mockDataProcessor).process(any(), any(), jobParametersCaptor.capture());
+    assertThat(jobParametersCaptor.getValue().encryptionMetadata()).isEqualTo(Optional.empty());
     verifyNoMoreInteractions(mockDataProcessor);
   }
 
@@ -222,6 +219,7 @@ public final class MatchJobProcessorTest {
     resultsMap.put("nummatches", "11111111");
     resultsMap.put("numpii", "20000000");
     resultsMap.put("nummatchespercondition email", "11111111");
+    resultsMap.put("fileformat", "CSV");
     ImmutableMap<String, Long> conditionMatchCounts = ImmutableMap.of("email", 11111111L);
     ImmutableMap<String, Long> validConditionMatches = ImmutableMap.of("email", 20000000L);
     ImmutableMap<String, Long> dataSource2Matches = ImmutableMap.of("email", 11111111L);
@@ -244,24 +242,24 @@ public final class MatchJobProcessorTest {
             conditionMatchCounts,
             validConditionMatches,
             ImmutableMap.of(),
-            dataSource2Matches);
-    when(mockDataProcessor.process(any(), any(), any(), any(), any(), any(), any(), any()))
-        .thenReturn(stats);
+            dataSource2Matches,
+            CSV);
+    when(mockDataProcessor.process(any(), any(), any())).thenReturn(stats);
     when(mockFeatureFlagProvider.getFeatureFlags())
         .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
     JobResult jobResult = processor.process(job);
 
     assertThat(jobResult).isEqualTo(expectedJobResult);
-    verify(mockDataProcessor)
-        .process(any(), any(), any(), any(), any(), any(), eq(Optional.empty()), any());
+    verify(mockDataProcessor).process(any(), any(), jobParametersCaptor.capture());
+    assertThat(jobParametersCaptor.getValue().encryptionMetadata()).isEqualTo(Optional.empty());
     verifyNoMoreInteractions(mockDataProcessor);
   }
 
   @Test
   public void process_jobFinishesNormally_writeStatsMetrics() throws Exception {
     Job job = generateFakeJob("testdata/valid_job_params_hashed.json");
-    when(mockDataProcessor.process(any(), any(), any(), any(), any(), any(), any(), any()))
+    when(mockDataProcessor.process(any(), any(), any()))
         .thenReturn(
             MatchStatistics.create(
                 20,
@@ -270,7 +268,8 @@ public final class MatchJobProcessorTest {
                 Map.of("email", 11111111L),
                 Map.of("email", 20000000L),
                 Map.of(),
-                Map.of("email", 11111111L)));
+                Map.of("email", 11111111L),
+                CSV));
     when(mockFeatureFlagProvider.getFeatureFlags())
         .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
@@ -282,7 +281,8 @@ public final class MatchJobProcessorTest {
             Map.entry("CustomerServiceAccount", "Default"),
             Map.entry("ApplicationId", "customer_match"),
             Map.entry("JobId", "job_id"),
-            Map.entry("IsEncrypted", "false"));
+            Map.entry("EncryptionType", "UNENCRYPTED"),
+            Map.entry("FileFormat", "CSV"));
     var jobLabels =
         ImmutableMap.<String, String>builder()
             .putAll(statsLabels)
@@ -295,6 +295,7 @@ public final class MatchJobProcessorTest {
             .putAll(statsLabels)
             .put("MatchCondition", "email")
             .build();
+    var test = metricCaptor.getAllValues();
     assertThat(metricCaptor.getAllValues())
         .containsExactly(
             makeMetric("jobcount", "Count", 1.0, jobLabels),
@@ -314,7 +315,7 @@ public final class MatchJobProcessorTest {
   @Test
   public void process_jobHasErrorCount_writeErrorMetrics() throws Exception {
     Job job = generateFakeJob("testdata/valid_job_params_hashed.json");
-    when(mockDataProcessor.process(any(), any(), any(), any(), any(), any(), any(), any()))
+    when(mockDataProcessor.process(any(), any(), any()))
         .thenReturn(
             MatchStatistics.create(
                 0,
@@ -323,7 +324,8 @@ public final class MatchJobProcessorTest {
                 Map.of(),
                 Map.of(),
                 Map.of(DECRYPTION_ERROR.name(), 2L, DEK_DECRYPTION_ERROR.name(), 2L),
-                Map.of()));
+                Map.of(),
+                CSV));
     when(mockFeatureFlagProvider.getFeatureFlags())
         .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
@@ -335,7 +337,8 @@ public final class MatchJobProcessorTest {
             Map.entry("CustomerServiceAccount", "Default"),
             Map.entry("ApplicationId", "customer_match"),
             Map.entry("JobId", "job_id"),
-            Map.entry("IsEncrypted", "false"));
+            Map.entry("EncryptionType", "UNENCRYPTED"),
+            Map.entry("FileFormat", "CSV"));
     var jobLabels =
         ImmutableMap.<String, String>builder()
             .putAll(statsLabels)
@@ -353,6 +356,7 @@ public final class MatchJobProcessorTest {
             .putAll(statsLabels)
             .put("ErrorCode", "DEK_DECRYPTION_ERROR")
             .build();
+    var test = metricCaptor.getAllValues();
     assertThat(metricCaptor.getAllValues())
         .containsExactly(
             makeMetric("jobcount", "Count", 1.0, jobLabels),
@@ -373,7 +377,7 @@ public final class MatchJobProcessorTest {
     Job job = generateFakeJob("testdata/valid_job_params_hashed.json");
     doThrow(new JobProcessorException("unused", INPUT_FILE_LIST_READ_ERROR))
         .when(mockDataProcessor)
-        .process(any(), any(), any(), any(), any(), any(), any(), any());
+        .process(any(), any(), any());
     when(mockFeatureFlagProvider.getFeatureFlags())
         .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
@@ -385,10 +389,11 @@ public final class MatchJobProcessorTest {
             Map.entry("CustomerServiceAccount", "Default"),
             Map.entry("ApplicationId", "customer_match"),
             Map.entry("JobId", "job_id"),
-            Map.entry("IsEncrypted", "false"),
+            Map.entry("EncryptionType", "UNENCRYPTED"),
             Map.entry("ReturnCode", "INPUT_FILE_LIST_READ_ERROR"),
             Map.entry("ReturnCodeType", "RETRYABLE_ERROR"),
-            Map.entry("Attempts", "1"));
+            Map.entry("Attempts", "1"),
+            Map.entry("FileFormat", "CSV"));
     assertThat(metricCaptor.getAllValues())
         .containsExactly(
             makeMetric("jobcount", "Count", 1.0, jobLabels),
@@ -418,7 +423,9 @@ public final class MatchJobProcessorTest {
             "nummatches",
             "0",
             "numpii",
-            "0");
+            "0",
+            "fileformat",
+            CSV.name());
     JobResult expectedJobResult =
         JobResult.builder()
             .setJobKey(job.jobKey())
@@ -446,17 +453,16 @@ public final class MatchJobProcessorTest {
             .build();
     var stats =
         MatchStatistics.create(
-            0, 20L, 1L, ImmutableMap.of(), ImmutableMap.of(), errorsMap, ImmutableMap.of());
-    when(mockDataProcessor.process(any(), any(), any(), any(), any(), any(), any(), any()))
-        .thenReturn(stats);
+            0, 20L, 1L, ImmutableMap.of(), ImmutableMap.of(), errorsMap, ImmutableMap.of(), CSV);
+    when(mockDataProcessor.process(any(), any(), any())).thenReturn(stats);
     when(mockFeatureFlagProvider.getFeatureFlags())
         .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
     JobResult jobResult = processor.process(job);
 
     assertThat(jobResult).isEqualTo(expectedJobResult);
-    verify(mockDataProcessor)
-        .process(any(), any(), any(), any(), any(), any(), eq(Optional.empty()), any());
+    verify(mockDataProcessor).process(any(), any(), jobParametersCaptor.capture());
+    assertThat(jobParametersCaptor.getValue().encryptionMetadata()).isEqualTo(Optional.empty());
     verifyNoMoreInteractions(mockDataProcessor);
   }
 
@@ -482,7 +488,9 @@ public final class MatchJobProcessorTest {
             "nummatches",
             "0",
             "numpii",
-            "0");
+            "0",
+            "fileformat",
+            CSV.name());
     JobResult expectedJobResult =
         JobResult.builder()
             .setJobKey(job.jobKey())
@@ -507,16 +515,15 @@ public final class MatchJobProcessorTest {
     var stats =
         MatchStatistics.create(
             0, 4L, 1L, ImmutableMap.of(), ImmutableMap.of(), errorsMap, ImmutableMap.of());
-    when(mockDataProcessor.process(any(), any(), any(), any(), any(), any(), any(), any()))
-        .thenReturn(stats);
+    when(mockDataProcessor.process(any(), any(), any())).thenReturn(stats);
     when(mockFeatureFlagProvider.getFeatureFlags())
         .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
     JobResult jobResult = processor.process(job);
 
     assertThat(jobResult).isEqualTo(expectedJobResult);
-    verify(mockDataProcessor)
-        .process(any(), any(), any(), any(), any(), any(), eq(Optional.empty()), any());
+    verify(mockDataProcessor).process(any(), any(), jobParametersCaptor.capture());
+    assertThat(jobParametersCaptor.getValue().encryptionMetadata()).isEqualTo(Optional.empty());
     verifyNoMoreInteractions(mockDataProcessor);
   }
 
@@ -543,7 +550,9 @@ public final class MatchJobProcessorTest {
             "nummatches",
             "0",
             "numpii",
-            "0");
+            "0",
+            "fileformat",
+            CSV.name());
     JobResult expectedJobResult =
         JobResult.builder()
             .setJobKey(job.jobKey())
@@ -572,16 +581,15 @@ public final class MatchJobProcessorTest {
     var stats =
         MatchStatistics.create(
             0, 4L, 1L, ImmutableMap.of(), ImmutableMap.of(), errorsMap, ImmutableMap.of());
-    when(mockDataProcessor.process(any(), any(), any(), any(), any(), any(), any(), any()))
-        .thenReturn(stats);
+    when(mockDataProcessor.process(any(), any(), any())).thenReturn(stats);
     when(mockFeatureFlagProvider.getFeatureFlags())
         .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
     JobResult jobResult = processor.process(job);
 
     assertThat(jobResult).isEqualTo(expectedJobResult);
-    verify(mockDataProcessor)
-        .process(any(), any(), any(), any(), any(), any(), eq(Optional.empty()), any());
+    verify(mockDataProcessor).process(any(), any(), jobParametersCaptor.capture());
+    assertThat(jobParametersCaptor.getValue().encryptionMetadata()).isEqualTo(Optional.empty());
     verifyNoMoreInteractions(mockDataProcessor);
   }
 
@@ -682,7 +690,7 @@ public final class MatchJobProcessorTest {
     Job job = generateFakeJob("testdata/valid_job_params_hashed.json");
     doThrow(new JobProcessorException("test", INPUT_FILE_LIST_READ_ERROR))
         .when(mockDataProcessor)
-        .process(any(), any(), any(), any(), any(), any(), any(), any());
+        .process(any(), any(), any());
     when(mockFeatureFlagProvider.getFeatureFlags())
         .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
     JobResult expected =
@@ -700,7 +708,8 @@ public final class MatchJobProcessorTest {
     JobResult jobResult = processor.process(job);
 
     verify(mockDataProcessor, times(NUM_RETRIES))
-        .process(any(), any(), any(), any(), any(), any(), any(), any());
+        .process(any(), any(), jobParametersCaptor.capture());
+    assertThat(jobParametersCaptor.getValue().encryptionMetadata()).isEqualTo(Optional.empty());
     assertEquals(expected, jobResult);
     verifyNoMoreInteractions(mockDataProcessor);
   }
@@ -722,14 +731,14 @@ public final class MatchJobProcessorTest {
             .build();
     when(mockFeatureFlagProvider.getFeatureFlags())
         .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
-    when(mockDataProcessor.process(any(), any(), any(), any(), any(), any(), any(), any()))
+    when(mockDataProcessor.process(any(), any(), any()))
         .thenReturn(MatchStatistics.emptyInstance());
 
     JobResult jobResult = processor.process(job);
 
     assertThat(jobResult).isEqualTo(expectedJobResult);
-    verify(mockDataProcessor)
-        .process(any(), any(), any(), any(), any(), any(), eq(Optional.empty()), any());
+    verify(mockDataProcessor).process(any(), any(), jobParametersCaptor.capture());
+    assertThat(jobParametersCaptor.getValue().encryptionMetadata()).isEqualTo(Optional.empty());
     verifyNoMoreInteractions(mockDataProcessor);
   }
 
@@ -750,14 +759,14 @@ public final class MatchJobProcessorTest {
             .build();
     when(mockFeatureFlagProvider.getFeatureFlags())
         .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
-    when(mockDataProcessor.process(any(), any(), any(), any(), any(), any(), any(), any()))
+    when(mockDataProcessor.process(any(), any(), any()))
         .thenReturn(MatchStatistics.emptyInstance());
 
     JobResult jobResult = processor.process(job);
 
     assertThat(jobResult).isEqualTo(expectedJobResult);
-    verify(mockDataProcessor)
-        .process(any(), any(), any(), any(), any(), any(), eq(Optional.empty()), any());
+    verify(mockDataProcessor).process(any(), any(), jobParametersCaptor.capture());
+    assertThat(jobParametersCaptor.getValue().encryptionMetadata()).isEqualTo(Optional.empty());
     verifyNoMoreInteractions(mockDataProcessor);
   }
 
@@ -822,7 +831,7 @@ public final class MatchJobProcessorTest {
   @Test
   public void process_whenApplicationIdMicAndMicEnabledSuccess() throws Exception {
     Job job = generateFakeJob("testdata/valid_job_params_mic.json");
-    when(mockDataProcessor.process(any(), any(), any(), any(), any(), any(), any(), any()))
+    when(mockDataProcessor.process(any(), any(), any()))
         .thenReturn(MatchStatistics.emptyInstance());
     when(mockFeatureFlagProvider.getFeatureFlags())
         .thenReturn(FeatureFlags.builder().setEnableMIC(true).build());
@@ -837,7 +846,7 @@ public final class MatchJobProcessorTest {
   public void process_micNotEnabled_getStartupConfigNotCalled() throws Exception {
     Job job = generateFakeJob("testdata/valid_job_params_mic.json");
     lenient()
-        .when(mockDataProcessor.process(any(), any(), any(), any(), any(), any(), any(), any()))
+        .when(mockDataProcessor.process(any(), any(), any()))
         .thenReturn(MatchStatistics.emptyInstance());
     when(mockFeatureFlagProvider.getFeatureFlags())
         .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
@@ -850,7 +859,7 @@ public final class MatchJobProcessorTest {
   @Test
   public void process_micEnabledNotificationTopicForMicNotAdded_emptyTopicId() throws Exception {
     Job job = generateFakeJob("testdata/valid_job_params_mic.json");
-    when(mockDataProcessor.process(any(), any(), any(), any(), any(), any(), any(), any()))
+    when(mockDataProcessor.process(any(), any(), any()))
         .thenReturn(MatchStatistics.emptyInstance());
     when(mockFeatureFlagProvider.getFeatureFlags())
         .thenReturn(FeatureFlags.builder().setEnableMIC(true).build());
@@ -871,7 +880,7 @@ public final class MatchJobProcessorTest {
   public void process_micEnabledAndNotificationTopicsContainsMicApplicationId_success()
       throws Exception {
     Job job = generateFakeJob("testdata/valid_job_params_mic.json");
-    when(mockDataProcessor.process(any(), any(), any(), any(), any(), any(), any(), any()))
+    when(mockDataProcessor.process(any(), any(), any()))
         .thenReturn(MatchStatistics.emptyInstance());
     when(mockFeatureFlagProvider.getFeatureFlags())
         .thenReturn(FeatureFlags.builder().setEnableMIC(true).build());

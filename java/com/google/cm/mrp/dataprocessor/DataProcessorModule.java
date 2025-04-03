@@ -110,12 +110,10 @@ public final class DataProcessorModule extends AbstractModule {
             .build(DataReaderFactory.class));
     install(
         new FactoryModuleBuilder()
-            .implement(DataWriter.class, CsvDataWriter.class)
-            .build(CsvDataWriterFactory.class));
-    install(
-        new FactoryModuleBuilder()
-            .implement(DataWriter.class, SerializedProtoDataWriter.class)
-            .build(SerializedProtoDataWriterFactory.class));
+            .implement(DataWriter.class, Names.named("csv"), CsvDataWriter.class)
+            .implement(
+                DataWriter.class, Names.named("serializedProto"), SerializedProtoDataWriter.class)
+            .build(DataWriterFactory.class));
     install(
         new FactoryModuleBuilder()
             .implement(LookupDataSource.class, LookupServerDataSource.class)

@@ -57,17 +57,12 @@ public final class FeatureFlagProviderImpl implements FeatureFlagProvider {
                       getValue(Parameter.MIC_FEATURE_ENABLED)
                           .map(Boolean::parseBoolean)
                           .orElse(false);
-                  boolean serializedProtoEnabled =
-                      getValue(Parameter.SERIALIZED_PROTO_FEATURE_ENABLED)
-                          .map(Boolean::parseBoolean)
-                          .orElse(false);
                   boolean coordinatorBatchEncryptionEnabled =
                       getValue(Parameter.COORDINATOR_BATCH_ENCRYPTION_ENABLED)
                           .map(Boolean::parseBoolean)
                           .orElse(false);
                   return FeatureFlags.builder()
                       .setEnableMIC(micFeatureEnabled)
-                      .setEnableSerializedProto(serializedProtoEnabled)
                       .setCoordinatorBatchEncryptionEnabled(coordinatorBatchEncryptionEnabled)
                       .build();
                 }

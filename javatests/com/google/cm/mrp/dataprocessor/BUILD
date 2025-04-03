@@ -34,6 +34,7 @@ java_test(
         "//java/com/google/cm/mrp/dataprocessor/preparers",
         "//java/com/google/cm/mrp/dataprocessor/readers",
         "//java/com/google/cm/mrp/dataprocessor/writers",
+        "//java/com/google/cm/mrp/models",
         "//java/com/google/cm/util",
         "//java/external:clients_blobstorageclient",
         "//java/external:clients_blobstorageclient_model",

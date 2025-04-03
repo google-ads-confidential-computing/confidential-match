@@ -20,11 +20,11 @@ option java_package = "com.google.cm.mrp.api";
 option java_outer_classname = "ApplicationProto";
 
 enum ApplicationId {
+  reserved 4;
   APPLICATION_ID_UNSPECIFIED = 0;
   CUSTOMER_MATCH = 1;
   ADH = 2;
   MIC = 3;
-  MIC_PROTO = 4;
   COPLA = 5;
   MIC_AUDIENCE = 6;
 }

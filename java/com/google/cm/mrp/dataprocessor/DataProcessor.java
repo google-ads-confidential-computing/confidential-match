@@ -18,27 +18,18 @@ package com.google.cm.mrp.dataprocessor;
 
 import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.JobProcessorException;
-import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwnerList;
-import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.dataprocessor.models.MatchStatistics;
-import java.util.Optional;
+import com.google.cm.mrp.models.JobParameters;
 
 /** Main data processing interface for dependency injection. */
 public interface DataProcessor {
 
   /**
-   * An abstract method that takes a list of data owner configuration items, performs a match, and
-   * writes the output to an output bucket.
+   * An abstract method that takes job parameters to use to read data, perform matches, and write
+   * the output to an output bucket.
    */
   MatchStatistics process(
-      FeatureFlags featureFlags,
-      DataOwnerList dataOwnerList,
-      String outputBucket,
-      String outputPrefix,
-      String jobRequestId,
-      MatchConfig matchConfig,
-      Optional<EncryptionMetadata> encryptionMetadata,
-      Optional<String> dataOwnerIdentity)
+      FeatureFlags featureFlags, MatchConfig matchConfig, JobParameters jobParameters)
       throws JobProcessorException;
 }

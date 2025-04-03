@@ -16,9 +16,11 @@
 
 package com.google.cm.mrp.dataprocessor.models;
 
+import static com.google.cm.mrp.backend.SchemaProto.Schema.DataFormat.CSV;
 import static java.util.Collections.emptyMap;
 
 import com.google.auto.value.AutoValue;
+import com.google.cm.mrp.backend.SchemaProto.Schema.DataFormat;
 import com.google.common.collect.ImmutableMap;
 import java.util.Map;
 
@@ -27,7 +29,7 @@ import java.util.Map;
 public abstract class MatchStatistics {
 
   private static final MatchStatistics EMPTY =
-      create(0, 0L, 0L, emptyMap(), emptyMap(), emptyMap(), emptyMap());
+      create(0, 0L, 0L, emptyMap(), emptyMap(), emptyMap(), emptyMap(), CSV);
 
   /** Creates a new instance. */
   public static MatchStatistics create(
@@ -45,7 +47,29 @@ public abstract class MatchStatistics {
         ImmutableMap.copyOf(conditionMatches),
         ImmutableMap.copyOf(validConditionChecks),
         ImmutableMap.copyOf(datasource1Errors),
-        ImmutableMap.copyOf(datasource2ConditionMatches));
+        ImmutableMap.copyOf(datasource2ConditionMatches),
+        CSV);
+  }
+
+  /** Creates a new instance. */
+  public static MatchStatistics create(
+      int numFiles,
+      long numDataRecords,
+      long numDataRecordsWithMatch,
+      Map<String, Long> conditionMatches,
+      Map<String, Long> validConditionChecks,
+      Map<String, Long> datasource1Errors,
+      Map<String, Long> datasource2ConditionMatches,
+      DataFormat fileDataFormat) {
+    return new AutoValue_MatchStatistics(
+        numFiles,
+        numDataRecords,
+        numDataRecordsWithMatch,
+        ImmutableMap.copyOf(conditionMatches),
+        ImmutableMap.copyOf(validConditionChecks),
+        ImmutableMap.copyOf(datasource1Errors),
+        ImmutableMap.copyOf(datasource2ConditionMatches),
+        fileDataFormat);
   }
 
   /** Creates a default instance with no values set. Maps are empty and non-null. */
@@ -73,4 +97,7 @@ public abstract class MatchStatistics {
 
   /** Datasource2 match conditions mapping of column name to valid match count. */
   public abstract ImmutableMap<String, Long> datasource2ConditionMatches();
+
+  /** {@link DataFormat} which indicates the file format used for a job. */
+  public abstract DataFormat fileDataFormat();
 }

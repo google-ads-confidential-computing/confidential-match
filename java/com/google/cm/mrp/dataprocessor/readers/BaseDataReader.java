@@ -24,8 +24,11 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DECRYPT
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_DECRYPTION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_MISSING_IN_RECORD;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.ENCRYPTION_COLUMNS_CONFIG_ERROR;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_WIP_PARAMETER;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.KEK_MISSING_IN_RECORD;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.UNSUPPORTED_ENCRYPTION_TYPE;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WIP_AUTH_FAILED;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WIP_MISSING_IN_RECORD;
 import static com.google.cm.mrp.backend.SchemaProto.Schema.ColumnEncoding.BASE64_URL;
 
 import com.google.cloud.storage.StorageException;
@@ -124,7 +127,10 @@ public abstract class BaseDataReader implements DataReader {
         || errorCode == DECRYPTION_ERROR
         || errorCode == DEK_MISSING_IN_RECORD
         || errorCode == KEK_MISSING_IN_RECORD
-        || errorCode == COORDINATOR_KEY_MISSING_IN_RECORD;
+        || errorCode == WIP_MISSING_IN_RECORD
+        || errorCode == COORDINATOR_KEY_MISSING_IN_RECORD
+        || errorCode == INVALID_WIP_PARAMETER
+        || errorCode == WIP_AUTH_FAILED;
   }
 
   /** Determine if the exception is caused by the input stream. */

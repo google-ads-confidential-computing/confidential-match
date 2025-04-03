@@ -14,7 +14,7 @@
 
 syntax = "proto3";
 
-package google.confidential_match.mrp.api;
+package google.confidential_match.mrp.backend;
 
 option java_package = "com.google.cm.mrp.backend";
 option java_outer_classname = "EncodingTypeProto";

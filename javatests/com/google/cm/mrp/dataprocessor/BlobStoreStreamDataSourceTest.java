@@ -527,7 +527,7 @@ public class BlobStoreStreamDataSourceTest {
                     FAKE_DATA_LOCATION,
                     matchConfig,
                     Optional.empty(),
-                    FeatureFlags.builder().setEnableSerializedProto(true).build()));
+                    FeatureFlags.builder().build()));
 
     assertEquals(JobResultCode.INVALID_SCHEMA_FILE_ERROR, e.getErrorCode());
     assertFalse(e.isRetriable());
@@ -594,7 +594,7 @@ public class BlobStoreStreamDataSourceTest {
             dataLocation,
             matchConfig,
             Optional.empty(),
-            FeatureFlags.builder().setEnableSerializedProto(true).build());
+            FeatureFlags.builder().build());
   }
 
   private InputStream getSchemaStream(DataFormat dataFormat) {

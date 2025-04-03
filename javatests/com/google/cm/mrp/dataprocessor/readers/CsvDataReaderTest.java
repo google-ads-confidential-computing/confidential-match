@@ -23,6 +23,7 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.ENCRYPT
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.JOB_DECRYPTION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.KEK_MISSING_IN_RECORD;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.UNSUPPORTED_ENCRYPTION_TYPE;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WIP_AUTH_FAILED;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WIP_MISSING_IN_RECORD;
 import static com.google.cm.mrp.testutils.AeadKeyGenerator.decryptString;
 import static com.google.cm.mrp.testutils.AeadKeyGenerator.encryptString;
@@ -626,7 +627,7 @@ public final class CsvDataReaderTest {
   }
 
   @Test
-  public void next_encryptedWithoutWipInRequestOrInData_throws() throws Exception {
+  public void next_encryptedMissingWipInRequestOrInData_throws() throws Exception {
     Schema schema =
         ProtoUtils.getProtoFromJson(
             Resources.toString(
@@ -662,6 +663,49 @@ public final class CsvDataReaderTest {
 
     assertThat(ex.getErrorCode()).isEqualTo(WIP_MISSING_IN_RECORD);
     assertThat(ex.getMessage()).isEqualTo("Error parsing encryption keys.");
+  }
+
+  @Test
+  public void next_encryptedBadWipAuth_throws() throws Exception {
+    Schema schema =
+        ProtoUtils.getProtoFromJson(
+            Resources.toString(
+                Objects.requireNonNull(
+                    getClass().getResource("testdata/wrapped_key_encrypted_schema.json")),
+                UTF_8),
+            Schema.class);
+    var file = File.createTempFile("mrp_test_row_error", "csv");
+    try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+      writer.write(String.join(",", SchemaConverter.convertToColumnNames(schema)));
+      writer.newLine();
+      for (int i = 0; i < 10; ++i) {
+        String[] values = generateEncryptedFields(i);
+        writer.write(String.join(",", values));
+        writer.newLine();
+      }
+    }
+    when(mockCryptoClient.decrypt(any(), anyString(), anyBoolean()))
+        .thenThrow(new CryptoClientException(WIP_AUTH_FAILED));
+    try (DataReader dataReader =
+        new CsvDataReader(
+            1000,
+            new FileInputStream(file),
+            schema,
+            "test",
+            cmMatchConfig.getEncryptionKeyColumns(),
+            SuccessMode.ONLY_COMPLETE_SUCCESS,
+            WRAPPED_ENCRYPTION_METADATA,
+            mockCryptoClient)) {
+      assertThat(dataReader.getSchema()).isNotNull();
+      assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
+          .containsExactly(
+              "Email", "Phone", "FirstName", "LastName", "Zip", "Country", "Dek", "Kek");
+
+      JobProcessorException ex = assertThrows(JobProcessorException.class, dataReader::next);
+
+      assertThat(ex.getErrorCode()).isEqualTo(WIP_AUTH_FAILED);
+      assertThat(ex.isRetriable()).isFalse();
+    }
   }
 
   @Test
@@ -862,6 +906,115 @@ public final class CsvDataReaderTest {
         assertThat(record.getEncryptedKeyValuesCount()).isEqualTo(0);
         assertThat(record.hasErrorCode()).isTrue();
         assertThat(record.getErrorCode()).isEqualTo(JobResultCode.DEK_MISSING_IN_RECORD);
+      }
+    }
+  }
+
+  @Test
+  public void next_partialSuccessEnabledMissingWip_returnsRowLevelError() throws Exception {
+    when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
+    Schema schema =
+        ProtoUtils.getProtoFromJson(
+            Resources.toString(
+                Objects.requireNonNull(
+                    getClass().getResource("testdata/wrapped_key_with_wip_schema.json")),
+                UTF_8),
+            Schema.class);
+    var file = File.createTempFile("mrp_test", "csv");
+    try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+      writer.write(String.join(",", SchemaConverter.convertToColumnNames(schema)));
+      writer.newLine();
+      for (int i = 0; i < 10; ++i) {
+        // empty wip
+        String[] values = generateEncryptedFields(i, /* wip= */ " ");
+        writer.write(String.join(",", values));
+        writer.newLine();
+      }
+    }
+    try (DataReader dataReader =
+        new CsvDataReader(
+            1000,
+            new FileInputStream(file),
+            schema,
+            "test",
+            matchConfigWithWip.getEncryptionKeyColumns(),
+            SuccessMode.ALLOW_PARTIAL_SUCCESS,
+            NO_WIP_WRAPPED_ENCRYPTION_METADATA,
+            mockCryptoClient)) {
+      assertThat(dataReader.getSchema()).isNotNull();
+      assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
+          .containsExactly(
+              "Email", "Phone", "FirstName", "LastName", "Zip", "Country", "Dek", "Kek", "Wip");
+
+      DataChunk dataChunk = dataReader.next();
+
+      assertThat(dataChunk.encryptionColumns().isPresent()).isTrue();
+      var encryptionColumns = dataChunk.encryptionColumns().get();
+      assertThat(encryptionColumns.getDataRecordEncryptionKeys().hasWrappedEncryptionKeys())
+          .isFalse();
+      var dataRecords = dataChunk.records();
+      assertThat(dataRecords).hasSize(10);
+      for (int i = 0; i < dataRecords.size(); ++i) {
+        var record = dataRecords.get(i);
+        assertThat(record.getKeyValuesCount()).isEqualTo(9);
+        assertThat(record.getEncryptedKeyValuesCount()).isEqualTo(0);
+        assertThat(record.hasErrorCode()).isTrue();
+        assertThat(record.getErrorCode()).isEqualTo(WIP_MISSING_IN_RECORD);
+      }
+    }
+  }
+
+  @Test
+  public void next_partialSuccessEnabledWrongWip_returnsRowLevelError() throws Exception {
+    when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
+    Schema schema =
+        ProtoUtils.getProtoFromJson(
+            Resources.toString(
+                Objects.requireNonNull(
+                    getClass().getResource("testdata/wrapped_key_with_wip_schema.json")),
+                UTF_8),
+            Schema.class);
+    var file = File.createTempFile("mrp_test", "csv");
+    try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+      writer.write(String.join(",", SchemaConverter.convertToColumnNames(schema)));
+      writer.newLine();
+      for (int i = 0; i < 10; ++i) {
+        String[] values = generateEncryptedFields(i, TEST_WIP);
+        writer.write(String.join(",", values));
+        writer.newLine();
+      }
+    }
+    when(mockCryptoClient.decrypt(any(), anyString(), anyBoolean()))
+        .thenThrow(new CryptoClientException(WIP_AUTH_FAILED));
+    try (DataReader dataReader =
+        new CsvDataReader(
+            1000,
+            new FileInputStream(file),
+            schema,
+            "test",
+            matchConfigWithWip.getEncryptionKeyColumns(),
+            SuccessMode.ALLOW_PARTIAL_SUCCESS,
+            WRAPPED_ENCRYPTION_METADATA, //jobLevel WIP
+            mockCryptoClient)) {
+      assertThat(dataReader.getSchema()).isNotNull();
+      assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
+          .containsExactly(
+              "Email", "Phone", "FirstName", "LastName", "Zip", "Country", "Dek", "Kek", "Wip");
+
+      DataChunk dataChunk = dataReader.next();
+
+      assertThat(dataChunk.encryptionColumns().isPresent()).isTrue();
+      var encryptionColumns = dataChunk.encryptionColumns().get();
+      assertThat(encryptionColumns.getDataRecordEncryptionKeys().hasWrappedEncryptionKeys())
+          .isFalse();
+      var dataRecords = dataChunk.records();
+      assertThat(dataRecords).hasSize(10);
+      for (int i = 0; i < dataRecords.size(); ++i) {
+        var record = dataRecords.get(i);
+        assertThat(record.getKeyValuesCount()).isEqualTo(9);
+        assertThat(record.getEncryptedKeyValuesCount()).isEqualTo(0);
+        assertThat(record.hasErrorCode()).isTrue();
+        assertThat(record.getErrorCode()).isEqualTo(JobResultCode.WIP_AUTH_FAILED);
       }
     }
   }

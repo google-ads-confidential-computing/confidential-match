@@ -32,6 +32,7 @@ java_library(
         "//java/com/google/cm/mrp/dataprocessor/readers",
         "//java/com/google/cm/mrp/dataprocessor/transformations",
         "//java/com/google/cm/mrp/dataprocessor/writers",
+        "//java/com/google/cm/mrp/models",
         "//java/com/google/cm/util",
         "//java/external:apache_commons_csv",
         "//java/external:apache_commons_lang",

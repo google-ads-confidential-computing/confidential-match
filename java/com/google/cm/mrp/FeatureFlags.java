@@ -26,15 +26,11 @@ public abstract class FeatureFlags {
   public static Builder builder() {
     return new AutoValue_FeatureFlags.Builder()
         .setEnableMIC(false)
-        .setEnableSerializedProto(false)
         .setCoordinatorBatchEncryptionEnabled(false);
   }
 
   /** Returns the flag for MIC feature. */
   public abstract boolean enableMIC();
-
-  /** Returns the flag for Serialized Proto feature. */
-  public abstract boolean enableSerializedProto();
 
   /** Returns the coordinator batch encryption feature. */
   public abstract boolean coordinatorBatchEncryptionEnabled();
@@ -48,9 +44,6 @@ public abstract class FeatureFlags {
 
     /** Sets MIC feature flag. */
     public abstract Builder setEnableMIC(boolean enableMIC);
-
-    /** Sets Serialized Proto feature flag. */
-    public abstract Builder setEnableSerializedProto(boolean enableSerializedProto);
 
     /** Sets the coordinator batch encryption feature flag. */
     public abstract Builder setCoordinatorBatchEncryptionEnabled(

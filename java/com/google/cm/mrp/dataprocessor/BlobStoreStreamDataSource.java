@@ -299,10 +299,6 @@ public final class BlobStoreStreamDataSource implements StreamDataSource {
   private boolean isValid(Schema schema) {
     switch (schema.getDataFormat()) {
       case SERIALIZED_PROTO:
-        if (!featureFlags.enableSerializedProto()) {
-          throw new JobProcessorException(
-              "Unsupported data format: " + schema.getDataFormat(), INVALID_DATA_FORMAT);
-        }
         return isValidSerializedProtoSchema(schema);
       case CSV:
         if (!hasNestedColumns(schema)) {

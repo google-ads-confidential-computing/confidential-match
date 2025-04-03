@@ -68,6 +68,7 @@ java_test(
         "//java/com/google/cm/mrp/dataprocessor",
         "//java/com/google/cm/mrp/dataprocessor/converters",
         "//java/com/google/cm/mrp/dataprocessor/models",
+        "//java/com/google/cm/mrp/models",
         "//java/com/google/cm/util",
         "//java/external:clients_jobclient_gcp",  # includes testing job client
         "//java/external:clients_jobclient_model",

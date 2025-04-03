@@ -83,7 +83,7 @@ import org.mockito.junit.MockitoRule;
 @RunWith(JUnit4.class)
 public final class SerializedProtoDataReaderTest {
 
-  private static final MatchConfig micMatchConfig = getMatchConfig("mic_proto");
+  private static final MatchConfig micMatchConfig = getMatchConfig("mic");
 
   @Rule public final MockitoRule mockito = MockitoJUnit.rule();
   @Mock private HybridEncryptionKeyService mockHybridEncryptionKeyService;

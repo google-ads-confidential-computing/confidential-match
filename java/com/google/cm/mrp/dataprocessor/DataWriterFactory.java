@@ -16,18 +16,27 @@
 
 package com.google.cm.mrp.dataprocessor;
 
+import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.SchemaProto.Schema;
 import com.google.cm.mrp.dataprocessor.destinations.DataDestination;
+import com.google.cm.mrp.dataprocessor.writers.CsvDataWriter;
 import com.google.cm.mrp.dataprocessor.writers.DataWriter;
-import com.google.inject.assistedinject.Assisted;
+import com.google.cm.mrp.dataprocessor.writers.SerializedProtoDataWriter;
 import java.util.List;
+import javax.inject.Named;
 
 /** Factory interface for {@link DataWriter}. */
-public interface CsvDataWriterFactory {
-  /** Factory method for constructing {@link DataWriter} objects. */
-  DataWriter create(
-      @Assisted DataDestination dataDestination,
-      @Assisted String name,
-      @Assisted Schema schema,
-      @Assisted List<String> defaultOutputColumns);
+public interface DataWriterFactory {
+  /** Factory method for constructing {@link CsvDataWriter} objects. */
+  @Named("csv")
+  DataWriter createCsvDataWriter(
+      DataDestination dataDestination,
+      String name,
+      Schema schema,
+      List<String> defaultOutputColumns);
+
+  /** Factory method for constructing {@link SerializedProtoDataWriter} objects. */
+  @Named("serializedProto")
+  DataWriter createSerializedProtoDataWriter(
+      DataDestination dataDestination, String name, Schema schema, MatchConfig matchConfig);
 }
