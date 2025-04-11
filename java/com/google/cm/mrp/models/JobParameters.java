@@ -17,7 +17,7 @@
 package com.google.cm.mrp.models;
 
 import com.google.auto.value.AutoValue;
-import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwnerList;
+import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner.DataLocation;
 import com.google.cm.mrp.backend.EncodingTypeProto.EncodingType;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
 import java.util.List;
@@ -33,9 +33,9 @@ public abstract class JobParameters {
   /** Returns jobId for current job */
   public abstract String jobId();
 
-  /** Returns dataOwnerList which defines data sources */
+  /** Returns dataLocation for the data sources */
   // TODO(b/406643831): replace with autoValue
-  public abstract DataOwnerList dataOwnerList();
+  public abstract DataLocation dataLocation();
 
   /** Returns identity for permissions to use to read data sources in `dataOwnerList` */
   public abstract Optional<String> dataOwnerIdentity();
@@ -56,8 +56,8 @@ public abstract class JobParameters {
     /** Sets jobId */
     public abstract Builder setJobId(String jobId);
 
-    /** Sets dataOwnerList */
-    public abstract Builder setDataOwnerList(DataOwnerList dataOwnerList);
+    /** Sets dataLocation */
+    public abstract Builder setDataLocation(DataLocation dataLocation);
 
     /** Sets encodingType */
     public abstract Builder setEncodingType(EncodingType encodingType);

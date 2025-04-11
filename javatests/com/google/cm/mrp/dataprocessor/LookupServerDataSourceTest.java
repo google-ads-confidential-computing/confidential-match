@@ -56,6 +56,7 @@ import com.google.cm.lookupserver.api.LookupProto.MatchedDataRecord;
 import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.JobProcessorException;
 import com.google.cm.mrp.MatchConfigProvider;
+import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner.DataLocation;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.WrappedKeyColumnIndices.GcpWrappedKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys;
@@ -83,6 +84,8 @@ import com.google.cm.mrp.dataprocessor.models.DataChunk;
 import com.google.cm.mrp.dataprocessor.models.LookupDataSourceResult;
 import com.google.cm.mrp.dataprocessor.transformations.DataRecordTransformerFactory;
 import com.google.cm.mrp.dataprocessor.transformations.DataRecordTransformerImpl;
+import com.google.cm.mrp.models.JobParameters;
+import com.google.cm.mrp.models.JobParameters.OutputDataLocation;
 import com.google.cm.mrp.testutils.HybridKeyGenerator;
 import com.google.cm.shared.api.errors.ErrorResponseProto.Details;
 import com.google.cm.shared.api.errors.ErrorResponseProto.ErrorResponse;
@@ -173,6 +176,12 @@ public final class LookupServerDataSourceTest {
           .build();
   private static final Set<String> ENCRYPTED_COLUMNS =
       ImmutableSet.of("email", "phone", "first_name", "last_name");
+  private static final JobParameters DEFAULT_PARAMS =
+      JobParameters.builder()
+          .setJobId("test")
+          .setDataLocation(DataLocation.getDefaultInstance())
+          .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
+          .build();
   @Mock private AeadProvider mockAeadProvider;
   @Mock private CryptoClient mockCryptoClient;
   @Mock private LookupServiceClient mockLookupServiceClient;
@@ -188,31 +197,31 @@ public final class LookupServerDataSourceTest {
         new LookupServerDataSource(
             mockLookupServiceClient,
             dataRecordTransformerFactory,
-            "",
             MatchConfigProvider.getMatchConfig("customer_match"),
-            FeatureFlags.builder().build());
+            FeatureFlags.builder().build(),
+            DEFAULT_PARAMS);
     var cryptoClient =
         new AeadCryptoClient(mockAeadProvider, WRAPPED_ENCRYPTION_METADATA.getEncryptionKeyInfo());
     lookupServerDataSourceForEncryption =
         new LookupServerDataSource(
             mockLookupServiceClient,
             dataRecordTransformerFactory,
-            "",
             MatchConfigProvider.getMatchConfig("customer_match"),
             cryptoClient,
-            FeatureFlags.builder().build());
+            FeatureFlags.builder().build(),
+            DEFAULT_PARAMS);
     lookupServerDataSourceForV2 =
         new LookupServerDataSource(
             mockLookupServiceClient,
             dataRecordTransformerFactory,
-            "",
             MatchConfigProvider.getMatchConfig("copla"),
             cryptoClient,
-            FeatureFlags.builder().build());
-    when(dataRecordTransformerFactory.create(any(), any()))
+            FeatureFlags.builder().build(),
+            DEFAULT_PARAMS);
+    when(dataRecordTransformerFactory.create(any(), any(), any()))
         .thenReturn(
             new DataRecordTransformerImpl(
-                MatchConfig.getDefaultInstance(), Schema.getDefaultInstance()));
+                MatchConfig.getDefaultInstance(), Schema.getDefaultInstance(), DEFAULT_PARAMS));
   }
 
   @Test
@@ -755,9 +764,9 @@ public final class LookupServerDataSourceTest {
         new LookupServerDataSource(
             mockLookupServiceClient,
             dataRecordTransformerFactory,
-            "",
             MatchConfigProvider.getMatchConfig("customer_match"),
-            FeatureFlags.builder().build());
+            FeatureFlags.builder().build(),
+            DEFAULT_PARAMS);
     String[][] testData = {
       {"email", "email", "fake.email@google.com"},
       {"phone", "phone", "999-999-9999"},
@@ -795,9 +804,9 @@ public final class LookupServerDataSourceTest {
         new LookupServerDataSource(
             mockLookupServiceClient,
             dataRecordTransformerFactory,
-            "",
             MatchConfigProvider.getMatchConfig("customer_match"),
-            FeatureFlags.builder().build());
+            FeatureFlags.builder().build(),
+            DEFAULT_PARAMS);
     String[][] testData = {
       {"email", "email", "fake.email@google.com"},
       {"phone", "phone", "999-999-9999"},
@@ -1172,9 +1181,9 @@ public final class LookupServerDataSourceTest {
         new LookupServerDataSource(
             mockLookupServiceClient,
             dataRecordTransformerFactory,
-            "",
             testConfig,
-            FeatureFlags.builder().build());
+            FeatureFlags.builder().build(),
+            DEFAULT_PARAMS);
     when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
         .thenReturn(
             LookupServiceClientResponse.builder()
@@ -1214,8 +1223,8 @@ public final class LookupServerDataSourceTest {
     Schema schema = getSchema(testData);
     DataChunk dataChunk =
         DataChunk.builder().setSchema(schema).addRecord(getDataRecord(testData)).build();
-    when(dataRecordTransformerFactory.create(testConfig, schema))
-        .thenReturn(new DataRecordTransformerImpl(testConfig, schema));
+    when(dataRecordTransformerFactory.create(testConfig, schema, DEFAULT_PARAMS))
+        .thenReturn(new DataRecordTransformerImpl(testConfig, schema, DEFAULT_PARAMS));
 
     DataChunk result = testDataSource.lookup(dataChunk, Optional.empty()).lookupResults();
 
@@ -2639,10 +2648,10 @@ public final class LookupServerDataSourceTest {
         new LookupServerDataSource(
             mockLookupServiceClient,
             dataRecordTransformerFactory,
-            "",
             testConfig,
             mockCryptoClient,
-            FeatureFlags.builder().setEnableMIC(true).build());
+            FeatureFlags.builder().setEnableMIC(true).build(),
+            DEFAULT_PARAMS);
 
     DataChunk result =
         lookupServerDataSource
@@ -2790,13 +2799,13 @@ public final class LookupServerDataSourceTest {
         new LookupServerDataSource(
             mockLookupServiceClient,
             dataRecordTransformerFactory,
-            "",
             testConfig,
             mockCryptoClient,
             FeatureFlags.builder()
                 .setEnableMIC(true)
                 .setCoordinatorBatchEncryptionEnabled(true)
-                .build());
+                .build(),
+            DEFAULT_PARAMS);
 
     DataChunk result =
         lookupServerDataSource

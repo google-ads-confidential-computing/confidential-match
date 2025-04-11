@@ -34,6 +34,7 @@ import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner.Da
 import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwnerList;
 import com.google.cm.mrp.api.EncryptionMetadataProto;
 import com.google.cm.mrp.backend.ApplicationProto.ApplicationId;
+import com.google.cm.mrp.backend.EncodingTypeProto.EncodingType;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
 import com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
@@ -98,6 +99,7 @@ public final class MatchJobProcessor implements JobProcessor {
   private static final String DATA_OWNER_LIST = "data_owner_list";
   private static final String APPLICATION_ID = "application_id";
   private static final String ENCRYPTION_METADATA = "encryption_metadata";
+  private static final String ENCODING_TYPE = "encoding_type";
 
   // Format stats to five significant digits after decimal
   private static final DecimalFormat FORMATTER = new DecimalFormat("0.#####");
@@ -207,7 +209,15 @@ public final class MatchJobProcessor implements JobProcessor {
       Map<String, String> params = job.requestInfo().getJobParametersMap();
       validateJobParameters(params, featureFlags);
       DataOwnerList dataOwnersList = validateAndGetDataOwnersList(params);
+      DataLocation dataLocation =
+          dataOwnersList.getDataOwnersList().stream()
+              .filter(dataOwner -> dataOwner.getDataLocation().getIsStreamed())
+              .findAny()
+              .orElseThrow()
+              .getDataLocation();
+
       Optional<EncryptionMetadata> encryptionMetadata = validateAndGetEncryptionMetadata(params);
+      EncodingType encodingType = validateAndGetEncodingType(params);
 
       MatchConfig matchConfig = MatchConfigProvider.getMatchConfig(params.get(APPLICATION_ID));
       Optional<String> dataOwnerIdentity =
@@ -230,13 +240,14 @@ public final class MatchJobProcessor implements JobProcessor {
                     matchConfig,
                     JobParameters.builder()
                         .setJobId(job.jobKey().getJobRequestId())
-                        .setDataOwnerList(dataOwnersList)
+                        .setDataLocation(dataLocation)
                         .setDataOwnerIdentity(dataOwnerIdentity)
                         .setOutputDataLocation(
                             OutputDataLocation.forNameAndPrefix(
                                 job.requestInfo().getOutputDataBucketName(),
                                 job.requestInfo().getOutputDataBlobPrefix()))
                         .setEncryptionMetadata(encryptionMetadata)
+                        .setEncodingType(encodingType)
                         .build());
               });
 
@@ -358,6 +369,18 @@ public final class MatchJobProcessor implements JobProcessor {
     }
     return Optional.of(
         EncryptionMetadataConverter.convertToBackendEncryptionMetadata(apiEncryptionMetadata));
+  }
+
+  private static EncodingType validateAndGetEncodingType(Map<String, String> jobParamsMap) {
+    if (!jobParamsMap.containsKey(ENCODING_TYPE)) return EncodingType.BASE64;
+    String apiEncodingType = jobParamsMap.get(ENCODING_TYPE);
+    try {
+      return EncodingType.valueOf(apiEncodingType);
+    } catch (IllegalArgumentException e) {
+      String message = "Invalid encoding type.";
+      logger.warn(message, e);
+      throw new JobProcessorException(message, e, INVALID_PARAMETERS);
+    }
   }
 
   private static <T extends Message> T getProtoFromJobParams(

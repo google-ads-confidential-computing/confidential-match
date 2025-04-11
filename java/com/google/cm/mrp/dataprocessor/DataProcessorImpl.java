@@ -25,8 +25,6 @@ import static java.util.Comparator.comparing;
 
 import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.JobProcessorException;
-import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner;
-import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner.DataLocation;
 import com.google.cm.mrp.backend.DestinationInfoProto.DestinationInfo;
 import com.google.cm.mrp.backend.DestinationInfoProto.DestinationInfo.GcsDestination;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
@@ -146,31 +144,17 @@ public final class DataProcessorImpl implements DataProcessor {
     Optional<CryptoClient> cryptoClient = encryptionMetadata.flatMap(this::getCryptoClient);
     cryptoClient.ifPresent((unused) -> logger.info("Job {}: Created CryptoClient", jobRequestId));
 
-    final Optional<DataOwner> dataOwnerOptional =
-        jobParameters.dataOwnerList().getDataOwnersList().stream()
-            .filter(DataOwner::hasLookupEndpoint)
-            .findAny();
-
-    // If the second data source is omitted, then Google data is assumed
-    String lookupEndpoint = dataOwnerOptional.map(DataOwner::getLookupEndpoint).orElse("");
-    DataLocation dataLocation =
-        jobParameters.dataOwnerList().getDataOwnersList().stream()
-            .filter(dataOwner -> dataOwner.getDataLocation().getIsStreamed())
-            .findAny()
-            .orElseThrow()
-            .getDataLocation();
-
     Optional<String> dataOwnerIdentity = jobParameters.dataOwnerIdentity();
     LookupDataSource lookupDataSource;
     final StreamDataSource streamDataSource;
     if (cryptoClient.isPresent()) {
       lookupDataSource =
           lookupDataSourceFactory.create(
-              lookupEndpoint, matchConfig, cryptoClient.get(), featureFlags);
+              matchConfig, cryptoClient.get(), featureFlags, jobParameters);
       logger.info("Job {}: Created LookupDataSource", jobRequestId);
       streamDataSource =
           streamDataSourceFactory.create(
-              dataLocation,
+              jobParameters.dataLocation(),
               matchConfig,
               dataOwnerIdentity,
               featureFlags,
@@ -178,17 +162,17 @@ public final class DataProcessorImpl implements DataProcessor {
               cryptoClient.get());
       logger.info("Job {}: Created StreamDataSource", jobRequestId);
     } else {
-      lookupDataSource = lookupDataSourceFactory.create(lookupEndpoint, matchConfig, featureFlags);
+      lookupDataSource = lookupDataSourceFactory.create(matchConfig, featureFlags, jobParameters);
       logger.info("Job {}: Created LookupDataSource", jobRequestId);
       streamDataSource =
           streamDataSourceFactory.create(
-              dataLocation, matchConfig, dataOwnerIdentity, featureFlags);
+              jobParameters.dataLocation(), matchConfig, dataOwnerIdentity, featureFlags);
       logger.info("Job {}: Created StreamDataSource", jobRequestId);
     }
     ImmutableList.Builder<CompletableFuture<ImmutableList<MatchStatistics>>> completableFutures =
         ImmutableList.builderWithExpectedSize(streamDataSource.size());
 
-    DataMatcher dataMatcher = dataMatcherFactory.create(matchConfig);
+    DataMatcher dataMatcher = dataMatcherFactory.create(matchConfig, jobParameters);
     logger.info("Job {}: Created DataMatcher", jobRequestId);
     DataDestination dataDestination =
         dataDestinationFactory.create(

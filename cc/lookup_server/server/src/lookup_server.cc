@@ -831,8 +831,10 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
   aws_cached_kms_client_ =
       std::make_shared<CachedKmsClient>(async_executor_, aws_kms_client_);
 
+  PrivateKeyClientOptions private_key_client_options;
+  private_key_client_options.enable_gcp_kms_client_retries = true;
   private_key_client_ =
-      PrivateKeyClientFactory::Create(PrivateKeyClientOptions());
+      PrivateKeyClientFactory::Create(private_key_client_options);
   coordinator_client_ =
       std::make_shared<CoordinatorClient>(private_key_client_);
   cached_coordinator_client_ = std::make_shared<CachedCoordinatorClient>(

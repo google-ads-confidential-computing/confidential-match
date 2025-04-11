@@ -21,14 +21,18 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.TRANSFO
 
 import com.google.cm.mrp.JobProcessorException;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
+import com.google.cm.mrp.backend.EncodingTypeProto.EncodingType;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.Column;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.MatchCondition;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.MatchTransformation;
 import com.google.cm.mrp.backend.SchemaProto.Schema;
+import com.google.cm.mrp.dataprocessor.transformations.Transformation.ConditionalTransformations;
 import com.google.cm.mrp.dataprocessor.transformations.Transformation.TransformationException;
+import com.google.cm.mrp.models.JobParameters;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.inject.assistedinject.Assisted;
 import com.google.inject.assistedinject.AssistedInject;
 import java.util.ArrayList;
@@ -36,6 +40,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -55,9 +60,14 @@ public final class DataRecordTransformerImpl implements DataRecordTransformer {
   private final ImmutableMap<Integer, Map<Integer, List<Integer>>> indexToDependentIndices;
 
   @AssistedInject
-  public DataRecordTransformerImpl(@Assisted MatchConfig matchConfig, @Assisted Schema schema) {
+  public DataRecordTransformerImpl(
+      @Assisted MatchConfig matchConfig,
+      @Assisted Schema schema,
+      @Assisted JobParameters jobParameters) {
+    Set<String> conditionalTransformationsToSearch = getConditionalTransformations(jobParameters);
     ImmutableMap<Integer, List<MatchTransformation>> indexToMatchTransformationsMap =
-        getColumnIndexToMatchTransformationsMap(schema, matchConfig);
+        getColumnIndexToMatchTransformationsMap(
+            schema, matchConfig, conditionalTransformationsToSearch);
     this.indexToTransformations = convertToTransformations(indexToMatchTransformationsMap);
     this.indexToDependentIndices =
         getColumnIndexToDependentColumnIndices(indexToMatchTransformationsMap, matchConfig, schema);
@@ -107,6 +117,20 @@ public final class DataRecordTransformerImpl implements DataRecordTransformer {
     return transformedRecordBuilder.build();
   }
 
+  // Sets which conditions for which to search per column.
+  @SuppressWarnings("UnstableApiUsage")
+  private Set<String> getConditionalTransformations(JobParameters jobParameters) {
+    ImmutableSet.Builder<String> condTransformations =
+        ImmutableSet.builderWithExpectedSize(ConditionalTransformations.values().length);
+    if (jobParameters.encodingType().isPresent()
+        && jobParameters.encodingType().get() == EncodingType.HEX
+        // TODO(b/398114484): rework when LS supports hex
+        && jobParameters.encryptionMetadata().isEmpty()) {
+      condTransformations.add(ConditionalTransformations.HEX_TO_BASE64.transformationId);
+    }
+    return condTransformations.build();
+  }
+
   private ImmutableMap<Integer, List<Transformation>> convertToTransformations(
       ImmutableMap<Integer, List<MatchTransformation>> matchTransformations) {
     return matchTransformations.entrySet().stream() // maps entries to new types
@@ -139,7 +163,7 @@ public final class DataRecordTransformerImpl implements DataRecordTransformer {
   /* Gets the all the transformations for matchConditions, keyed by index for the
    * column found the Schema */
   private ImmutableMap<Integer, List<MatchTransformation>> getColumnIndexToMatchTransformationsMap(
-      Schema schema, MatchConfig matchConfig) {
+      Schema schema, MatchConfig matchConfig, Set<String> conditionalTransformations) {
     ImmutableMap.Builder<Integer, List<MatchTransformation>> columnIndexToTransformationsMap =
         ImmutableMap.builder();
 
@@ -149,9 +173,24 @@ public final class DataRecordTransformerImpl implements DataRecordTransformer {
         // Column found
         for (int i = 0; i < schema.getColumnsCount(); i++) {
           if (schema.getColumns(i).getColumnAlias().equalsIgnoreCase(column.getColumnAlias())) {
-            if (column.getMatchTransformationsCount() > 0) {
-              // Save transformations for column
-              columnIndexToTransformationsMap.put(i, column.getMatchTransformationsList());
+            ImmutableList.Builder<MatchTransformation> transformations = ImmutableList.builder();
+            transformations.addAll(column.getMatchTransformationsList());
+            // Add conditional transformations
+            if (!conditionalTransformations.isEmpty()) {
+              // Search if column has conditional transformation
+              column
+                  .getConditionalMatchTransformationsList()
+                  .forEach(
+                      transformation -> {
+                        if (conditionalTransformations.contains(
+                            transformation.getTransformationId())) {
+                          transformations.add(transformation);
+                        }
+                      });
+            }
+            List<MatchTransformation> transformationList = transformations.build();
+            if (transformationList.size() > 0) {
+              columnIndexToTransformationsMap.put(i, transformationList);
             }
           }
         }

@@ -34,6 +34,7 @@ import com.google.cm.lookupserver.api.LookupProto.LookupResult.Status;
 import com.google.cm.lookupserver.api.LookupProto.MatchedDataRecord;
 import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.JobProcessorException;
+import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.EncryptionKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.WrappedKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys;
@@ -59,6 +60,7 @@ import com.google.cm.mrp.dataprocessor.models.DataChunk;
 import com.google.cm.mrp.dataprocessor.models.LookupDataSourceResult;
 import com.google.cm.mrp.dataprocessor.transformations.DataRecordTransformer;
 import com.google.cm.mrp.dataprocessor.transformations.DataRecordTransformerFactory;
+import com.google.cm.mrp.models.JobParameters;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ListMultimap;
@@ -93,7 +95,7 @@ public final class LookupServerDataSource implements LookupDataSource {
   private final LookupServiceClient lookupServiceClient;
   private final DataRecordTransformerFactory dataRecordTransformerFactory;
   private final Optional<CryptoClient> cryptoClient;
-  private final String lookupEndpoint;
+  private final JobParameters jobParameters;
   private final MatchConfig matchConfig;
   private final SuccessConfig successConfig;
   private final FeatureFlags featureFlags;
@@ -103,13 +105,13 @@ public final class LookupServerDataSource implements LookupDataSource {
   public LookupServerDataSource(
       LookupServiceClient lookupServiceClient,
       DataRecordTransformerFactory dataRecordTransformerFactory,
-      @Assisted String lookupEndpoint,
       @Assisted MatchConfig matchConfig,
-      @Assisted FeatureFlags featureFlags) {
+      @Assisted FeatureFlags featureFlags,
+      @Assisted JobParameters jobParameters) {
     this.lookupServiceClient = lookupServiceClient;
     this.dataRecordTransformerFactory = dataRecordTransformerFactory;
-    this.lookupEndpoint = lookupEndpoint;
     this.matchConfig = matchConfig;
+    this.jobParameters = jobParameters;
     this.successConfig = matchConfig.getSuccessConfig();
     this.cryptoClient = Optional.empty();
     this.featureFlags = featureFlags;
@@ -120,13 +122,13 @@ public final class LookupServerDataSource implements LookupDataSource {
   public LookupServerDataSource(
       LookupServiceClient lookupServiceClient,
       DataRecordTransformerFactory dataRecordTransformerFactory,
-      @Assisted String lookupEndpoint,
       @Assisted MatchConfig matchConfig,
       @Assisted CryptoClient cryptoClient,
-      @Assisted FeatureFlags featureFlags) {
+      @Assisted FeatureFlags featureFlags,
+      @Assisted JobParameters jobParameters) {
     this.lookupServiceClient = lookupServiceClient;
     this.dataRecordTransformerFactory = dataRecordTransformerFactory;
-    this.lookupEndpoint = lookupEndpoint;
+    this.jobParameters = jobParameters;
     this.matchConfig = matchConfig;
     this.successConfig = matchConfig.getSuccessConfig();
     this.cryptoClient = Optional.of(cryptoClient);
@@ -152,7 +154,7 @@ public final class LookupServerDataSource implements LookupDataSource {
           MatchColumnsList.generateMatchColumnsListForDataSource1(dataChunk.schema(), matchConfig);
       int piisPerRow = matchColumnsList.countPiis();
       DataRecordTransformer dataRecordTransformer =
-          dataRecordTransformerFactory.create(matchConfig, dataChunk.schema());
+          dataRecordTransformerFactory.create(matchConfig, dataChunk.schema(), jobParameters);
 
       if (encryptionMetadata.isEmpty()) {
         return buildAndSendHashedRequestToLookupService(

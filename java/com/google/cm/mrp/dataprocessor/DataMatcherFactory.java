@@ -17,10 +17,11 @@
 package com.google.cm.mrp.dataprocessor;
 
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
+import com.google.cm.mrp.models.JobParameters;
 
 /** Factory interface for {@link DataMatcher}. */
 public interface DataMatcherFactory {
 
   /** Factory method for constructing {@link DataMatcher} objects. */
-  DataMatcher create(MatchConfig matchConfig);
+  DataMatcher create(MatchConfig matchConfig, JobParameters jobParameters);
 }

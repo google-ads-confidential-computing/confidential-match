@@ -22,6 +22,18 @@ import java.util.List;
 /** Interface representing a transformation to a data source. */
 public interface Transformation {
 
+  /** All transformations that can be invoked conditionally. */
+  enum ConditionalTransformations {
+    HEX_TO_BASE64("HexToBase64Transformation");
+
+    // Must match Java class name
+    public final String transformationId;
+
+    ConditionalTransformations(String transformationId) {
+      this.transformationId = transformationId;
+    }
+  }
+
   /**
    * Returns a KeyValue with the value containing the transformed value.
    *

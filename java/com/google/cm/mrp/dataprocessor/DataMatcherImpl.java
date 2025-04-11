@@ -41,6 +41,7 @@ import com.google.cm.mrp.dataprocessor.models.MatchStatistics;
 import com.google.cm.mrp.dataprocessor.models.SingleColumnIndices;
 import com.google.cm.mrp.dataprocessor.transformations.DataRecordTransformer;
 import com.google.cm.mrp.dataprocessor.transformations.DataRecordTransformerFactory;
+import com.google.cm.mrp.models.JobParameters;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ListMultimap;
 import com.google.common.io.BaseEncoding;
@@ -70,14 +71,17 @@ public final class DataMatcherImpl implements DataMatcher {
   private final DataRecordTransformerFactory dataRecordTransformerFactory;
 
   private final MatchConfig matchConfig;
+  private final JobParameters jobParameters;
   private final SuccessConfig successConfig;
 
   /** Constructor for {@link DataMatcherImpl}. */
   @Inject
   public DataMatcherImpl(
       DataRecordTransformerFactory dataRecordTransformerFactory,
-      @Assisted MatchConfig matchConfig) {
+      @Assisted MatchConfig matchConfig,
+      @Assisted JobParameters jobParameters) {
     this.dataRecordTransformerFactory = dataRecordTransformerFactory;
+    this.jobParameters = jobParameters;
     this.successConfig = matchConfig.getSuccessConfig();
     if (shouldAppendRecordStatus() && !successConfig.hasPartialSuccessAttributes()) {
       String message =
@@ -136,7 +140,8 @@ public final class DataMatcherImpl implements DataMatcher {
             dataChunkFromDataSource1.schema(), matchConfig);
 
     DataRecordTransformer transformer =
-        dataRecordTransformerFactory.create(matchConfig, dataChunkFromDataSource1.schema());
+        dataRecordTransformerFactory.create(
+            matchConfig, dataChunkFromDataSource1.schema(), jobParameters);
 
     // TODO(b/309462161): Add logic to honor output columns as specified in the matchConfig
 

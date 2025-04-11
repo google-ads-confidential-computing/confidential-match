@@ -18,10 +18,11 @@ package com.google.cm.mrp.dataprocessor.transformations;
 
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.SchemaProto.Schema;
+import com.google.cm.mrp.models.JobParameters;
 
 /** Factory interface for {@link DataRecordTransformer}. */
 public interface DataRecordTransformerFactory {
 
   /** Factory method for creating {@link DataRecordTransformer} objects. */
-  DataRecordTransformer create(MatchConfig matchConfig, Schema schema);
+  DataRecordTransformer create(MatchConfig matchConfig, Schema schema, JobParameters jobParameters);
 }

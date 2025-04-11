@@ -27,7 +27,9 @@ public final class TransformationProvider {
           "ToLowercaseTransformation",
           new ToLowercaseTransformation(),
           "CountryBasedZipTransformation",
-          new CountryBasedZipTransformation());
+          new CountryBasedZipTransformation(),
+          "HexToBase64Transformation",
+          new HexToBase64Transformation());
 
   private TransformationProvider() {}
 

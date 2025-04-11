@@ -30,6 +30,7 @@ import static org.mockito.Mockito.when;
 
 import com.google.cm.mrp.JobProcessorException;
 import com.google.cm.mrp.MatchConfigProvider;
+import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner.DataLocation;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord.KeyValue;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
@@ -42,6 +43,8 @@ import com.google.cm.mrp.dataprocessor.models.DataChunk;
 import com.google.cm.mrp.dataprocessor.models.DataMatchResult;
 import com.google.cm.mrp.dataprocessor.transformations.DataRecordTransformerFactory;
 import com.google.cm.mrp.dataprocessor.transformations.DataRecordTransformerImpl;
+import com.google.cm.mrp.models.JobParameters;
+import com.google.cm.mrp.models.JobParameters.OutputDataLocation;
 import com.google.cm.util.ProtoUtils;
 import com.google.common.io.BaseEncoding;
 import com.google.common.io.Resources;
@@ -61,6 +64,12 @@ public final class DataMatcherImplTest {
   @Rule public final MockitoRule mockito = MockitoJUnit.rule();
 
   private static final String REDACT_UNMATCHED_WITH = "UNMATCHED";
+  private static final JobParameters DEFAULT_PARAMS =
+      JobParameters.builder()
+          .setJobId("test")
+          .setDataLocation(DataLocation.getDefaultInstance())
+          .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
+          .build();
   private DataMatcher dataMatcher;
   private DataMatcher dataMatcherWithPartialSuccess;
 
@@ -70,14 +79,18 @@ public final class DataMatcherImplTest {
   public void setUp() {
     dataMatcher =
         new DataMatcherImpl(
-            dataRecordTransformerFactory, MatchConfigProvider.getMatchConfig("customer_match"));
+            dataRecordTransformerFactory,
+            MatchConfigProvider.getMatchConfig("customer_match"),
+            DEFAULT_PARAMS);
     dataMatcherWithPartialSuccess =
         new DataMatcherImpl(
-            dataRecordTransformerFactory, MatchConfigProvider.getMatchConfig("copla"));
-    when(dataRecordTransformerFactory.create(any(), any()))
+            dataRecordTransformerFactory,
+            MatchConfigProvider.getMatchConfig("copla"),
+            DEFAULT_PARAMS);
+    when(dataRecordTransformerFactory.create(any(), any(), any()))
         .thenReturn(
             new DataRecordTransformerImpl(
-                MatchConfig.getDefaultInstance(), Schema.getDefaultInstance()));
+                MatchConfig.getDefaultInstance(), Schema.getDefaultInstance(), DEFAULT_PARAMS));
   }
 
   @Test
@@ -388,7 +401,8 @@ public final class DataMatcherImplTest {
                                     MatchConfig.Column.newBuilder()
                                         .setOrder(0)
                                         .setColumnAlias("phone"))))
-                .build());
+                .build(),
+            DEFAULT_PARAMS);
     String[][] testData = {
       {"email", "email", "email_hash"},
       {"phone", "phone", "phone_hash"},
@@ -508,7 +522,8 @@ public final class DataMatcherImplTest {
             MatchConfig.newBuilder()
                 .mergeFrom(MatchConfigProvider.getMatchConfig("customer_match"))
                 .setRedactUnmatchedWith("")
-                .build());
+                .build(),
+            DEFAULT_PARAMS);
     String[][] testData = {
       {"email", "email", "fake.email@google.com"},
       {"phone", "phone", "999-999-9999"},
@@ -551,7 +566,8 @@ public final class DataMatcherImplTest {
             MatchConfig.newBuilder()
                 .mergeFrom(MatchConfigProvider.getMatchConfig("customer_match"))
                 .setRedactUnmatchedWith("")
-                .build());
+                .build(),
+            DEFAULT_PARAMS);
     String[][] testData = {
       {"email", "email", ""},
       {"phone", "phone", "999-999-9999"},
@@ -619,7 +635,8 @@ public final class DataMatcherImplTest {
             MatchConfig.newBuilder()
                 .mergeFrom(MatchConfigProvider.getMatchConfig("customer_match"))
                 .setRedactUnmatchedWith("")
-                .build());
+                .build(),
+            DEFAULT_PARAMS);
     String[][] testData = {
       {"email", "email", "fake.email@google.com"},
       {"phone", "phone", ""},
@@ -687,7 +704,8 @@ public final class DataMatcherImplTest {
             MatchConfig.newBuilder()
                 .mergeFrom(MatchConfigProvider.getMatchConfig("customer_match"))
                 .setRedactUnmatchedWith("")
-                .build());
+                .build(),
+            DEFAULT_PARAMS);
     String[][] testData = {
       {"email", "email", "fake.email@google.com"},
       {"phone", "phone", "999-999-9999"},
@@ -753,7 +771,8 @@ public final class DataMatcherImplTest {
             MatchConfig.newBuilder()
                 .mergeFrom(MatchConfigProvider.getMatchConfig("customer_match"))
                 .setRedactUnmatchedWith("REDACT")
-                .build());
+                .build(),
+            DEFAULT_PARAMS);
     String[][] testData = {
       {"email", "email", "fake.email@google.com"},
       {"phone", "phone", "999-999-9999"},
@@ -1241,7 +1260,8 @@ public final class DataMatcherImplTest {
                                     MatchConfig.Column.newBuilder()
                                         .setOrder(1)
                                         .setColumnAlias("country_code"))))
-                .build());
+                .build(),
+            DEFAULT_PARAMS);
     String[][] testData1 = {
       {"first_name", "first_name", "fake_first_name"},
       {"last_name", "last_name", "fake_last_name"},
@@ -1488,7 +1508,8 @@ public final class DataMatcherImplTest {
                             "/com/google/cm/mrp/dataprocessor/testdata/transformation_match_config.json")),
                 UTF_8),
             MatchConfig.class);
-    DataMatcher testDataMatcher = new DataMatcherImpl(dataRecordTransformerFactory, testConfig);
+    DataMatcher testDataMatcher =
+        new DataMatcherImpl(dataRecordTransformerFactory, testConfig, DEFAULT_PARAMS);
     String[][] testData = {
       {"email", "email", "FAKE.email@google.com"},
       {"phone", "phone", "999-999-9999"},
@@ -1504,8 +1525,8 @@ public final class DataMatcherImplTest {
             .addRecord(getDataRecord(testData))
             .addRecord(getDataRecord(testData))
             .build();
-    when(dataRecordTransformerFactory.create(testConfig, ds1Schema))
-        .thenReturn(new DataRecordTransformerImpl(testConfig, ds1Schema));
+    when(dataRecordTransformerFactory.create(testConfig, ds1Schema, DEFAULT_PARAMS))
+        .thenReturn(new DataRecordTransformerImpl(testConfig, ds1Schema, DEFAULT_PARAMS));
     String[][] piiDataEmail = {{"pii_value", "pii_value", "fake.email@google.com"}};
     String[][] piiDataPhone = {{"pii_value", "pii_value", "999-999-9999"}};
     String[][] piiDataAddress = {
@@ -1754,7 +1775,8 @@ public final class DataMatcherImplTest {
                         .setSuccessConfig(
                             SuccessConfig.newBuilder()
                                 .setSuccessMode(SuccessMode.ALLOW_PARTIAL_SUCCESS))
-                        .build()));
+                        .build(),
+                    DEFAULT_PARAMS));
 
     assertEquals(ex.getErrorCode(), PARTIAL_SUCCESS_CONFIG_ERROR);
     assertEquals(

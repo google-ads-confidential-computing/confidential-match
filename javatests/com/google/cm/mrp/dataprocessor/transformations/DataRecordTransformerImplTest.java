@@ -23,15 +23,19 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertThrows;
 
 import com.google.cm.mrp.JobProcessorException;
+import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner.DataLocation;
 import com.google.cm.mrp.backend.DataRecordProto;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord.KeyValue;
+import com.google.cm.mrp.backend.EncodingTypeProto.EncodingType;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.CompositeColumn;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.MatchCondition;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.MatchTransformation;
 import com.google.cm.mrp.backend.SchemaProto.Schema;
 import com.google.cm.mrp.backend.SchemaProto.Schema.Column;
+import com.google.cm.mrp.models.JobParameters;
+import com.google.cm.mrp.models.JobParameters.OutputDataLocation;
 import com.google.cm.util.ProtoUtils;
 import com.google.common.io.Resources;
 import java.util.Objects;
@@ -43,6 +47,12 @@ import org.junit.runners.JUnit4;
 @RunWith(JUnit4.class)
 public class DataRecordTransformerImplTest {
 
+  private static final JobParameters DEFAULT_PARAMS =
+      JobParameters.builder()
+          .setJobId("test")
+          .setDataLocation(DataLocation.getDefaultInstance())
+          .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
+          .build();
   private MatchConfig testMatchConfig;
 
   @Before
@@ -68,7 +78,8 @@ public class DataRecordTransformerImplTest {
     };
     Schema schema = getSchema(testData);
     DataRecord dataRecord = getDataRecord(testData);
-    DataRecordTransformerImpl transformer = new DataRecordTransformerImpl(testMatchConfig, schema);
+    DataRecordTransformerImpl transformer =
+        new DataRecordTransformerImpl(testMatchConfig, schema, DEFAULT_PARAMS);
 
     DataRecord result = transformer.transform(dataRecord);
 
@@ -78,6 +89,44 @@ public class DataRecordTransformerImplTest {
                 .setKeyValues(
                     0,
                     KeyValue.newBuilder().setKey("email").setStringValue("fake.email@google.com"))
+                .setKeyValues(4, KeyValue.newBuilder().setKey("zip_code").setStringValue("09999"))
+                .build());
+  }
+
+  @Test
+  public void transformDataRecordWithConditionalColumns_success() {
+    String[][] testData = {
+      {"email", "email", "FAKE.email@google.com"}, // uppercase
+      {"phone", "phone", "999-999-9999"},
+      {"first_name", "first_name", "fake_first_name"},
+      {"last_name", "last_name", "fake_last_name"},
+      {"zip_code", "zip_code", "9999"}, // not five digits
+      {"country_code", "country_code", "us"},
+    };
+    Schema schema = getSchema(testData);
+    DataRecord dataRecord = getDataRecord(testData);
+    JobParameters testParams =
+        JobParameters.builder()
+            .setJobId("test")
+            .setDataLocation(DataLocation.getDefaultInstance())
+            .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
+            .setEncodingType(EncodingType.HEX)
+            .build();
+    DataRecordTransformerImpl transformer =
+        new DataRecordTransformerImpl(testMatchConfig, schema, testParams);
+
+    DataRecord result = transformer.transform(dataRecord);
+
+    assertThat(result)
+        .isEqualTo(
+            dataRecord.toBuilder()
+                .setKeyValues(
+                    0,
+                    KeyValue.newBuilder().setKey("email").setStringValue("fake.email@google.com"))
+                .setKeyValues(
+                    1,
+                    // TODO(b/398109545): add after implementation
+                    KeyValue.newBuilder().setKey("phone").setStringValue(""))
                 .setKeyValues(4, KeyValue.newBuilder().setKey("zip_code").setStringValue("09999"))
                 .build());
   }
@@ -100,7 +149,8 @@ public class DataRecordTransformerImplTest {
     };
     Schema schema = getSchema(testData);
     DataRecord dataRecord = getDataRecord(testData);
-    DataRecordTransformerImpl transformer = new DataRecordTransformerImpl(testMatchConfig, schema);
+    DataRecordTransformerImpl transformer =
+        new DataRecordTransformerImpl(testMatchConfig, schema, DEFAULT_PARAMS);
 
     DataRecord result = transformer.transform(dataRecord);
 
@@ -147,7 +197,9 @@ public class DataRecordTransformerImplTest {
     var ex =
         assertThrows(
             JobProcessorException.class,
-            () -> new DataRecordTransformerImpl(configWithInvalidTransformations, schema));
+            () ->
+                new DataRecordTransformerImpl(
+                    configWithInvalidTransformations, schema, DEFAULT_PARAMS));
 
     assertThat(ex.getErrorCode()).isEqualTo(TRANSFORMATION_CONFIG_ERROR);
     assertThat(ex.getMessage()).isEqualTo("Invalid transformation name in match config");
@@ -164,7 +216,8 @@ public class DataRecordTransformerImplTest {
     };
     Schema schema = getSchema(testData);
     DataRecord dataRecord = getDataRecord(testData);
-    DataRecordTransformerImpl transformer = new DataRecordTransformerImpl(testMatchConfig, schema);
+    DataRecordTransformerImpl transformer =
+        new DataRecordTransformerImpl(testMatchConfig, schema, DEFAULT_PARAMS);
 
     var ex = assertThrows(JobProcessorException.class, () -> transformer.transform(dataRecord));
 

@@ -19,17 +19,18 @@ package com.google.cm.mrp.dataprocessor;
 import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.clients.cryptoclient.CryptoClient;
+import com.google.cm.mrp.models.JobParameters;
 
 /** Factory interface for {@link LookupDataSource}. */
 public interface LookupDataSourceFactory {
   /** Factory method for constructing {@link LookupDataSource} objects. */
   LookupDataSource create(
-      String lookupEndpoint, MatchConfig matchConfig, FeatureFlags featureFlags);
+      MatchConfig matchConfig, FeatureFlags featureFlags, JobParameters jobParameters);
 
   /** Factory method for constructing {@link LookupDataSource} objects with {@link CryptoClient} */
   LookupDataSource create(
-      String lookupEndpoint,
       MatchConfig matchConfig,
       CryptoClient cryptoClient,
-      FeatureFlags featureFlags);
+      FeatureFlags featureFlags,
+      JobParameters jobParameters);
 }

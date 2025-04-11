@@ -104,6 +104,7 @@ public final class DataProcessorImplTest {
   private static final Schema DEFAULT_SCHEMA = Schema.getDefaultInstance();
   private static final MatchConfig CM_CONFIG = MatchConfigProvider.getMatchConfig("customer_match");
   private static final List<String> CM_OUTPUT_COLUMNS = newOutputColumnsList(CM_CONFIG);
+  private static final FeatureFlags DEFAULT_FEATURE_FLAGS = FeatureFlags.builder().build();
   private static final DataOwnerList DATA_OWNER_LIST =
       DataOwnerList.newBuilder()
           .addDataOwners(
@@ -114,7 +115,12 @@ public final class DataProcessorImplTest {
                           .setInputDataBlobPrefix(INPUT_PREFIX)
                           .setIsStreamed(true)))
           .build();
-  private static final FeatureFlags DEFAULT_FEATURE_FLAGS = FeatureFlags.builder().build();
+  private static final JobParameters DEFAULT_PARAMS =
+      JobParameters.builder()
+          .setJobId(JOB_REQUEST_ID)
+          .setDataLocation(DATA_OWNER_LIST.getDataOwners(0).getDataLocation())
+          .setOutputDataLocation(OutputDataLocation.forNameAndPrefix(OUTPUT_BUCKET, OUTPUT_PREFIX))
+          .build();
 
   @Rule public final MockitoRule mockito = MockitoJUnit.rule();
   @Mock private DataMatcherFactory mockDataMatcherFactory;
@@ -180,12 +186,12 @@ public final class DataProcessorImplTest {
     when(mockDataReader.next()).thenReturn(mockDataChunk);
     when(mockDataReader.getName()).thenReturn("test.csv");
     when(mockDataReader.getSchema()).thenReturn(DEFAULT_SCHEMA);
-    when(mockLookupDataSourceFactory.create("", CM_CONFIG, DEFAULT_FEATURE_FLAGS))
+    when(mockLookupDataSourceFactory.create(CM_CONFIG, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS))
         .thenReturn(mockLookupDataSource);
     when(mockLookupDataSource.lookup(mockDataChunk, Optional.empty()))
         .thenReturn(mockLookupDataSourceResult);
     when(mockLookupDataSourceResult.lookupResults()).thenReturn(mockDataChunk);
-    when(mockDataMatcherFactory.create(CM_CONFIG)).thenReturn(mockDataMatcher);
+    when(mockDataMatcherFactory.create(CM_CONFIG, DEFAULT_PARAMS)).thenReturn(mockDataMatcher);
     var stats = MatchStatistics.emptyInstance();
     var result = DataMatchResult.create(mockDataChunk, stats);
     when(mockDataMatcher.match(eq(mockDataChunk), eq(mockDataChunk))).thenReturn(result);
@@ -200,7 +206,7 @@ public final class DataProcessorImplTest {
         CM_CONFIG,
         JobParameters.builder()
             .setJobId(JOB_REQUEST_ID)
-            .setDataOwnerList(DATA_OWNER_LIST)
+            .setDataLocation(DATA_OWNER_LIST.getDataOwners(0).getDataLocation())
             .setOutputDataLocation(
                 OutputDataLocation.forNameAndPrefix(OUTPUT_BUCKET, OUTPUT_PREFIX))
             .build());
@@ -210,14 +216,14 @@ public final class DataProcessorImplTest {
     verify(mockDataReader, times(2)).getSchema();
     verify(mockDataReader, times(2)).close();
     verify(mockDataReader, atLeastOnce()).getName();
-    verify(mockDataMatcherFactory).create(CM_CONFIG);
+    verify(mockDataMatcherFactory).create(CM_CONFIG, DEFAULT_PARAMS);
     verify(mockDataMatcher, times(2)).match(eq(mockDataChunk), eq(mockDataChunk));
     verify(mockDataWriterFactory, times(2))
         .createCsvDataWriter(mockDataDestination, "test.csv", DEFAULT_SCHEMA, CM_OUTPUT_COLUMNS);
     verify(mockDataWriter, times(2)).write(mockDataChunk);
     verify(mockDataWriter, times(2)).close();
     verify(mockDataDestinationFactory).create(destinationInfoCaptor.capture());
-    verify(mockLookupDataSourceFactory).create("", CM_CONFIG, DEFAULT_FEATURE_FLAGS);
+    verify(mockLookupDataSourceFactory).create(CM_CONFIG, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS);
     verify(mockLookupDataSource, times(2)).lookup(mockDataChunk, Optional.empty());
     verify(mockStreamDataSourceFactory)
         .create(any(DataOwner.DataLocation.class), eq(CM_CONFIG), any(), any(FeatureFlags.class));
@@ -261,12 +267,12 @@ public final class DataProcessorImplTest {
     when(mockDataReader.next()).thenReturn(mockDataChunk);
     when(mockDataReader.getName()).thenReturn("test.csv");
     when(mockDataReader.getSchema()).thenReturn(DEFAULT_SCHEMA);
-    when(mockLookupDataSourceFactory.create("", CM_CONFIG, micFeatureFlag))
+    when(mockLookupDataSourceFactory.create(CM_CONFIG, micFeatureFlag, DEFAULT_PARAMS))
         .thenReturn(mockLookupDataSource);
     when(mockLookupDataSource.lookup(mockDataChunk, Optional.empty()))
         .thenReturn(mockLookupDataSourceResult);
     when(mockLookupDataSourceResult.lookupResults()).thenReturn(mockDataChunk);
-    when(mockDataMatcherFactory.create(CM_CONFIG)).thenReturn(mockDataMatcher);
+    when(mockDataMatcherFactory.create(CM_CONFIG, DEFAULT_PARAMS)).thenReturn(mockDataMatcher);
     var stats = MatchStatistics.emptyInstance();
     var result = DataMatchResult.create(mockDataChunk, stats);
     when(mockDataMatcher.match(eq(mockDataChunk), eq(mockDataChunk))).thenReturn(result);
@@ -287,7 +293,7 @@ public final class DataProcessorImplTest {
         CM_CONFIG,
         JobParameters.builder()
             .setJobId(JOB_REQUEST_ID)
-            .setDataOwnerList(DATA_OWNER_LIST)
+            .setDataLocation(DATA_OWNER_LIST.getDataOwners(0).getDataLocation())
             .setOutputDataLocation(
                 OutputDataLocation.forNameAndPrefix(OUTPUT_BUCKET, OUTPUT_PREFIX))
             .build());
@@ -302,7 +308,7 @@ public final class DataProcessorImplTest {
     verify(mockDataSourcePreparerFactory, times(1))
         .create(mockDataSourceFormatter, SuccessMode.ONLY_COMPLETE_SUCCESS);
     verify(mockDataSourcePreparer, times(2)).prepare(eq(mockDataChunk));
-    verify(mockDataMatcherFactory).create(CM_CONFIG);
+    verify(mockDataMatcherFactory).create(CM_CONFIG, DEFAULT_PARAMS);
     verify(mockDataMatcher, times(2)).match(eq(mockDataChunk), eq(mockDataChunk));
     verify(mockDataOutputCondenserFactory, times(0)).create(DEFAULT_SCHEMA);
     verify(mockDataOutputFormatterFactory, times(0))
@@ -315,7 +321,7 @@ public final class DataProcessorImplTest {
     verify(mockDataWriter, times(2)).write(mockDataChunk);
     verify(mockDataWriter, times(2)).close();
     verify(mockDataDestinationFactory).create(destinationInfoCaptor.capture());
-    verify(mockLookupDataSourceFactory).create("", CM_CONFIG, micFeatureFlag);
+    verify(mockLookupDataSourceFactory).create(CM_CONFIG, micFeatureFlag, DEFAULT_PARAMS);
     verify(mockLookupDataSource, times(2)).lookup(mockDataChunk, Optional.empty());
     verify(mockStreamDataSourceFactory)
         .create(any(DataOwner.DataLocation.class), eq(CM_CONFIG), any(), any(FeatureFlags.class));
@@ -360,12 +366,12 @@ public final class DataProcessorImplTest {
     when(mockDataReader.next()).thenReturn(mockDataChunk);
     when(mockDataReader.getName()).thenReturn("test.csv");
     when(mockDataReader.getSchema()).thenReturn(DEFAULT_SCHEMA);
-    when(mockLookupDataSourceFactory.create("", matchConfig, DEFAULT_FEATURE_FLAGS))
+    when(mockLookupDataSourceFactory.create(matchConfig, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS))
         .thenReturn(mockLookupDataSource);
     when(mockLookupDataSource.lookup(mockDataChunk, Optional.empty()))
         .thenReturn(mockLookupDataSourceResult);
     when(mockLookupDataSourceResult.lookupResults()).thenReturn(mockDataChunk);
-    when(mockDataMatcherFactory.create(matchConfig)).thenReturn(mockDataMatcher);
+    when(mockDataMatcherFactory.create(matchConfig, DEFAULT_PARAMS)).thenReturn(mockDataMatcher);
     var stats = MatchStatistics.emptyInstance();
     var result = DataMatchResult.create(mockDataChunk, stats);
     when(mockDataMatcher.match(eq(mockDataChunk), eq(mockDataChunk))).thenReturn(result);
@@ -380,7 +386,7 @@ public final class DataProcessorImplTest {
         matchConfig,
         JobParameters.builder()
             .setJobId(JOB_REQUEST_ID)
-            .setDataOwnerList(DATA_OWNER_LIST)
+            .setDataLocation(DATA_OWNER_LIST.getDataOwners(0).getDataLocation())
             .setOutputDataLocation(
                 OutputDataLocation.forNameAndPrefix(OUTPUT_BUCKET, OUTPUT_PREFIX))
             .build());
@@ -390,14 +396,14 @@ public final class DataProcessorImplTest {
     verify(mockDataReader, times(2)).getSchema();
     verify(mockDataReader, times(2)).close();
     verify(mockDataReader, atLeastOnce()).getName();
-    verify(mockDataMatcherFactory).create(matchConfig);
+    verify(mockDataMatcherFactory).create(matchConfig, DEFAULT_PARAMS);
     verify(mockDataMatcher, times(2)).match(eq(mockDataChunk), eq(mockDataChunk));
     verify(mockDataWriterFactory, times(2))
         .createCsvDataWriter(mockDataDestination, "test.csv", DEFAULT_SCHEMA, outputColumns);
     verify(mockDataWriter, times(2)).write(mockDataChunk);
     verify(mockDataWriter, times(2)).close();
     verify(mockDataDestinationFactory).create(destinationInfoCaptor.capture());
-    verify(mockLookupDataSourceFactory).create("", matchConfig, DEFAULT_FEATURE_FLAGS);
+    verify(mockLookupDataSourceFactory).create(matchConfig, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS);
     verify(mockLookupDataSource, times(2)).lookup(mockDataChunk, Optional.empty());
     verify(mockStreamDataSourceFactory)
         .create(any(DataOwner.DataLocation.class), eq(matchConfig), any(), any(FeatureFlags.class));
@@ -444,12 +450,12 @@ public final class DataProcessorImplTest {
     when(mockDataReader.next()).thenReturn(mockDataChunk);
     when(mockDataReader.getName()).thenReturn("test.csv");
     when(mockDataReader.getSchema()).thenReturn(DEFAULT_SCHEMA);
-    when(mockLookupDataSourceFactory.create("", matchConfig, DEFAULT_FEATURE_FLAGS))
+    when(mockLookupDataSourceFactory.create(matchConfig, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS))
         .thenReturn(mockLookupDataSource);
     when(mockLookupDataSource.lookup(mockDataChunk, Optional.empty()))
         .thenReturn(mockLookupDataSourceResult);
     when(mockLookupDataSourceResult.lookupResults()).thenReturn(mockDataChunk);
-    when(mockDataMatcherFactory.create(matchConfig)).thenReturn(mockDataMatcher);
+    when(mockDataMatcherFactory.create(matchConfig, DEFAULT_PARAMS)).thenReturn(mockDataMatcher);
     var stats = MatchStatistics.emptyInstance();
     var result = DataMatchResult.create(mockDataChunk, stats);
     when(mockDataMatcher.match(eq(mockDataChunk), eq(mockDataChunk))).thenReturn(result);
@@ -464,7 +470,7 @@ public final class DataProcessorImplTest {
         matchConfig,
         JobParameters.builder()
             .setJobId(JOB_REQUEST_ID)
-            .setDataOwnerList(DATA_OWNER_LIST)
+            .setDataLocation(DATA_OWNER_LIST.getDataOwners(0).getDataLocation())
             .setOutputDataLocation(
                 OutputDataLocation.forNameAndPrefix(OUTPUT_BUCKET, OUTPUT_PREFIX))
             .build());
@@ -474,14 +480,14 @@ public final class DataProcessorImplTest {
     verify(mockDataReader, times(2)).getSchema();
     verify(mockDataReader, times(2)).close();
     verify(mockDataReader, atLeastOnce()).getName();
-    verify(mockDataMatcherFactory).create(matchConfig);
+    verify(mockDataMatcherFactory).create(matchConfig, DEFAULT_PARAMS);
     verify(mockDataMatcher, times(2)).match(eq(mockDataChunk), eq(mockDataChunk));
     verify(mockDataWriterFactory, times(2))
         .createCsvDataWriter(mockDataDestination, "test.csv", newSchema, outputColumns);
     verify(mockDataWriter, times(2)).write(mockDataChunk);
     verify(mockDataWriter, times(2)).close();
     verify(mockDataDestinationFactory).create(destinationInfoCaptor.capture());
-    verify(mockLookupDataSourceFactory).create("", matchConfig, DEFAULT_FEATURE_FLAGS);
+    verify(mockLookupDataSourceFactory).create(matchConfig, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS);
     verify(mockLookupDataSource, times(2)).lookup(mockDataChunk, Optional.empty());
     verify(mockStreamDataSourceFactory)
         .create(any(DataOwner.DataLocation.class), eq(matchConfig), any(), any(FeatureFlags.class));
@@ -524,12 +530,12 @@ public final class DataProcessorImplTest {
     when(mockDataReader.next()).thenReturn(mockDataChunk);
     when(mockDataReader.getName()).thenReturn("test.csv");
     when(mockDataReader.getSchema()).thenReturn(DEFAULT_SCHEMA);
-    when(mockLookupDataSourceFactory.create("", matchConfig, DEFAULT_FEATURE_FLAGS))
+    when(mockLookupDataSourceFactory.create(matchConfig, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS))
         .thenReturn(mockLookupDataSource);
     when(mockLookupDataSource.lookup(mockDataChunk, Optional.empty()))
         .thenReturn(mockLookupDataSourceResult);
     when(mockLookupDataSourceResult.lookupResults()).thenReturn(mockDataChunk);
-    when(mockDataMatcherFactory.create(matchConfig)).thenReturn(mockDataMatcher);
+    when(mockDataMatcherFactory.create(matchConfig, DEFAULT_PARAMS)).thenReturn(mockDataMatcher);
     var stats = MatchStatistics.emptyInstance();
     var result = DataMatchResult.create(mockDataChunk, stats);
     when(mockDataMatcher.match(eq(mockDataChunk), eq(mockDataChunk))).thenReturn(result);
@@ -548,15 +554,15 @@ public final class DataProcessorImplTest {
                     matchConfig,
                     JobParameters.builder()
                         .setJobId(JOB_REQUEST_ID)
-                        .setDataOwnerList(DATA_OWNER_LIST)
+                        .setDataLocation(DATA_OWNER_LIST.getDataOwners(0).getDataLocation())
                         .setOutputDataLocation(
                             OutputDataLocation.forNameAndPrefix(OUTPUT_BUCKET, OUTPUT_PREFIX))
                         .build()));
 
     verify(mockDataReader).getSchema();
-    verify(mockDataMatcherFactory).create(matchConfig);
+    verify(mockDataMatcherFactory).create(matchConfig, DEFAULT_PARAMS);
     verify(mockDataDestinationFactory).create(destinationInfoCaptor.capture());
-    verify(mockLookupDataSourceFactory).create("", matchConfig, DEFAULT_FEATURE_FLAGS);
+    verify(mockLookupDataSourceFactory).create(matchConfig, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS);
     verify(mockStreamDataSourceFactory)
         .create(any(DataOwner.DataLocation.class), eq(matchConfig), any(), any(FeatureFlags.class));
     verify(mockStreamDataSource, times(3)).size();
@@ -589,9 +595,9 @@ public final class DataProcessorImplTest {
         .thenReturn(mockStreamDataSource);
     when(mockStreamDataSource.size()).thenReturn(1);
     when(mockStreamDataSource.next()).thenThrow(RuntimeException.class);
-    when(mockLookupDataSourceFactory.create("", CM_CONFIG, DEFAULT_FEATURE_FLAGS))
+    when(mockLookupDataSourceFactory.create(CM_CONFIG, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS))
         .thenReturn(mockLookupDataSource);
-    when(mockDataMatcherFactory.create(CM_CONFIG)).thenReturn(mockDataMatcher);
+    when(mockDataMatcherFactory.create(CM_CONFIG, DEFAULT_PARAMS)).thenReturn(mockDataMatcher);
 
     assertThrows(
         RuntimeException.class,
@@ -601,14 +607,14 @@ public final class DataProcessorImplTest {
                 CM_CONFIG,
                 JobParameters.builder()
                     .setJobId(JOB_REQUEST_ID)
-                    .setDataOwnerList(DATA_OWNER_LIST)
+                    .setDataLocation(DATA_OWNER_LIST.getDataOwners(0).getDataLocation())
                     .setOutputDataLocation(
                         OutputDataLocation.forNameAndPrefix(OUTPUT_BUCKET, OUTPUT_PREFIX))
                     .build()));
 
-    verify(mockDataMatcherFactory).create(CM_CONFIG);
+    verify(mockDataMatcherFactory).create(CM_CONFIG, DEFAULT_PARAMS);
     verify(mockDataDestinationFactory).create(destinationInfoCaptor.capture());
-    verify(mockLookupDataSourceFactory).create("", CM_CONFIG, DEFAULT_FEATURE_FLAGS);
+    verify(mockLookupDataSourceFactory).create(CM_CONFIG, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS);
     verify(mockStreamDataSourceFactory)
         .create(any(DataOwner.DataLocation.class), eq(CM_CONFIG), any(), any(FeatureFlags.class));
     verify(mockStreamDataSource, times(3)).size();
@@ -645,12 +651,12 @@ public final class DataProcessorImplTest {
     when(mockDataReader.next()).thenReturn(mockDataChunk);
     when(mockDataReader.getName()).thenReturn("test.csv");
     when(mockDataReader.getSchema()).thenReturn(DEFAULT_SCHEMA);
-    when(mockLookupDataSourceFactory.create("", CM_CONFIG, DEFAULT_FEATURE_FLAGS))
+    when(mockLookupDataSourceFactory.create(CM_CONFIG, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS))
         .thenReturn(mockLookupDataSource);
     when(mockLookupDataSource.lookup(mockDataChunk, Optional.empty()))
         .thenReturn(mockLookupDataSourceResult);
     when(mockLookupDataSourceResult.lookupResults()).thenReturn(mockDataChunk);
-    when(mockDataMatcherFactory.create(CM_CONFIG)).thenReturn(mockDataMatcher);
+    when(mockDataMatcherFactory.create(CM_CONFIG, DEFAULT_PARAMS)).thenReturn(mockDataMatcher);
     when(mockDataMatcher.match(eq(mockDataChunk), eq(mockDataChunk)))
         .thenThrow(RuntimeException.class);
     when(mockDataDestinationFactory.create(any(DestinationInfo.class)))
@@ -667,7 +673,7 @@ public final class DataProcessorImplTest {
                 CM_CONFIG,
                 JobParameters.builder()
                     .setJobId(JOB_REQUEST_ID)
-                    .setDataOwnerList(DATA_OWNER_LIST)
+                    .setDataLocation(DATA_OWNER_LIST.getDataOwners(0).getDataLocation())
                     .setOutputDataLocation(
                         OutputDataLocation.forNameAndPrefix(OUTPUT_BUCKET, OUTPUT_PREFIX))
                     .build()));
@@ -677,13 +683,13 @@ public final class DataProcessorImplTest {
     verify(mockDataReader).close();
     verify(mockDataReader).getSchema();
     verify(mockDataReader, atLeastOnce()).getName();
-    verify(mockDataMatcherFactory).create(CM_CONFIG);
+    verify(mockDataMatcherFactory).create(CM_CONFIG, DEFAULT_PARAMS);
     verify(mockDataMatcher).match(eq(mockDataChunk), eq(mockDataChunk));
     verify(mockDataWriterFactory)
         .createCsvDataWriter(mockDataDestination, "test.csv", DEFAULT_SCHEMA, CM_OUTPUT_COLUMNS);
     verify(mockDataWriter).close();
     verify(mockDataDestinationFactory).create(destinationInfoCaptor.capture());
-    verify(mockLookupDataSourceFactory).create("", CM_CONFIG, DEFAULT_FEATURE_FLAGS);
+    verify(mockLookupDataSourceFactory).create(CM_CONFIG, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS);
     verify(mockLookupDataSource).lookup(mockDataChunk, Optional.empty());
     verify(mockStreamDataSourceFactory)
         .create(any(DataOwner.DataLocation.class), eq(CM_CONFIG), any(), any(FeatureFlags.class));
@@ -720,12 +726,12 @@ public final class DataProcessorImplTest {
     when(mockDataReader.next()).thenReturn(mockDataChunk);
     when(mockDataReader.getName()).thenReturn("test.csv");
     when(mockDataReader.getSchema()).thenReturn(DEFAULT_SCHEMA);
-    when(mockLookupDataSourceFactory.create("", CM_CONFIG, DEFAULT_FEATURE_FLAGS))
+    when(mockLookupDataSourceFactory.create(CM_CONFIG, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS))
         .thenReturn(mockLookupDataSource);
     when(mockLookupDataSource.lookup(mockDataChunk, Optional.empty()))
         .thenReturn(mockLookupDataSourceResult);
     when(mockLookupDataSourceResult.lookupResults()).thenReturn(mockDataChunk);
-    when(mockDataMatcherFactory.create(CM_CONFIG)).thenReturn(mockDataMatcher);
+    when(mockDataMatcherFactory.create(CM_CONFIG, DEFAULT_PARAMS)).thenReturn(mockDataMatcher);
     var stats = MatchStatistics.emptyInstance();
     var result = DataMatchResult.create(mockDataChunk, stats);
     when(mockDataMatcher.match(eq(mockDataChunk), eq(mockDataChunk))).thenReturn(result);
@@ -744,7 +750,7 @@ public final class DataProcessorImplTest {
                 CM_CONFIG,
                 JobParameters.builder()
                     .setJobId(JOB_REQUEST_ID)
-                    .setDataOwnerList(DATA_OWNER_LIST)
+                    .setDataLocation(DATA_OWNER_LIST.getDataOwners(0).getDataLocation())
                     .setOutputDataLocation(
                         OutputDataLocation.forNameAndPrefix(OUTPUT_BUCKET, OUTPUT_PREFIX))
                     .build()));
@@ -754,14 +760,14 @@ public final class DataProcessorImplTest {
     verify(mockDataReader).getSchema();
     verify(mockDataReader).close();
     verify(mockDataReader, atLeastOnce()).getName();
-    verify(mockDataMatcherFactory).create(CM_CONFIG);
+    verify(mockDataMatcherFactory).create(CM_CONFIG, DEFAULT_PARAMS);
     verify(mockDataMatcher).match(eq(mockDataChunk), eq(mockDataChunk));
     verify(mockDataWriterFactory)
         .createCsvDataWriter(mockDataDestination, "test.csv", DEFAULT_SCHEMA, CM_OUTPUT_COLUMNS);
     verify(mockDataWriter).write(mockDataChunk);
     verify(mockDataWriter).close();
     verify(mockDataDestinationFactory).create(destinationInfoCaptor.capture());
-    verify(mockLookupDataSourceFactory).create("", CM_CONFIG, DEFAULT_FEATURE_FLAGS);
+    verify(mockLookupDataSourceFactory).create(CM_CONFIG, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS);
     verify(mockLookupDataSource).lookup(mockDataChunk, Optional.empty());
     verify(mockStreamDataSourceFactory)
         .create(any(DataOwner.DataLocation.class), eq(CM_CONFIG), any(), any(FeatureFlags.class));
@@ -808,7 +814,7 @@ public final class DataProcessorImplTest {
                     CM_CONFIG,
                     JobParameters.builder()
                         .setJobId(JOB_REQUEST_ID)
-                        .setDataOwnerList(DATA_OWNER_LIST)
+                        .setDataLocation(DATA_OWNER_LIST.getDataOwners(0).getDataLocation())
                         .setOutputDataLocation(
                             OutputDataLocation.forNameAndPrefix(OUTPUT_BUCKET, OUTPUT_PREFIX))
                         .setEncryptionMetadata(encryptionMetadata)
@@ -862,7 +868,7 @@ public final class DataProcessorImplTest {
                     CM_CONFIG,
                     JobParameters.builder()
                         .setJobId(JOB_REQUEST_ID)
-                        .setDataOwnerList(DATA_OWNER_LIST)
+                        .setDataLocation(DATA_OWNER_LIST.getDataOwners(0).getDataLocation())
                         .setOutputDataLocation(
                             OutputDataLocation.forNameAndPrefix(OUTPUT_BUCKET, OUTPUT_PREFIX))
                         .setEncryptionMetadata(encryptionMetadata)
@@ -924,7 +930,7 @@ public final class DataProcessorImplTest {
                     CM_CONFIG,
                     JobParameters.builder()
                         .setJobId(JOB_REQUEST_ID)
-                        .setDataOwnerList(DATA_OWNER_LIST)
+                        .setDataLocation(DATA_OWNER_LIST.getDataOwners(0).getDataLocation())
                         .setOutputDataLocation(
                             OutputDataLocation.forNameAndPrefix(OUTPUT_BUCKET, OUTPUT_PREFIX))
                         .setEncryptionMetadata(encryptionMetadata)

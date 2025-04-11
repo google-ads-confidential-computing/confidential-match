@@ -21,6 +21,7 @@ java_library(
     ]),
     deps = [
         "//java/com/google/cm/mrp:exceptions",
+        "//java/com/google/cm/mrp/models",
         "//java/external:guava",
         "//java/external:guice-assistedinject",
         "//java/external:slf4j",
