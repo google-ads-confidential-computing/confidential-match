@@ -530,6 +530,59 @@ public final class SerializedProtoDataReaderTest {
   }
 
   @Test
+  public void next_unencrypted_returnsRecordsFromFile() throws Exception {
+    Schema schema =
+        ProtoUtils.getProtoFromJson(
+            Resources.toString(
+                Objects.requireNonNull(
+                    getClass().getResource("testdata/mic_proto_schema_unencrypted.json")),
+                UTF_8),
+            Schema.class);
+    when(mockCfmDataRecordParserFactory.create(any(), any(), any()))
+        .thenReturn(
+            new ConfidentialMatchDataRecordParserImpl(
+                micMatchConfig, generateInternalSchema(schema), SuccessMode.ALLOW_PARTIAL_SUCCESS));
+
+    try (DataReader dataReader =
+        new SerializedProtoDataReader(
+            mockCfmDataRecordParserFactory,
+            1000,
+            getClass().getResourceAsStream("testdata/input_proto.txt"),
+            schema,
+            "test",
+            micMatchConfig,
+            SuccessMode.ALLOW_PARTIAL_SUCCESS)) {
+      assertThat(dataReader.getSchema()).isNotNull();
+      assertThat(
+              ImmutableList.copyOf(SchemaConverter.convertToColumnAliases(dataReader.getSchema())))
+          .containsExactly(
+              "metadata",
+              "email",
+              "phone",
+              "first_name",
+              "last_name",
+              "country_code",
+              "zip_code",
+              ROW_MARKER_COLUMN_NAME);
+
+      DataChunk dataChunk = dataReader.next();
+
+      assertThat(dataChunk.encryptionColumns().isPresent()).isFalse();
+      var dataRecords = dataChunk.records();
+      assertThat(dataRecords).hasSize(1);
+      var record = dataRecords.get(0);
+      assertThat(record.getKeyValues(0).getStringValue()).isEqualTo("fake metadata");
+      assertThat(record.getKeyValues(1).getStringValue()).isEqualTo("fakeemail@fake.com");
+      assertThat(record.getKeyValues(3).getStringValue()).isEqualTo("firstName");
+      assertThat(record.getKeyValues(4).getStringValue()).isEqualTo("lastName");
+      assertThat(record.getKeyValues(5).getStringValue()).isEqualTo("US");
+      assertThat(record.getKeyValues(6).getStringValue()).isEqualTo("1234");
+      assertThat(record.getProcessingMetadata().getProtoEncryptionLevel())
+          .isEqualTo(ProtoEncryptionLevel.UNSPECIFIED_ENCRYPTION_LEVEL);
+    }
+  }
+
+  @Test
   public void next_unencrypted_returnsRecords() throws Exception {
     Schema schema =
         ProtoUtils.getProtoFromJson(

@@ -26,6 +26,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 
+import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeChildField;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeField;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.ConfidentialMatchDataRecord;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.EncryptionKey;
@@ -87,26 +88,26 @@ public final class ConfidentialMatchDataRecordParserImplTest {
                             .build())
                     .build())
             .build();
-    List<Field> addressFields = new ArrayList<>();
+    List<CompositeChildField> addressFields = new ArrayList<>();
     addressFields.add(
-        Field.newBuilder()
+        CompositeChildField.newBuilder()
             .setKeyValue(
                 KeyValue.newBuilder().setKey("first_name").setStringValue("fname1").build())
             .build());
     addressFields.add(
-        Field.newBuilder()
+        CompositeChildField.newBuilder()
             .setKeyValue(KeyValue.newBuilder().setKey("last_name").setStringValue("lname1").build())
             .build());
     addressFields.add(
-        Field.newBuilder()
+        CompositeChildField.newBuilder()
             .setKeyValue(KeyValue.newBuilder().setKey("country_code").setStringValue("usa").build())
             .build());
     addressFields.add(
-        Field.newBuilder()
+        CompositeChildField.newBuilder()
             .setKeyValue(KeyValue.newBuilder().setKey("zip_code").setStringValue("12345").build())
             .build());
     CompositeField address =
-        CompositeField.newBuilder().setKey("address").addAllField(addressFields).build();
+        CompositeField.newBuilder().setKey("address").addAllChildFields(addressFields).build();
     MatchKey addressKey =
         MatchKey.newBuilder()
             .setEncryptionKey(
@@ -388,26 +389,26 @@ public final class ConfidentialMatchDataRecordParserImplTest {
                             .build())
                     .build())
             .build();
-    List<Field> addressFields = new ArrayList<>();
+    List<CompositeChildField> addressFields = new ArrayList<>();
     addressFields.add(
-        Field.newBuilder()
+        CompositeChildField.newBuilder()
             .setKeyValue(
                 KeyValue.newBuilder().setKey("first_name").setStringValue("fname1").build())
             .build());
     addressFields.add(
-        Field.newBuilder()
+        CompositeChildField.newBuilder()
             .setKeyValue(KeyValue.newBuilder().setKey("last_name").setStringValue("lname1").build())
             .build());
     addressFields.add(
-        Field.newBuilder()
+        CompositeChildField.newBuilder()
             .setKeyValue(KeyValue.newBuilder().setKey("country_code").setStringValue("usa").build())
             .build());
     addressFields.add(
-        Field.newBuilder()
+        CompositeChildField.newBuilder()
             .setKeyValue(KeyValue.newBuilder().setKey("zip_code").setStringValue("12345").build())
             .build());
     CompositeField address =
-        CompositeField.newBuilder().setKey("address").addAllField(addressFields).build();
+        CompositeField.newBuilder().setKey("address").addAllChildFields(addressFields).build();
     MatchKey addressKey = MatchKey.newBuilder().setCompositeField(address).build();
     List<MatchKey> matchKeyList = Arrays.asList(email, addressKey);
     ConfidentialMatchDataRecord testRecord =

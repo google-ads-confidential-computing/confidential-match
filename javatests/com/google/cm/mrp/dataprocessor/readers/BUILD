@@ -88,6 +88,7 @@ java_test(
         "SerializedProtoDataReaderTest.java",
     ],
     resources = [
+        "testdata/input_proto.txt",
         "testdata/mic_proto_schema_encrypted.json",
         "testdata/mic_proto_schema_unencrypted.json",
         "testdata/mic_proto_schema_wrapped_encrypted.json",

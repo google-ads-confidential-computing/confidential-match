@@ -56,12 +56,26 @@ message MatchKey {
 message Field {
   // The key is the column's alias in the match config.
   KeyValue key_value = 1;
+  // Output-only column: All grouped fields to include in output
+  repeated MatchedOutputField matched_output_fields = 2;
 }
 
 message CompositeField {
   // The column's alias in the match config.
   string key = 1;
-  repeated Field field = 2;
+  repeated CompositeChildField child_fields = 2;
+  // Output-only column: All grouped fields to include in output
+  repeated MatchedOutputField matched_output_fields = 3;
+}
+
+message CompositeChildField {
+  // The key is the column's alias in the match config.
+  KeyValue key_value = 1;
+}
+
+// Represents one group a fields to output
+message MatchedOutputField {
+  repeated KeyValue key_value = 1;
 }
 
 message EncryptionKey {

@@ -27,6 +27,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeChildField;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.ConfidentialMatchOutputDataRecord;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.Field;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.KeyValue;
@@ -361,12 +362,12 @@ public final class SerializedProtoDataWriterTest {
                   case "address":
                     assertTrue(
                         validateCompositeFields(
-                            matchKey.getCompositeField().getFieldList(), addressGroupMaps1));
+                            matchKey.getCompositeField().getChildFieldsList(), addressGroupMaps1));
                     break;
                   case "socials":
                     assertTrue(
                         validateCompositeFields(
-                            matchKey.getCompositeField().getFieldList(), socialGroupMaps1));
+                            matchKey.getCompositeField().getChildFieldsList(), socialGroupMaps1));
                     break;
                   default:
                     fail(
@@ -395,12 +396,12 @@ public final class SerializedProtoDataWriterTest {
                   case "address":
                     assertTrue(
                         validateCompositeFields(
-                            matchKey.getCompositeField().getFieldList(), addressGroupMaps2));
+                            matchKey.getCompositeField().getChildFieldsList(), addressGroupMaps2));
                     break;
                   case "socials":
                     assertTrue(
                         validateCompositeFields(
-                            matchKey.getCompositeField().getFieldList(), socialGroupMaps2));
+                            matchKey.getCompositeField().getChildFieldsList(), socialGroupMaps2));
                     break;
                   default:
                     fail(
@@ -420,7 +421,7 @@ public final class SerializedProtoDataWriterTest {
   }
 
   private boolean validateCompositeFields(
-      List<Field> fields, List<Map<String, String>> compositeFieldMaps) {
+      List<CompositeChildField> fields, List<Map<String, String>> compositeFieldMaps) {
     for (var compositeFieldMap : compositeFieldMaps) {
       if (compositeFieldMap.containsKey(fields.get(0).getKeyValue().getStringValue())) {
         for (var field : fields) {

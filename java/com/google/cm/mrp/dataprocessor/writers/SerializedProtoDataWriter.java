@@ -28,6 +28,7 @@ import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 
 import com.google.cm.mrp.JobProcessorException;
+import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeChildField;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeField;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.ConfidentialMatchOutputDataRecord;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.EncryptionKey;
@@ -350,7 +351,7 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
                   .setCompositeField(
                       CompositeField.newBuilder()
                           .setKey(compositeFieldName)
-                          .addAllField(
+                          .addAllChildFields(
                               indices.stream()
                                   .filter(
                                       index -> isValidIndex(dataRecord.getKeyValuesCount(), index))
@@ -359,10 +360,14 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
                                           convertToExternalKeyValue(dataRecord.getKeyValues(index)))
                                   .filter(Optional::isPresent)
                                   .map(Optional::get)
-                                  .map(keyValue -> Field.newBuilder().setKeyValue(keyValue).build())
+                                  .map(
+                                      keyValue ->
+                                          CompositeChildField.newBuilder()
+                                              .setKeyValue(keyValue)
+                                              .build())
                                   .collect(Collectors.toList())));
           encryptionKey.ifPresent(matchKeyBuilder::setEncryptionKey);
-          if (matchKeyBuilder.getCompositeField().getFieldCount() > 0) {
+          if (matchKeyBuilder.getCompositeField().getChildFieldsCount() > 0) {
             matchKeys.add(matchKeyBuilder.build());
           }
         });

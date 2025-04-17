@@ -47,7 +47,6 @@ import com.google.common.collect.ImmutableSet;
 import com.google.inject.assistedinject.Assisted;
 import com.google.inject.assistedinject.AssistedInject;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -149,7 +148,7 @@ public final class ConfidentialMatchDataRecordParserImpl
         if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS) {
           logger.info(message);
           return ImmutableList.of(
-                  generateErrorDataRecord(JobResultCode.INVALID_ENCRYPTION_COLUMN, rowId));
+              generateErrorDataRecord(JobResultCode.INVALID_ENCRYPTION_COLUMN, rowId));
         }
         throw new JobProcessorException(message, JobResultCode.INVALID_ENCRYPTION_COLUMN);
       }
@@ -196,7 +195,7 @@ public final class ConfidentialMatchDataRecordParserImpl
       if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS) {
         logger.info(message);
         return ImmutableList.of(
-                generateErrorDataRecord(JobResultCode.PROTO_DUPLICATE_METADATA_KEY, rowId));
+            generateErrorDataRecord(JobResultCode.PROTO_DUPLICATE_METADATA_KEY, rowId));
       }
       throw new JobProcessorException(message, JobResultCode.PROTO_DUPLICATE_METADATA_KEY);
     }
@@ -211,8 +210,8 @@ public final class ConfidentialMatchDataRecordParserImpl
         if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS) {
           logger.info(message);
           return ImmutableList.of(
-                  generateErrorDataRecord(
-                      JobResultCode.PROTO_METADATA_CONTAINING_RESTRICTED_ALIAS, rowId));
+              generateErrorDataRecord(
+                  JobResultCode.PROTO_METADATA_CONTAINING_RESTRICTED_ALIAS, rowId));
         }
         throw new JobProcessorException(
             message, JobResultCode.PROTO_METADATA_CONTAINING_RESTRICTED_ALIAS);
@@ -281,7 +280,7 @@ public final class ConfidentialMatchDataRecordParserImpl
                 protoCompositeFields.get(matchAliasToCompositeField.get(column));
             DataRecord.KeyValue keyValue =
                 fieldIndex < compositeFieldList.size()
-                    ? compositeFieldList.get(fieldIndex).getFieldList().stream()
+                    ? compositeFieldList.get(fieldIndex).getChildFieldsList().stream()
                         .filter(field -> column.equals(field.getKeyValue().getKey()))
                         .map(filteredField -> convertKeyValue(filteredField.getKeyValue()))
                         .findAny()
