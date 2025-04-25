@@ -41,6 +41,8 @@
 #include "cc/public/cpio/interface/cpio.h"
 #include "cc/public/cpio/interface/kms_client/aws/aws_kms_client_factory.h"
 #include "cc/public/cpio/interface/kms_client/aws/type_def.h"
+#include "cc/public/cpio/interface/kms_client/kms_client_interface.h"
+#include "cc/public/cpio/interface/kms_client/type_def.h"
 #include "cc/public/cpio/interface/metric_client/metric_client_interface.h"
 #include "cc/public/cpio/interface/parameter_client/parameter_client_interface.h"
 #include "cc/public/cpio/utils/metric_instance/interface/metric_instance_factory_interface.h"
@@ -819,15 +821,18 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
   blob_storage_client_ =
       BlobStorageClientFactory::Create(blob_storage_client_options);
 
-  gcp_kms_client_ = std::make_shared<KmsClient>();
+  KmsClientOptions gcp_kms_client_options;
+  gcp_kms_client_options.enable_gcp_kms_client_retries = true;
+  gcp_kms_client_ = std::make_shared<KmsClient>(
+      KmsClientFactory::Create(gcp_kms_client_options));
   gcp_cached_kms_client_ =
       std::make_shared<CachedKmsClient>(async_executor_, gcp_kms_client_);
 
-  AwsKmsClientOptions options;
+  AwsKmsClientOptions aws_kms_client_options;
   // TODO(b/398112417): Remove when no longer necessary
-  options.region = kAwsDefaultRegion;
-  aws_kms_client_ =
-      std::make_shared<KmsClient>(AwsKmsClientFactory::Create(options));
+  aws_kms_client_options.region = kAwsDefaultRegion;
+  aws_kms_client_ = std::make_shared<KmsClient>(
+      AwsKmsClientFactory::Create(aws_kms_client_options));
   aws_cached_kms_client_ =
       std::make_shared<CachedKmsClient>(async_executor_, aws_kms_client_);
 

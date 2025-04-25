@@ -23,5 +23,6 @@ java_library(
         "//java/external:protobuf_java",
         "//java/external:shared_crypto_tink",
         "//java/external:tink",
+        "//protos/mrp/backend:java_proto",
     ],
 )

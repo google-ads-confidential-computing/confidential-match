@@ -17,6 +17,7 @@
 package com.google.cm.mrp.dataprocessor;
 
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.CRYPTO_CLIENT_CONFIGURATION_ERROR;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DATA_READER_CONFIGURATION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INPUT_FILE_LIST_READ_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INPUT_FILE_READ_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_DATA_FORMAT;
@@ -44,6 +45,7 @@ import com.google.cm.mrp.backend.SchemaProto.Schema.DataFormat;
 import com.google.cm.mrp.clients.cryptoclient.CryptoClient;
 import com.google.cm.mrp.dataprocessor.models.DataChunk;
 import com.google.cm.mrp.dataprocessor.readers.DataReader;
+import com.google.cm.mrp.models.JobParameters;
 import com.google.common.base.Stopwatch;
 import com.google.common.collect.ImmutableList;
 import com.google.inject.assistedinject.Assisted;
@@ -83,6 +85,8 @@ public final class BlobStoreStreamDataSource implements StreamDataSource {
   private final DataReaderFactory dataReaderFactory;
   private final DataOwner.DataLocation dataLocation;
   private final MatchConfig matchConfig;
+  // TODO(b/406643831): Make not optional
+  private final Optional<JobParameters> jobParameters;
   private final Optional<String> dataOwnerIdentity;
   private final FeatureFlags featureFlags;
   private final Optional<EncryptionMetadata> encryptionMetadata;
@@ -114,6 +118,7 @@ public final class BlobStoreStreamDataSource implements StreamDataSource {
     ImmutableList<String> blobList = getBlobList();
     this.size = blobList.size();
     this.blobIterator = blobList.iterator();
+    this.jobParameters = Optional.empty();
   }
 
   /** Constructor for {@link BlobStoreStreamDataSource}. */
@@ -122,25 +127,24 @@ public final class BlobStoreStreamDataSource implements StreamDataSource {
       BlobStorageClient blobStorageClient,
       MetricClient metricClient,
       DataReaderFactory dataReaderFactory,
-      @Assisted DataOwner.DataLocation dataLocation,
       @Assisted MatchConfig matchConfig,
-      @Assisted Optional<String> dataOwnerIdentity,
       @Assisted FeatureFlags featureFlags,
-      @Assisted EncryptionMetadata encryptionMetadata,
+      @Assisted JobParameters jobParameters,
       @Assisted CryptoClient cryptoClient) {
     this.blobStorageClient = blobStorageClient;
     this.metricClient = metricClient;
     this.dataReaderFactory = dataReaderFactory;
-    this.dataLocation = dataLocation;
+    this.dataLocation = jobParameters.dataLocation();
     this.matchConfig = matchConfig;
-    this.dataOwnerIdentity = dataOwnerIdentity;
+    this.dataOwnerIdentity = jobParameters.dataOwnerIdentity();
     this.featureFlags = featureFlags;
-    this.encryptionMetadata = Optional.of(encryptionMetadata);
+    this.encryptionMetadata = jobParameters.encryptionMetadata();
     this.cryptoClient = Optional.of(cryptoClient);
     this.schema = getSchema();
     ImmutableList<String> blobList = getBlobList();
     this.size = blobList.size();
     this.blobIterator = blobList.iterator();
+    this.jobParameters = Optional.of(jobParameters);
   }
 
   /** {@inheritDoc} */
@@ -348,11 +352,10 @@ public final class BlobStoreStreamDataSource implements StreamDataSource {
     // Currently not supporting nested columns and output schema for serialized proto data format.
     return !hasNestedColumns(schema)
         && !hasOutputSchema(schema)
-        && allColumnsHaveAlias(schema)
-        && columnAliasesAreUnique(schema)
+        && columnNamesAreUnique(schema)
         && hasAtLeastOneMatchColumn(schema)
         && hasCompleteCompositeColumns(schema)
-        && schemaDoesNotContainRestrictedColumnAliases(schema)
+        && schemaDoesNotContainRestrictedColumnNames(schema)
         && hasColumnGroupsForMultipleCompositeColumns(schema)
         && unencryptedColumnsDoNotHaveColumnEncoding(schema)
         && encryptedColumnsAreMatchColumn(schema);
@@ -362,14 +365,6 @@ public final class BlobStoreStreamDataSource implements StreamDataSource {
     // HashSet::add returns false, if the element is already in the HashSet
     return schema.getColumnsList().stream()
         .map(Schema.Column::getColumnName)
-        .map(String::toLowerCase)
-        .allMatch(new HashSet<String>()::add);
-  }
-
-  private boolean columnAliasesAreUnique(Schema schema) {
-    // HashSet::add returns false, if the element is already in the HashSet
-    return schema.getColumnsList().stream()
-        .map(Schema.Column::getColumnAlias)
         .map(String::toLowerCase)
         .allMatch(new HashSet<String>()::add);
   }
@@ -515,10 +510,6 @@ public final class BlobStoreStreamDataSource implements StreamDataSource {
                     .anyMatch(matchColumn -> matchColumn.equalsIgnoreCase(alias)));
   }
 
-  private boolean allColumnsHaveAlias(Schema schema) {
-    return schema.getColumnsList().stream().allMatch(Schema.Column::hasColumnAlias);
-  }
-
   private boolean hasNestedColumns(Schema schema) {
     return schema.getColumnsList().stream().anyMatch(column -> column.hasNestedSchema());
   }
@@ -527,20 +518,19 @@ public final class BlobStoreStreamDataSource implements StreamDataSource {
     return !schema.getOutputColumnsList().isEmpty();
   }
 
-  private boolean schemaDoesNotContainRestrictedColumnAliases(Schema schema) {
-    List<String> restrictedColumnAliases =
+  private boolean schemaDoesNotContainRestrictedColumnNames(Schema schema) {
+    List<String> restrictedColumnNames =
         new ArrayList<>(Arrays.asList(ROW_MARKER_COLUMN_NAME.toLowerCase()));
     if (matchConfig.getSuccessConfig().getSuccessMode() == SuccessMode.ALLOW_PARTIAL_SUCCESS) {
-      restrictedColumnAliases.add(
+      restrictedColumnNames.add(
           matchConfig
               .getSuccessConfig()
               .getPartialSuccessAttributes()
               .getRecordStatusFieldName()
               .toLowerCase());
     }
-    return !schema.getColumnsList().stream()
-        .anyMatch(
-            column -> restrictedColumnAliases.contains(column.getColumnAlias().toLowerCase()));
+    return schema.getColumnsList().stream()
+        .noneMatch(column -> restrictedColumnNames.contains(column.getColumnName().toLowerCase()));
   }
 
   private DataReader constructDataReader(InputStream gcsBlob, String blob) {
@@ -558,9 +548,12 @@ public final class BlobStoreStreamDataSource implements StreamDataSource {
               gcsBlob,
               schema,
               blob,
+              jobParameters.orElseThrow(
+                  () ->
+                      new JobProcessorException(
+                          "Missing job params", DATA_READER_CONFIGURATION_ERROR)),
               matchConfig.getEncryptionKeyColumns(),
               successMode,
-              encryptionMetadata.get(),
               cryptoClient.get());
         }
         return dataReaderFactory.createCsvDataReader(gcsBlob, schema, blob, successMode);

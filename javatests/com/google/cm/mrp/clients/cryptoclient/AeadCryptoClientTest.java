@@ -16,6 +16,8 @@
 
 package com.google.cm.mrp.clients.cryptoclient;
 
+import static com.google.cm.mrp.backend.EncodingTypeProto.EncodingType.BASE64;
+import static com.google.cm.mrp.backend.EncodingTypeProto.EncodingType.HEX;
 import static com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.KeyType.XCHACHA20_POLY1305;
 import static com.google.cm.mrp.testutils.AeadKeyGenerator.decryptString;
 import static com.google.cm.mrp.testutils.AeadKeyGenerator.encryptDek;
@@ -105,7 +107,7 @@ public class AeadCryptoClientTest {
   }
 
   @Test
-  public void encrypt_withDataRecordEncryptionsKey_formatPrefixAndWhitespace_Success()
+  public void encrypt_withDataRecordEncryptionKeys_formatPrefixAndWhitespace_Success()
       throws Exception {
     when(mockAeadProvider.getAeadSelector(eq(TEST_PARAMETERS)))
         .thenReturn(getDefaultAeadSelector());
@@ -133,7 +135,7 @@ public class AeadCryptoClientTest {
     String plaintext = "TestString";
     String encrypted = encryptString(encryptedDek, plaintext);
 
-    assertThat(cryptoClient.decrypt(encryptionKeys, encrypted)).isEqualTo(plaintext);
+    assertThat(cryptoClient.decrypt(encryptionKeys, encrypted, BASE64)).isEqualTo(plaintext);
   }
 
   @Test
@@ -149,7 +151,22 @@ public class AeadCryptoClientTest {
     String plaintext = "TestString";
     String encrypted = encryptString(encryptedDek, plaintext);
 
-    assertThat(cryptoClient.decrypt(encryptionKeys, encrypted)).isEqualTo(plaintext);
+    assertThat(cryptoClient.decrypt(encryptionKeys, encrypted, BASE64)).isEqualTo(plaintext);
+  }
+
+  @Test
+  public void decrypt_withDataRecordEncryptionKeys_HexEncoding_Success() throws Exception {
+    when(mockAeadProvider.getAeadSelector(eq(TEST_PARAMETERS)))
+        .thenReturn(getDefaultAeadSelector());
+    String testKek = generateAeadUri();
+    var keyset = generateXChaChaKeyset();
+    var encryptedDek = encryptDek(keyset);
+    var encryptionKeys = getDataRecordEncryptionKeys(testKek, encryptedDek);
+    var cryptoClient = new AeadCryptoClient(mockAeadProvider, TEST_KEY_INFO);
+    String plaintext = "TestString";
+    String encrypted = encryptString(encryptedDek, plaintext, HEX);
+
+    assertThat(cryptoClient.decrypt(encryptionKeys, encrypted, HEX)).isEqualTo(plaintext);
   }
 
   @Test
@@ -172,7 +189,7 @@ public class AeadCryptoClientTest {
     String plaintext = "TestString";
     String encrypted = encryptString(encryptedDek, plaintext);
 
-    assertThat(cryptoClient.decrypt(encryptionKeys, encrypted)).isEqualTo(plaintext);
+    assertThat(cryptoClient.decrypt(encryptionKeys, encrypted, BASE64)).isEqualTo(plaintext);
   }
 
   @Test
@@ -192,7 +209,8 @@ public class AeadCryptoClientTest {
 
     var ex =
         assertThrows(
-            CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, encrypted));
+            CryptoClientException.class,
+            () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
     assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.CRYPTO_CLIENT_CONFIGURATION_ERROR);
   }
 
@@ -210,7 +228,8 @@ public class AeadCryptoClientTest {
 
     var ex =
         assertThrows(
-            CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, encrypted));
+            CryptoClientException.class,
+            () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
     assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.DEK_DECRYPTION_ERROR);
   }
 
@@ -243,7 +262,7 @@ public class AeadCryptoClientTest {
     var cryptoClient = new AeadCryptoClient(mockAeadProvider, TEST_KEY_INFO);
 
     assertThrows(
-        CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, encrypted));
+        CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
   }
 
   @Test
@@ -257,7 +276,26 @@ public class AeadCryptoClientTest {
 
     var ex =
         assertThrows(
-            CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, badEncrypted));
+            CryptoClientException.class,
+            () -> cryptoClient.decrypt(encryptionKeys, badEncrypted, BASE64));
+
+    assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.DECODING_ERROR);
+    verifyNoMoreInteractions(mockAead, mockAeadSelector);
+  }
+
+  @Test
+  public void decrypt_cannotDecodeHex_throws() throws Exception {
+    when(mockAeadProvider.getAeadSelector(eq(TEST_PARAMETERS)))
+        .thenReturn(getDefaultAeadSelector());
+    var cryptoClient = new AeadCryptoClient(mockAeadProvider, TEST_KEY_INFO);
+    String encryptedDek = encryptDek(generateXChaChaKeyset());
+    var encryptionKeys = getDataRecordEncryptionKeys(generateAeadUri(), encryptedDek);
+    String badEncrypted = encryptString(encryptedDek, "TestString", HEX) + "abcd!";
+
+    var ex =
+        assertThrows(
+            CryptoClientException.class,
+            () -> cryptoClient.decrypt(encryptionKeys, badEncrypted, BASE64));
 
     assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.DECODING_ERROR);
     verifyNoMoreInteractions(mockAead, mockAeadSelector);
@@ -278,7 +316,8 @@ public class AeadCryptoClientTest {
 
     var ex =
         assertThrows(
-            CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, encrypted));
+            CryptoClientException.class,
+            () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
     assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.DEK_DECRYPTION_ERROR);
   }
 
@@ -297,10 +336,11 @@ public class AeadCryptoClientTest {
 
     var ex =
         assertThrows(
-            CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, encrypted));
+            CryptoClientException.class,
+            () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
     assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.DEK_DECRYPTION_ERROR);
     assertThrows(
-        CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, encrypted));
+        CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
     assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.DEK_DECRYPTION_ERROR);
     verify(mockAeadSelector, times(1)).getAead(any());
   }
@@ -321,7 +361,8 @@ public class AeadCryptoClientTest {
 
     var ex =
         assertThrows(
-            CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, encrypted));
+            CryptoClientException.class,
+            () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
     assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.INVALID_WIP_PARAMETER);
   }
 
@@ -341,7 +382,8 @@ public class AeadCryptoClientTest {
 
     var ex =
         assertThrows(
-            CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, encrypted));
+            CryptoClientException.class,
+            () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
     assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.WIP_AUTH_FAILED);
   }
 
@@ -356,7 +398,9 @@ public class AeadCryptoClientTest {
     var ex =
         assertThrows(
             CryptoClientException.class,
-            () -> cryptoClient.decrypt(getDataRecordEncryptionKeys("unused", "unused"), "unused"));
+            () ->
+                cryptoClient.decrypt(
+                    getDataRecordEncryptionKeys("unused", "unused"), "unused", BASE64));
 
     assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.DEK_KEY_TYPE_MISMATCH);
   }
@@ -371,7 +415,8 @@ public class AeadCryptoClientTest {
 
     var ex =
         assertThrows(
-            CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, "unused"));
+            CryptoClientException.class,
+            () -> cryptoClient.decrypt(encryptionKeys, "unused", BASE64));
 
     assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.DECODING_ERROR);
     verifyNoMoreInteractions(mockAead, mockAeadSelector);

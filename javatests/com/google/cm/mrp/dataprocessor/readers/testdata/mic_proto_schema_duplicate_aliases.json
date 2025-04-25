@@ -1,0 +1,87 @@
+{
+  "columns": [
+    {
+      "column_type": "STRING",
+      "column_name": "metadata"
+    },
+    {
+      "column_type": "STRING",
+      "column_name": "dek",
+      "column_alias": "encrypted_dek"
+    },
+    {
+      "column_type": "STRING",
+      "column_name": "kek",
+      "column_alias": "kek_uri"
+    },
+    {
+      "column_type": "STRING",
+      "column_name": "em1",
+      "column_alias": "email"
+    },
+    {
+      "column_type": "STRING",
+      "column_name": "em2",
+      "column_alias": "email"
+    },
+    {
+      "column_type": "STRING",
+      "column_name": "ph1",
+      "column_alias": "phone"
+    },
+    {
+      "column_type": "STRING",
+      "column_name": "ph2",
+      "column_alias": "phone"
+    },
+    {
+      "column_type": "STRING",
+      "column_name": "fn1",
+      "column_alias": "first_name",
+      "column_group": 0
+    },
+    {
+      "column_type": "STRING",
+      "column_name": "ln1",
+      "column_alias": "last_name",
+      "column_group": 0
+    },
+    {
+      "column_type": "STRING",
+      "column_name": "cc1",
+      "column_alias": "country_code",
+      "column_group": 0
+    },
+    {
+      "column_type": "STRING",
+      "column_name": "zc1",
+      "column_alias": "zip_code",
+      "column_group": 0
+    },
+    {
+      "column_type": "STRING",
+      "column_name": "fn2",
+      "column_alias": "first_name",
+      "column_group": 1
+    },
+    {
+      "column_type": "STRING",
+      "column_name": "ln2",
+      "column_alias": "last_name",
+      "column_group": 1
+    },
+    {
+      "column_type": "STRING",
+      "column_name": "cc2",
+      "column_alias": "country_code",
+      "column_group": 1
+    },
+    {
+      "column_type": "STRING",
+      "column_name": "zc2",
+      "column_alias": "zip_code",
+      "column_group": 1
+    }
+  ],
+  "data_format": "SERIALIZED_PROTO"
+}

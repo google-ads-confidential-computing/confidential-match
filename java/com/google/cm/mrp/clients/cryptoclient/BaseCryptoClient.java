@@ -19,11 +19,13 @@ package com.google.cm.mrp.clients.cryptoclient;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DECODING_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_WIP_PARAMETER;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WIP_AUTH_FAILED;
+import static com.google.common.io.BaseEncoding.base16;
 import static com.google.common.io.BaseEncoding.base64;
 import static com.google.common.io.BaseEncoding.base64Url;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys;
+import com.google.cm.mrp.backend.EncodingTypeProto.EncodingType;
 import java.util.Arrays;
 import java.util.concurrent.ConcurrentHashMap;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -51,17 +53,12 @@ public abstract class BaseCryptoClient implements CryptoClient {
 
   /** {@inheritDoc} */
   @Override
-  public String decrypt(DataRecordEncryptionKeys dataRecordEncryptionKeys, String ciphertext)
-      throws CryptoClientException {
-    return decrypt(dataRecordEncryptionKeys, ciphertext, false);
-  }
-
-  /** {@inheritDoc} */
-  @Override
   public String decrypt(
-      DataRecordEncryptionKeys dataRecordEncryptionKeys, String ciphertext, boolean isBase64Url)
+      DataRecordEncryptionKeys dataRecordEncryptionKeys,
+      String ciphertext,
+      EncodingType encodingType)
       throws CryptoClientException {
-    return decrypt(dataRecordEncryptionKeys, base64Decode(ciphertext, isBase64Url));
+    return decrypt(dataRecordEncryptionKeys, decode(ciphertext, encodingType));
   }
 
   /** Encode bytes into a Base64 String. */
@@ -69,13 +66,28 @@ public abstract class BaseCryptoClient implements CryptoClient {
     return base64().encode(value);
   }
 
-  /** Decode a String from Base64 or Base64Url. */
-  protected byte[] base64Decode(String value, boolean isBase64Url) throws CryptoClientException {
-    if (isBase64Url && base64Url().canDecode(value)) {
-      return base64Url().decode(value);
-    }
-    if (!isBase64Url && base64().canDecode(value)) {
-      return base64().decode(value);
+  /** Decode a String using the given encodingType. */
+  protected byte[] decode(String value, EncodingType encodingType) throws CryptoClientException {
+    switch (encodingType) {
+      case BASE64:
+        if (base64().canDecode(value)) {
+          return base64().decode(value);
+        }
+        break;
+      case BASE64URL:
+        if (base64Url().canDecode(value)) {
+          return base64Url().decode(value);
+        }
+        break;
+      case HEX:
+        if (base16().canDecode(value)) {
+          return base16().decode(value);
+        }
+        break;
+      case UNSPECIFIED:
+      case UNRECOGNIZED:
+      default:
+        break;
     }
     throw new CryptoClientException(DECODING_ERROR);
   }

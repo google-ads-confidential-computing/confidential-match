@@ -44,6 +44,7 @@ enum JobResultCode {
   COORDINATOR_KEY_SERVICE_ERROR = 14; // coordinator key service error (after multiple retries)
   CRYPTO_CLIENT_ERROR = 16; // coordinator key service error (after multiple retries)
   CRYPTO_CLIENT_CONFIGURATION_ERROR = 17; // crypto client is not configured properly
+  DATA_READER_CONFIGURATION_ERROR = 32; // crypto client is not configured properly
   ENCRYPTION_COLUMNS_PROCESSING_ERROR = 18; // Encryption columns incorrectly processed
   ENCRYPTION_COLUMNS_CONFIG_ERROR = 26; // Config for encryption columns is invalid
   ENCRYPTION_METADATA_CONFIG_ERROR = 27; // Error during configuration of encryption metadata
@@ -95,4 +96,5 @@ enum JobResultCode {
   PROTO_MISSING_MATCH_KEYS = 212;
   PROTO_DUPLICATE_METADATA_KEY = 213;
   PROTO_MATCH_KEY_MISSING_FIELD = 214;
+  PROTO_MATCH_KEY_HAS_BAD_CHILD_FIELDS = 215;
 }

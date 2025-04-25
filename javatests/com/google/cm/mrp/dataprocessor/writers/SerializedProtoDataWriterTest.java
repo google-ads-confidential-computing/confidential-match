@@ -244,30 +244,30 @@ public final class SerializedProtoDataWriterTest {
     // These two data records will be combined into one output record proto due to the row marker
     // DataRecord 1
     List<Entry<String, Optional<String>>> keyValueEntries1 = new ArrayList<>();
-    keyValueEntries1.add(Map.entry("email", Optional.of("FAKE.1@google.com")));
-    keyValueEntries1.add(Map.entry("phone", Optional.of("555-555-5551")));
-    keyValueEntries1.add(Map.entry("first_name", Optional.of("John")));
-    keyValueEntries1.add(Map.entry("last_name", Optional.of("Doe")));
-    keyValueEntries1.add(Map.entry("zip_code", Optional.of("99999")));
-    keyValueEntries1.add(Map.entry("country_code", Optional.of("US")));
-    keyValueEntries1.add(Map.entry("instagram", Optional.of("@fake-instagram")));
-    keyValueEntries1.add(Map.entry("tiktok", Optional.of("@fake-tiktok")));
-    keyValueEntries1.add(Map.entry("coordinator_key_id", Optional.of(encryptionKey1)));
+    keyValueEntries1.add(Map.entry("em", Optional.of("FAKE.1@google.com")));
+    keyValueEntries1.add(Map.entry("ph", Optional.of("555-555-5551")));
+    keyValueEntries1.add(Map.entry("fn", Optional.of("John")));
+    keyValueEntries1.add(Map.entry("ln", Optional.of("Doe")));
+    keyValueEntries1.add(Map.entry("zc", Optional.of("99999")));
+    keyValueEntries1.add(Map.entry("cc", Optional.of("US")));
+    keyValueEntries1.add(Map.entry("insta", Optional.of("@fake-instagram")));
+    keyValueEntries1.add(Map.entry("tik", Optional.of("@fake-tiktok")));
+    keyValueEntries1.add(Map.entry("coord_key_id", Optional.of(encryptionKey1)));
     keyValueEntries1.add(Map.entry("metadata", Optional.of("metadata_value")));
     keyValueEntries1.add(Map.entry("row_status", Optional.of(SUCCESS.toString())));
     keyValueEntries1.add(Map.entry(ROW_MARKER_COLUMN_NAME, Optional.of("1")));
     dataRecords.add(getDataRecord(keyValueEntries1).build());
     // DataRecord 2
     List<Entry<String, Optional<String>>> keyValueEntries2 = new ArrayList<>();
-    keyValueEntries2.add(Map.entry("email", Optional.of("FAKE.2@google.com")));
-    keyValueEntries2.add(Map.entry("phone", Optional.of("555-555-5552")));
-    keyValueEntries2.add(Map.entry("first_name", Optional.of("Jane")));
-    keyValueEntries2.add(Map.entry("last_name", Optional.of("Deer")));
-    keyValueEntries2.add(Map.entry("zip_code", Optional.of("V6Z 2H7")));
-    keyValueEntries2.add(Map.entry("country_code", Optional.of("CA")));
-    keyValueEntries2.add(Map.entry("instagram", Optional.empty()));
-    keyValueEntries2.add(Map.entry("tiktok", Optional.empty()));
-    keyValueEntries2.add(Map.entry("coordinator_key_id", Optional.of(encryptionKey1)));
+    keyValueEntries2.add(Map.entry("em", Optional.of("FAKE.2@google.com")));
+    keyValueEntries2.add(Map.entry("ph", Optional.of("555-555-5552")));
+    keyValueEntries2.add(Map.entry("fn", Optional.of("Jane")));
+    keyValueEntries2.add(Map.entry("ln", Optional.of("Deer")));
+    keyValueEntries2.add(Map.entry("zc", Optional.of("V6Z 2H7")));
+    keyValueEntries2.add(Map.entry("cc", Optional.of("CA")));
+    keyValueEntries2.add(Map.entry("insta", Optional.empty()));
+    keyValueEntries2.add(Map.entry("tik", Optional.empty()));
+    keyValueEntries2.add(Map.entry("coord_key_id", Optional.of(encryptionKey1)));
     keyValueEntries2.add(Map.entry("metadata", Optional.empty()));
     keyValueEntries2.add(Map.entry("row_status", Optional.of(INVALID_PARTIAL_ERROR.toString())));
     keyValueEntries2.add(Map.entry(ROW_MARKER_COLUMN_NAME, Optional.of("1")));
@@ -276,43 +276,43 @@ public final class SerializedProtoDataWriterTest {
     // Set up maps to be used in validating the output record proto for DataRecord 1 and 2.
     // Fields
     Map<String, String> fieldMap1 = new HashMap<>();
-    fieldMap1.put("FAKE.1@google.com", "email");
-    fieldMap1.put("FAKE.2@google.com", "email");
-    fieldMap1.put("555-555-5551", "phone");
-    fieldMap1.put("555-555-5552", "phone");
+    fieldMap1.put("FAKE.1@google.com", "em");
+    fieldMap1.put("FAKE.2@google.com", "em");
+    fieldMap1.put("555-555-5551", "ph");
+    fieldMap1.put("555-555-5552", "ph");
     // CompositeField address
     List<Map<String, String>> addressGroupMaps1 = new ArrayList<>();
     Map<String, String> firstAddressGroupMap1 = new HashMap<>();
-    firstAddressGroupMap1.put("John", "first_name");
-    firstAddressGroupMap1.put("Doe", "last_name");
-    firstAddressGroupMap1.put("99999", "zip_code");
-    firstAddressGroupMap1.put("US", "country_code");
+    firstAddressGroupMap1.put("John", "fn");
+    firstAddressGroupMap1.put("Doe", "ln");
+    firstAddressGroupMap1.put("99999", "zc");
+    firstAddressGroupMap1.put("US", "cc");
     addressGroupMaps1.add(firstAddressGroupMap1);
     Map<String, String> secondAddressGroupMap1 = new HashMap<>();
-    secondAddressGroupMap1.put("Jane", "first_name");
-    secondAddressGroupMap1.put("Deer", "last_name");
-    secondAddressGroupMap1.put("V6Z 2H7", "zip_code");
-    secondAddressGroupMap1.put("CA", "country_code");
+    secondAddressGroupMap1.put("Jane", "fn");
+    secondAddressGroupMap1.put("Deer", "ln");
+    secondAddressGroupMap1.put("V6Z 2H7", "zc");
+    secondAddressGroupMap1.put("CA", "cc");
     addressGroupMaps1.add(secondAddressGroupMap1);
     // CompositeField socials
     List<Map<String, String>> socialGroupMaps1 = new ArrayList<>();
     Map<String, String> firstSocialsGroupMap1 = new HashMap<>();
-    firstSocialsGroupMap1.put("@fake-instagram", "instagram");
-    firstSocialsGroupMap1.put("@fake-tiktok", "tiktok");
+    firstSocialsGroupMap1.put("@fake-instagram", "insta");
+    firstSocialsGroupMap1.put("@fake-tiktok", "tik");
     socialGroupMaps1.add(firstSocialsGroupMap1);
 
     // This third data record will output as one output record proto due to the row marker.
     // DataRecord 3
     List<Entry<String, Optional<String>>> keyValueEntries3 = new ArrayList<>();
-    keyValueEntries3.add(Map.entry("email", Optional.of("FAKE.3@google.com")));
-    keyValueEntries3.add(Map.entry("phone", Optional.empty()));
-    keyValueEntries3.add(Map.entry("first_name", Optional.of("UNMATCHED_1")));
-    keyValueEntries3.add(Map.entry("last_name", Optional.of("UNMATCHED_2")));
-    keyValueEntries3.add(Map.entry("zip_code", Optional.of("UNMATCHED_3")));
-    keyValueEntries3.add(Map.entry("country_code", Optional.empty()));
-    keyValueEntries3.add(Map.entry("instagram", Optional.empty()));
-    keyValueEntries3.add(Map.entry("tiktok", Optional.empty()));
-    keyValueEntries3.add(Map.entry("coordinator_key_id", Optional.of(encryptionKey2)));
+    keyValueEntries3.add(Map.entry("em", Optional.of("FAKE.3@google.com")));
+    keyValueEntries3.add(Map.entry("ph", Optional.empty()));
+    keyValueEntries3.add(Map.entry("fn", Optional.of("UNMATCHED_1")));
+    keyValueEntries3.add(Map.entry("ln", Optional.of("UNMATCHED_2")));
+    keyValueEntries3.add(Map.entry("zc", Optional.of("UNMATCHED_3")));
+    keyValueEntries3.add(Map.entry("cc", Optional.empty()));
+    keyValueEntries3.add(Map.entry("insta", Optional.empty()));
+    keyValueEntries3.add(Map.entry("tik", Optional.empty()));
+    keyValueEntries3.add(Map.entry("coord_key_id", Optional.of(encryptionKey2)));
     keyValueEntries3.add(Map.entry("metadata", Optional.empty()));
     keyValueEntries3.add(Map.entry("row_status", Optional.of(SUCCESS.toString())));
     keyValueEntries3.add(Map.entry(ROW_MARKER_COLUMN_NAME, Optional.of("2")));
@@ -320,12 +320,12 @@ public final class SerializedProtoDataWriterTest {
 
     // Set up maps to be used in validating the output record proto for third input DataRecord.
     Map<String, String> fieldMap2 = new HashMap<>();
-    fieldMap2.put("FAKE.3@google.com", "email");
+    fieldMap2.put("FAKE.3@google.com", "em");
     List<Map<String, String>> addressGroupMaps2 = new ArrayList<>();
     Map<String, String> firstAddressGroupMap2 = new HashMap<>();
-    firstAddressGroupMap2.put("UNMATCHED_1", "first_name");
-    firstAddressGroupMap2.put("UNMATCHED_2", "last_name");
-    firstAddressGroupMap2.put("UNMATCHED_3", "zip_code");
+    firstAddressGroupMap2.put("UNMATCHED_1", "fn");
+    firstAddressGroupMap2.put("UNMATCHED_2", "ln");
+    firstAddressGroupMap2.put("UNMATCHED_3", "zc");
     addressGroupMaps2.add(firstAddressGroupMap2);
     List<Map<String, String>> socialGroupMaps2 = new ArrayList<>();
 

@@ -37,6 +37,7 @@ java_test(
         "//java/com/google/cm/mrp/dataprocessor/converters",
         "//java/com/google/cm/mrp/dataprocessor/models",
         "//java/com/google/cm/mrp/dataprocessor/readers",
+        "//java/com/google/cm/mrp/models",
         "//java/com/google/cm/util",
         "//java/external:clients_cryptoclient",
         "//java/external:gcp_storage",
@@ -45,6 +46,7 @@ java_test(
         "//java/external:protobuf_java",
         "//java/external:shared_util",
         "//javatests/com/google/cm/mrp/testutils",
+        "//protos/mrp/api:java_proto",
         "//protos/mrp/backend:java_proto",
     ],
 )
@@ -55,6 +57,8 @@ java_test(
         "ConfidentialMatchDataRecordParserImplTest.java",
     ],
     resources = [
+        "testdata/mic_proto_schema_custom_names.json",
+        "testdata/mic_proto_schema_duplicate_aliases.json",
         "testdata/mic_proto_schema_encrypted.json",
         "testdata/mic_proto_schema_unencrypted.json",
         "testdata/mic_proto_schema_wrapped_encrypted.json",

@@ -37,6 +37,7 @@ import com.google.cm.mrp.backend.SchemaProto.Schema.Column;
 import com.google.cm.mrp.models.JobParameters;
 import com.google.cm.mrp.models.JobParameters.OutputDataLocation;
 import com.google.cm.util.ProtoUtils;
+import com.google.common.io.BaseEncoding;
 import com.google.common.io.Resources;
 import java.util.Objects;
 import org.junit.Before;
@@ -95,9 +96,12 @@ public class DataRecordTransformerImplTest {
 
   @Test
   public void transformDataRecordWithConditionalColumns_success() {
+    String phone = "999-999-9999";
+    String hexPhone = BaseEncoding.base16().encode(phone.getBytes(UTF_8));
+    String base64Phone = BaseEncoding.base64().encode(phone.getBytes(UTF_8));
     String[][] testData = {
       {"email", "email", "FAKE.email@google.com"}, // uppercase
-      {"phone", "phone", "999-999-9999"},
+      {"phone", "phone", hexPhone},
       {"first_name", "first_name", "fake_first_name"},
       {"last_name", "last_name", "fake_last_name"},
       {"zip_code", "zip_code", "9999"}, // not five digits
@@ -125,8 +129,7 @@ public class DataRecordTransformerImplTest {
                     KeyValue.newBuilder().setKey("email").setStringValue("fake.email@google.com"))
                 .setKeyValues(
                     1,
-                    // TODO(b/398109545): add after implementation
-                    KeyValue.newBuilder().setKey("phone").setStringValue(""))
+                    KeyValue.newBuilder().setKey("phone").setStringValue(base64Phone))
                 .setKeyValues(4, KeyValue.newBuilder().setKey("zip_code").setStringValue("09999"))
                 .build());
   }

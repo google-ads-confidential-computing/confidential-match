@@ -271,26 +271,16 @@ public final class SerializedProtoDataReader extends BaseDataReader {
     return dataRecordBuilder.build();
   }
 
-  /** Returns a schema for internal use with column names and row marker column. */
+  /** Returns a schema for internal use with an added row marker column. */
   private Schema generateInternalSchema(Schema inputSchema) {
-    Schema.Builder inputSchemaBuilder = inputSchema.toBuilder();
-    List<Column> columnList =
-        inputSchemaBuilder.getColumnsList().stream()
-            .map(
-                column ->
-                    column.toBuilder()
-                        .setColumnType(column.getColumnType())
-                        .setColumnAlias(column.getColumnAlias())
-                        .setColumnName(column.getColumnAlias())
-                        .build())
-            .collect(Collectors.toList());
-    columnList.add(
-        Column.newBuilder()
-            .setColumnAlias(ROW_MARKER_COLUMN_NAME)
-            .setColumnName(ROW_MARKER_COLUMN_NAME)
-            .setColumnType(ColumnType.STRING)
-            .build());
-    return inputSchemaBuilder.clearColumns().addAllColumns(columnList).build();
+    return inputSchema.toBuilder()
+        .addColumns(
+            Column.newBuilder()
+                .setColumnName(ROW_MARKER_COLUMN_NAME)
+                .setColumnAlias(ROW_MARKER_COLUMN_NAME)
+                .setColumnType(ColumnType.STRING)
+                .build())
+        .build();
   }
 
   /** Inner class for handling decryption. */

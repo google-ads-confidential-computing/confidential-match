@@ -2,33 +2,39 @@
   "columns": [
     {
       "column_type": "STRING",
-      "column_alias": "metadata"
+      "column_name": "metadata"
     },
     {
       "column_type": "STRING",
+      "column_name": "email",
       "column_alias": "email"
     },
     {
       "column_type": "STRING",
+      "column_name": "phone",
       "column_alias": "phone"
     },
     {
       "column_type": "STRING",
+      "column_name": "first_name",
       "column_alias": "first_name",
       "column_group": 0
     },
     {
       "column_type": "STRING",
+      "column_name": "last_name",
       "column_alias": "last_name",
       "column_group": 0
     },
     {
       "column_type": "STRING",
+      "column_name": "country_code",
       "column_alias": "country_code",
       "column_group": 0
     },
     {
       "column_type": "STRING",
+      "column_name": "zip_code",
       "column_alias": "zip_code",
       "column_group": 0
     }

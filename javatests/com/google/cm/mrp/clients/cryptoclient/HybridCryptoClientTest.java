@@ -16,6 +16,7 @@
 
 package com.google.cm.mrp.clients.cryptoclient;
 
+import static com.google.cm.mrp.backend.EncodingTypeProto.EncodingType.BASE64;
 import static com.google.cm.mrp.testutils.HybridKeyGenerator.decryptString;
 import static com.google.cm.mrp.testutils.HybridKeyGenerator.encryptString;
 import static com.google.cm.mrp.testutils.HybridKeyGenerator.getDefaultHybridDecrypt;
@@ -94,7 +95,7 @@ public class HybridCryptoClientTest {
     String plaintext = "TestString";
     String encrypted = encryptString(getDefaultHybridEncrypt(), plaintext);
 
-    assertThat(cryptoClient.decrypt(encryptionKeys, encrypted)).isEqualTo(plaintext);
+    assertThat(cryptoClient.decrypt(encryptionKeys, encrypted, BASE64)).isEqualTo(plaintext);
     verify(mockHybridEncryptionKeyService, times(1)).getEncrypter(any());
     verify(mockHybridEncryptionKeyService, times(1)).getDecrypter(any());
   }
@@ -115,7 +116,7 @@ public class HybridCryptoClientTest {
     assertThat(decryptString(decrypter, encrypted)).isEqualTo(plaintext);
 
     // Another call to `getDecrypter("123")`
-    String decrypted = cryptoClient.decrypt(encryptionKeys, encrypted);
+    String decrypted = cryptoClient.decrypt(encryptionKeys, encrypted, BASE64);
     assertThat(decrypted).isEqualTo(plaintext);
 
     // Verify both primitives were fetched only once.
@@ -167,7 +168,8 @@ public class HybridCryptoClientTest {
 
     var ex =
         assertThrows(
-            CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, encrypted));
+            CryptoClientException.class,
+            () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
     assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.DECRYPTION_ERROR);
   }
 
@@ -185,7 +187,8 @@ public class HybridCryptoClientTest {
 
     var ex =
         assertThrows(
-            CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, encrypted));
+            CryptoClientException.class,
+            () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
     assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.DECRYPTION_ERROR);
 
     verify(mockHybridEncryptionKeyService, times(1)).getDecrypter(any());
@@ -205,11 +208,13 @@ public class HybridCryptoClientTest {
 
     var ex1 =
         assertThrows(
-            CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, encrypted));
+            CryptoClientException.class,
+            () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
     assertThat(ex1.getErrorCode()).isEqualTo(JobResultCode.DECRYPTION_ERROR);
     var ex2 =
         assertThrows(
-            CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, encrypted));
+            CryptoClientException.class,
+            () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
     assertThat(ex2.getErrorCode()).isEqualTo(JobResultCode.DECRYPTION_ERROR);
 
     // Verify that key fetch is only attempted once for non-existent key
@@ -230,7 +235,8 @@ public class HybridCryptoClientTest {
 
     var ex =
         assertThrows(
-            CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, encrypted));
+            CryptoClientException.class,
+            () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
 
     // Verify that the CryptoClientException being thrown has retriable error code
     assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.COORDINATOR_KEY_SERVICE_ERROR);
@@ -252,7 +258,8 @@ public class HybridCryptoClientTest {
 
     var ex =
         assertThrows(
-            CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, encrypted));
+            CryptoClientException.class,
+            () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
     assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.INVALID_WIP_PARAMETER);
 
     verify(mockHybridEncryptionKeyService, times(1)).getDecrypter(any());
@@ -274,7 +281,8 @@ public class HybridCryptoClientTest {
 
     var ex =
         assertThrows(
-            CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, encrypted));
+            CryptoClientException.class,
+            () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
     assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.WIP_AUTH_FAILED);
 
     verify(mockHybridEncryptionKeyService, times(1)).getDecrypter(any());
@@ -292,7 +300,7 @@ public class HybridCryptoClientTest {
     var ex =
         assertThrows(
             CryptoClientException.class,
-            () -> cryptoClient.decrypt(encryptionKeys, "CannotDecodeThis!"));
+            () -> cryptoClient.decrypt(encryptionKeys, "CannotDecodeThis!", BASE64));
 
     assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.DECODING_ERROR);
     verify(mockHybridEncryptionKeyService, never()).getEncrypter(any());
@@ -311,7 +319,8 @@ public class HybridCryptoClientTest {
 
     var ex =
         assertThrows(
-            CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, "unused"));
+            CryptoClientException.class,
+            () -> cryptoClient.decrypt(encryptionKeys, "unused", BASE64));
 
     assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.DECRYPTION_ERROR);
     assertThat(ex.getCause()).isInstanceOf(IllegalArgumentException.class);

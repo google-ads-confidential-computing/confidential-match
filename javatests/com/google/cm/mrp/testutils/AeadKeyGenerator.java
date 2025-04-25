@@ -18,10 +18,12 @@ package com.google.cm.mrp.testutils;
 
 import static com.google.cm.util.ProtoUtils.getJsonFromProto;
 import static com.google.cm.util.ProtoUtils.getProtoFromJson;
+import static com.google.common.io.BaseEncoding.base16;
 import static com.google.common.io.BaseEncoding.base64;
 import static com.google.crypto.tink.aead.XChaCha20Poly1305Parameters.Variant.TINK;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
+import com.google.cm.mrp.backend.EncodingTypeProto.EncodingType;
 import com.google.crypto.tink.Aead;
 import com.google.crypto.tink.BinaryKeysetReader;
 import com.google.crypto.tink.CleartextKeysetHandle;
@@ -128,8 +130,17 @@ public final class AeadKeyGenerator {
    * returns the base64-encoded result.
    */
   public static String encryptString(String dek, String plaintext) throws Exception {
+    return encryptString(dek, plaintext, EncodingType.BASE64);
+  }
+
+  /**
+   * Encrypts an unencoded string using an EncryptedKeyset (encrypted with the default KEK) and
+   * returns the encoded result in the given encodingType.
+   */
+  public static String encryptString(String dek, String plaintext, EncodingType encodingType)
+      throws Exception {
     try {
-      return encryptString(decryptEncryptedKeyset(dek), plaintext);
+      return encryptString(decryptEncryptedKeyset(DEFAULT_AEAD, dek), plaintext, encodingType);
     } catch (GeneralSecurityException e) {
       throw new GeneralSecurityException("Failed to encrypt using dek", e);
     }
@@ -137,8 +148,25 @@ public final class AeadKeyGenerator {
 
   /** Encrypts an unencoded string using an Aead and returns the base64-encoded result. */
   public static String encryptString(Aead aead, String plaintext) throws GeneralSecurityException {
+    return encryptString(aead, plaintext, EncodingType.BASE64);
+  }
+
+  /**
+   * Encrypts an unencoded string using an Aead and returns the encoded result in the given
+   * encodingType.
+   */
+  public static String encryptString(Aead aead, String plaintext, EncodingType encodingType)
+      throws GeneralSecurityException {
     try {
-      return base64().encode(aead.encrypt(plaintext.getBytes(), new byte[0]));
+      switch (encodingType) {
+        case BASE64:
+          return base64().encode(aead.encrypt(plaintext.getBytes(), new byte[0]));
+        case HEX:
+          return base16().encode(aead.encrypt(plaintext.getBytes(), new byte[0]));
+        default:
+          throw new IllegalArgumentException(
+              "Unsupported encoding type for encryption: " + encodingType);
+      }
     } catch (GeneralSecurityException e) {
       throw new GeneralSecurityException("Failed to encrypt using dek", e);
     }
@@ -151,7 +179,7 @@ public final class AeadKeyGenerator {
   public static String decryptStringWithBinaryDek(String encryptedDek, String ciphertext)
       throws Exception {
     try {
-      return decryptString(decryptEncryptedKeyset(encryptedDek), ciphertext);
+      return decryptString(decryptEncryptedKeyset(DEFAULT_AEAD, encryptedDek), ciphertext);
     } catch (GeneralSecurityException e) {
       throw new GeneralSecurityException("Failed to decrypt using dek", e);
     }
@@ -161,18 +189,44 @@ public final class AeadKeyGenerator {
    * Decrypts a base64-encoded bytestring using an encryptedKeyset (encrypted with the default KEK)
    * and returns the plaintext result.
    */
-  public static String decryptString(String encryptedDek, String ciphertext) throws Exception {
+  public static String decryptString(String encryptedDek, String ciphertext)
+      throws GeneralSecurityException {
+    return decryptString(encryptedDek, ciphertext, EncodingType.BASE64);
+  }
+
+  /**
+   * Decrypts an encoded bytestring using an encryptedKeyset (encrypted with the default KEK) and
+   * returns the plaintext result.
+   */
+  public static String decryptString(
+      String encryptedDek, String ciphertext, EncodingType encodingType)
+      throws GeneralSecurityException {
     try {
-      return decryptString(decryptEncryptedKeyset(encryptedDek), ciphertext);
-    } catch (GeneralSecurityException e) {
+      return decryptString(
+          decryptEncryptedKeyset(DEFAULT_AEAD, encryptedDek), ciphertext, encodingType);
+    } catch (GeneralSecurityException | IOException e) {
       throw new GeneralSecurityException("Failed to decrypt using dek", e);
     }
   }
 
   /** Decrypts a base64-encoded bytestring using an Aead and returns the plaintext result. */
-  public static String decryptString(Aead aead, String ciphertext) throws Exception {
+  public static String decryptString(Aead aead, String ciphertext) throws GeneralSecurityException {
+    return decryptString(aead, ciphertext, EncodingType.BASE64);
+  }
+
+  /** Decrypts an encoded bytestring using an Aead and returns the plaintext result. */
+  public static String decryptString(Aead aead, String ciphertext, EncodingType encodingType)
+      throws GeneralSecurityException {
     try {
-      return new String(aead.decrypt(base64().decode(ciphertext), new byte[0]), UTF_8);
+      switch (encodingType) {
+        case BASE64:
+          return new String(aead.decrypt(base64().decode(ciphertext), new byte[0]), UTF_8);
+        case HEX:
+          return new String(aead.decrypt(base16().decode(ciphertext), new byte[0]), UTF_8);
+        default:
+          throw new IllegalArgumentException(
+              "Unsupported encoding type for encryption: " + encodingType);
+      }
     } catch (GeneralSecurityException e) {
       throw new GeneralSecurityException("Failed to decrypt using dek", e);
     }
@@ -196,12 +250,13 @@ public final class AeadKeyGenerator {
     }
   }
 
-  private static Aead decryptEncryptedKeyset(String dek)
+  /** Decrypts an encrypted keyset (DEK) with a given KEK */
+  public static Aead decryptEncryptedKeyset(Aead kek, String dek)
       throws IOException, GeneralSecurityException {
     var byteString = ByteString.copyFrom(base64().decode(dek));
     var proto = EncryptedKeyset.newBuilder().setEncryptedKeyset(byteString).build();
     String json = getJsonFromProto(proto);
-    return TinkJsonProtoKeysetFormat.parseEncryptedKeyset(json, DEFAULT_AEAD, new byte[0])
+    return TinkJsonProtoKeysetFormat.parseEncryptedKeyset(json, kek, new byte[0])
         .getPrimitive(Aead.class);
   }
 }

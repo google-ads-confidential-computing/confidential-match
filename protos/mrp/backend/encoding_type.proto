@@ -23,5 +23,6 @@ option java_outer_classname = "EncodingTypeProto";
 enum EncodingType {
   UNSPECIFIED = 0;
   BASE64 = 1; // Default
-  HEX = 2;
+  BASE64URL = 2;
+  HEX = 3;
 }

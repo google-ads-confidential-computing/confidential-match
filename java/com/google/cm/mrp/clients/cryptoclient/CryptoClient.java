@@ -17,6 +17,7 @@
 package com.google.cm.mrp.clients.cryptoclient;
 
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys;
+import com.google.cm.mrp.backend.EncodingTypeProto.EncodingType;
 import com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode;
 import java.io.Closeable;
 
@@ -32,13 +33,14 @@ public interface CryptoClient extends Closeable {
   String encrypt(DataRecordEncryptionKeys dataRecordEncryptionKeys, byte[] plaintextBytes)
       throws CryptoClientException;
 
-  /** Decodes and decrypts a Base64-encoded String, returning an unencoded String. */
-  String decrypt(DataRecordEncryptionKeys dataRecordEncryptionKeys, String ciphertext)
-      throws CryptoClientException;
-
-  /** Decodes and decrypts a Base64 or Base64Url String, returning an unencoded String. */
+  /**
+   * Decodes (using a given {@link EncodingType}), then decrypts ciphertext. Returns a plaintext
+   * String.
+   */
   String decrypt(
-      DataRecordEncryptionKeys dataRecordEncryptionKeys, String ciphertext, boolean isBase64Url)
+      DataRecordEncryptionKeys dataRecordEncryptionKeys,
+      String ciphertext,
+      EncodingType encodingType)
       throws CryptoClientException;
 
   /** Decrypts a byte array without decoding, returning an unencoded String. */

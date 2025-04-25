@@ -52,6 +52,16 @@ java_test(
 )
 
 java_test(
+    name = "HexToBase64TransformationTest",
+    srcs = ["HexToBase64TransformationTest.java"],
+    deps = [
+        "//java/com/google/cm/mrp/dataprocessor/transformations",
+        "//java/external:google_truth",
+        "//protos/mrp/backend:java_proto",
+    ],
+)
+
+java_test(
     name = "TransformationProviderTest",
     srcs = ["TransformationProviderTest.java"],
     deps = [

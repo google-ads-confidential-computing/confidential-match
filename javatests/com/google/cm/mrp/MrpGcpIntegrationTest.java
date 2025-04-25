@@ -20,6 +20,8 @@ import static com.google.cm.lookupserver.api.LookupProto.EncryptionKeyInfo.Wrapp
 import static com.google.cm.lookupserver.api.LookupProto.LookupResult.Status.STATUS_FAILED;
 import static com.google.cm.lookupserver.api.LookupProto.LookupResult.Status.STATUS_SUCCESS;
 import static com.google.cm.mrp.api.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.KeyType.XCHACHA20_POLY1305;
+import static com.google.cm.mrp.backend.EncodingTypeProto.EncodingType.BASE64;
+import static com.google.cm.mrp.backend.EncodingTypeProto.EncodingType.HEX;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DECRYPTION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_INPUT_FILE_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_SCHEMA_FILE_ERROR;
@@ -29,12 +31,12 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.MISSING
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.MISSING_SCHEMA_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PARTIAL_SUCCESS;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.SUCCESS;
+import static com.google.cm.mrp.testutils.AeadKeyGenerator.decryptEncryptedKeyset;
 import static com.google.cm.mrp.testutils.AeadKeyGenerator.encryptDek;
 import static com.google.cm.mrp.testutils.AeadKeyGenerator.encryptString;
 import static com.google.cm.mrp.testutils.AeadKeyGenerator.generateAeadUri;
 import static com.google.cm.mrp.testutils.AeadKeyGenerator.generateXChaChaKeyset;
 import static com.google.cm.mrp.testutils.AeadKeyGenerator.getAeadFromJsonKeyset;
-import static com.google.cm.mrp.testutils.HybridKeyGenerator.decryptString;
 import static com.google.cm.mrp.testutils.HybridKeyGenerator.getHybridDecryptFromJsonKeyset;
 import static com.google.cm.mrp.testutils.HybridKeyGenerator.getHybridEncryptFromJsonKeyset;
 import static com.google.cm.mrp.testutils.gcp.Constants.TEST_HYBRID_PRIVATE_KEYSET;
@@ -43,6 +45,8 @@ import static com.google.cm.testutils.gcp.TestingContainer.TEST_RUNNER_HOSTNAME;
 import static com.google.cm.util.ProtoUtils.getJsonFromProto;
 import static com.google.cm.util.ProtoUtils.getProtoFromJson;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.hash.Hashing.sha256;
+import static com.google.common.io.BaseEncoding.base64;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.scp.operator.protos.frontend.api.v1.ReturnCodeProto.ReturnCode.RETRIES_EXHAUSTED;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -82,6 +86,9 @@ import com.google.cm.mrp.api.EncryptionMetadataProto.EncryptionMetadata.Coordina
 import com.google.cm.mrp.api.EncryptionMetadataProto.EncryptionMetadata.CoordinatorKeyInfo;
 import com.google.cm.mrp.api.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo;
 import com.google.cm.mrp.backend.CondensedResponseColumnProto.CondensedResponseColumn;
+import com.google.cm.mrp.backend.EncodingTypeProto.EncodingType;
+import com.google.cm.mrp.testutils.AeadKeyGenerator;
+import com.google.cm.mrp.testutils.HybridKeyGenerator;
 import com.google.cm.mrp.testutils.gcp.JobServiceGcpIntegrationTestModule;
 import com.google.cm.orchestrator.api.OrchestratorProto.GetCurrentShardingSchemeResponse;
 import com.google.cm.orchestrator.api.OrchestratorProto.GetCurrentShardingSchemeResponse.Shard;
@@ -186,6 +193,25 @@ public final class MrpGcpIntegrationTest {
           + "R+Uw0FO5RUgQeX21OroOyEhYxEd/0rI7DlKLVA/UtvE=,"
           + "5K4fs+ajBGmX+UvZObJclI6kjxNkYs5rs5mA35SYvf8=,"
           + "7LZ+L7e9AZnng+DuIDdBIzlBy1uj78VIurPmGIZ24Is=,"
+          + "83243,US\n"
+          + ", ,, ,, \n";
+
+  private static final String GENERIC_DATA_HEX_CSV =
+      "Email1,Phone1,FirstName1,LastName1,ZipCode1,CountryCode1\n"
+          + "a6a773b65adff2ed5a527d73b2092f3b6688a32c6c36e96c2c074ef0296d46fd,"
+          + "ff65f404ef4b9bcab3ffb0d2cf12d8ecf4ad98700d85497d56388b56c8dde56a,"
+          + "45c08bf229b39b7c01943ea638a78fce53608c58c3efed3fde00ad3c25cb1602,"
+          + "4a1084c646e7416ddc8be65a294a1c532af4d2ab24125d4fb10facdc1634b4f0,"
+          + "19898,US\n"
+          + "49d28c269852d60e4ad63c389fb8425d551fde73e9452eabf8c8e441fe091073,"
+          + "aeacedfdee21f8264f08a63dd4c242c3087e8ee1a966e4e533a7701ca5161eaa,"
+          + "5ef6f186b6787e566b95166f467e2dc99d075e573ab1d6b0565c70fe86fb033c,"
+          + "8d78025926624129e1f2a1b7c5479f50d7a5fff11239efb7ae8e56422bf23a00,"
+          + "11821,US\n"
+          + "c7a730f43ad25926d68e97e6c4c7d9d9c183352ddf4ea26ca47d62f28b95e5ef,"
+          + "47e530d053b9454810797db53aba0ec84858c4477fd2b23b0e528b540fd4b6f1,"
+          + "e4ae1fb3e6a3046997f94bd939b25c948ea48f136462ce6bb39980df9498bdff,"
+          + "ecb67e2fb7bd0199e783e0ee203741233941cb5ba3efc548bab3e6188676e08b,"
           + "83243,US\n"
           + ", ,, ,, \n";
   private static final int NUM_GENERIC_DATA_FIELDS = 18;
@@ -366,7 +392,7 @@ public final class MrpGcpIntegrationTest {
     // Setup lookup response
     HttpRequest lookupRequest = getMockServerRequest("POST", LOOKUP_API_PATH, HTTP_2);
     String lookupResponseJson =
-        getJsonFromProto(createResponseWithMatchedKeysAndFailures(List.of(), List.of(), true));
+        getJsonFromProto(createResponseWithMatchedKeysAndFailures(List.of(), List.of()));
     mockClient.when(lookupRequest).respond(getMockServerResponse(200, lookupResponseJson));
 
     GetJobResponse response = createAndGet(encryptedJobRequest);
@@ -409,7 +435,7 @@ public final class MrpGcpIntegrationTest {
     // Setup lookup response
     HttpRequest lookupRequest = getMockServerRequest("POST", LOOKUP_API_PATH, HTTP_2);
     String lookupResponseJson =
-        getJsonFromProto(createResponseWithMatchedKeysAndFailures(List.of(), List.of(), true));
+        getJsonFromProto(createResponseWithMatchedKeysAndFailures(List.of(), List.of()));
     mockClient.when(lookupRequest).respond(getMockServerResponse(200, lookupResponseJson));
 
     GetJobResponse response = createAndGet(encryptedJobRequest);
@@ -445,7 +471,7 @@ public final class MrpGcpIntegrationTest {
                 record -> {
                   String encryptedKey = record.getLookupKey().getKey();
                   try {
-                    return decryptString(TEST_HYBRID_DECRYPT, encryptedKey);
+                    return HybridKeyGenerator.decryptString(TEST_HYBRID_DECRYPT, encryptedKey);
                   } catch (Exception e) {
                     throw new IllegalStateException("Failed to decrypt the lookup key", e);
                   }
@@ -509,6 +535,46 @@ public final class MrpGcpIntegrationTest {
   }
 
   @Test
+  public void createAndGet_someMatchesHexHashed_success() throws Exception {
+    String gcsFolder = "someMatchesHex";
+    HttpRequest schemeRequest = getMockServerRequest("GET", GET_SCHEME_API_PATH, HTTP_1_1);
+    String schemeResponseJson = getJsonFromProto(createSchemeResponse());
+    mockClient.when(schemeRequest).respond(getMockServerResponse(200, schemeResponseJson));
+    HttpRequest lookupRequest = getMockServerRequest("POST", LOOKUP_API_PATH, HTTP_2);
+    List<String> matches =
+        ImmutableList.of(
+            "rqzt/e4h+CZPCKY91MJCwwh+juGpZuTlM6dwHKUWHqo=",
+            "pqdztlrf8u1aUn1zsgkvO2aIoyxsNulsLAdO8CltRv0=",
+            hashString(
+                "5K4fs+ajBGmX+UvZObJclI6kjxNkYs5rs5mA35SYvf8="
+                    + "7LZ+L7e9AZnng+DuIDdBIzlBy1uj78VIurPmGIZ24Is="
+                    + "us"
+                    + "83243"));
+    String lookupResponseJson = getJsonFromProto(createResponseWithMatchedKeys(matches));
+    mockClient.when(lookupRequest).respond(getMockServerResponse(200, lookupResponseJson));
+    createGcsSchemaFile(gcsFolder, GENERIC_SCHEMA_JSON);
+    createGcsDataFiles(gcsFolder, ImmutableList.of(GENERIC_DATA_HEX_CSV));
+
+    GetJobResponse response = createAndGet(createCreateJobRequest(gcsFolder, "mic", "HEX"));
+
+    mockClient.verify(schemeRequest, atMost(1));
+    mockClient.verify(lookupRequest, atLeast(1));
+    assertThat(response.getResultInfo().getReturnCode()).isEqualTo(SUCCESS.name());
+    assertThat(response.getResultInfo().getErrorSummary().getErrorCountsList()).isEmpty();
+    List<String> outputFiles = getGcsOutputFileContents(gcsFolder);
+    assertThat(outputFiles).hasSize(1);
+    int actualNumUnmatched = outputFiles.get(0).split("UNMATCHED").length - 1;
+    int expectedNumUnmatched = NUM_GENERIC_DATA_FIELDS - 6; // 2 email/phone + 4 for an address
+    assertThat(actualNumUnmatched).isEqualTo(expectedNumUnmatched);
+    // Verify that requests to the lookup service contain the expected encryption info
+    HttpRequest[] actualLookupRequests = mockClient.retrieveRecordedRequests(lookupRequest);
+    assertThat(actualLookupRequests).hasLength(1);
+    LookupRequest actualLookupRequest =
+        getProtoFromJson(actualLookupRequests[0].getBodyAsString(), LookupRequest.class);
+    assertThat(actualLookupRequest.hasEncryptionKeyInfo()).isFalse();
+  }
+
+  @Test
   public void createAndGet_someMatches_encryptedWithWrappedKey_success() throws Exception {
     // Setup GCS input files
     String gcsFolder = "someMatchesEncrypted";
@@ -530,7 +596,7 @@ public final class MrpGcpIntegrationTest {
             wrappedKeyEncryptedPhones.get(0),
             wrappedKeyEncryptedPhones.get(1));
     String lookupResponseJson =
-        getJsonFromProto(createResponseWithMatchedKeysAndFailures(matches, List.of(), true));
+        getJsonFromProto(createResponseWithMatchedKeysAndFailures(matches, List.of()));
     mockClient.when(lookupRequest).respond(getMockServerResponse(200, lookupResponseJson));
 
     GetJobResponse response = createAndGet(encryptedJobRequest);
@@ -569,11 +635,10 @@ public final class MrpGcpIntegrationTest {
     for (int i = 1; i < lines.length; ++i) {
       lines[i] = lines[i] + "," + TEST_WIP + "\n";
     }
-    System.out.println(Arrays.toString(lines));
     createGcsDataFiles(gcsFolder, List.of(String.join("", lines)));
     // Setup frontend request
     CreateJobRequest encryptedJobRequest =
-        createWrappedKeyEncryptedJobRequest(gcsFolder, "mic", "");
+        createWrappedKeyEncryptedJobRequestWithWip(gcsFolder, "mic", "");
     // Setup scheme response
     HttpRequest schemeRequest = getMockServerRequest("GET", GET_SCHEME_API_PATH, HTTP_1_1);
     String schemeResponseJson = getJsonFromProto(createSchemeResponse());
@@ -587,7 +652,7 @@ public final class MrpGcpIntegrationTest {
             wrappedKeyEncryptedPhones.get(0),
             wrappedKeyEncryptedPhones.get(1));
     String lookupResponseJson =
-        getJsonFromProto(createResponseWithMatchedKeysAndFailures(matches, List.of(), true));
+        getJsonFromProto(createResponseWithMatchedKeysAndFailures(matches, List.of()));
     mockClient.when(lookupRequest).respond(getMockServerResponse(200, lookupResponseJson));
 
     GetJobResponse response = createAndGet(encryptedJobRequest);
@@ -637,7 +702,7 @@ public final class MrpGcpIntegrationTest {
             coordKeyEncryptedPhones.get(0),
             coordKeyEncryptedPhones.get(1));
     String lookupResponseJson =
-        getJsonFromProto(createResponseWithMatchedKeysAndFailures(matches, List.of(), true));
+        getJsonFromProto(createResponseWithMatchedKeysAndFailures(matches, List.of()));
     mockClient.when(lookupRequest).respond(getMockServerResponse(200, lookupResponseJson));
 
     GetJobResponse response = createAndGet(encryptedJobRequest);
@@ -649,7 +714,6 @@ public final class MrpGcpIntegrationTest {
     assertThat(response.getResultInfo().getErrorSummary().getErrorCountsList()).isEmpty();
     List<String> outputFiles = getGcsOutputFileContents(gcsFolder);
     assertThat(outputFiles).hasSize(1);
-    System.out.println(outputFiles);
     int actualNumUnmatched = outputFiles.get(0).split("UNMATCHED").length - 1;
     int expectedNumUnmatched = NUM_GENERIC_DATA_FIELDS - matches.size();
     assertThat(actualNumUnmatched).isEqualTo(expectedNumUnmatched);
@@ -674,6 +738,95 @@ public final class MrpGcpIntegrationTest {
         .isEqualTo(TEST_KS_WIPP_2);
     assertThat(actualCoordKeyInfo.getCoordinatorInfo(1).getKeyServiceAudienceUrl())
         .isEqualTo(TEST_KS_AUDIENCE_URL_2);
+  }
+
+  @Test
+  public void createAndGet_allMatches_encryptedWithWrappedKeyAndHexEncoded_success()
+      throws Exception {
+    // Setup GCS input files
+    String gcsFolder = "allMatchesHexEncrypted";
+    createGcsSchemaFile(gcsFolder, WRAPPED_KEY_ENCRYPTED_FIELDS_SCHEMA_JSON);
+    String hexEncryptedLines = setupHexEncryptedData();
+    createGcsDataFiles(gcsFolder, List.of(hexEncryptedLines));
+    // Setup frontend request
+    CreateJobRequest encryptedJobRequest =
+        createWrappedKeyEncryptedJobRequestWithEncoding(gcsFolder, "mic_audience", "HEX");
+    // Setup scheme response
+    HttpRequest schemeRequest = getMockServerRequest("GET", GET_SCHEME_API_PATH, HTTP_1_1);
+    String schemeResponseJson = getJsonFromProto(createSchemeResponse());
+    mockClient.when(schemeRequest).respond(getMockServerResponse(200, schemeResponseJson));
+    // Setup lookup response
+    HttpRequest lookupRequest = getMockServerRequest("POST", LOOKUP_API_PATH, HTTP_2);
+    mockClient
+        .when(lookupRequest)
+        .respond(
+            request -> {
+              LookupRequest receivedLookupRequest =
+                  getProtoFromJson(request.getBodyAsString(), LookupRequest.class);
+              ImmutableList<LookupResult> results =
+                  receivedLookupRequest.getDataRecordsList().stream()
+                      .map(DataRecord::getLookupKey)
+                      .map(
+                          lookupKey ->
+                              LookupResult.newBuilder()
+                                  .setStatus(STATUS_SUCCESS)
+                                  .setClientDataRecord(
+                                      DataRecord.newBuilder().setLookupKey(lookupKey))
+                                  .addMatchedDataRecords(
+                                      MatchedDataRecord.newBuilder().setLookupKey(lookupKey))
+                                  .build())
+                      .collect(toImmutableList());
+              return getMockServerResponse(
+                  200,
+                  getJsonFromProto(
+                      LookupResponse.newBuilder().addAllLookupResults(results).build()));
+            });
+
+    GetJobResponse response = createAndGet(encryptedJobRequest);
+
+    mockClient.verify(schemeRequest, atMost(1));
+    mockClient.verify(lookupRequest, atLeast(1));
+    // Verify that request was successful and the match count is expected
+    assertThat(response.getResultInfo().getReturnCode()).isEqualTo(SUCCESS.name());
+    assertThat(response.getResultInfo().getErrorSummary().getErrorCountsList()).isEmpty();
+    List<String> outputFiles = getGcsOutputFileContents(gcsFolder);
+    assertThat(outputFiles).hasSize(1);
+    int actualNumUnmatched = outputFiles.get(0).split("UNMATCHED").length - 1;
+    assertThat(actualNumUnmatched).isEqualTo(0); // all matches
+    // Verify that requests to the lookup service contain the expected encryption info
+    HttpRequest[] actualLookupRequests = mockClient.retrieveRecordedRequests(lookupRequest);
+    assertThat(actualLookupRequests).hasLength(1);
+    WrappedKeyInfo actualWrappedKeyInfo =
+        getProtoFromJson(actualLookupRequests[0].getBodyAsString(), LookupRequest.class)
+            .getEncryptionKeyInfo()
+            .getWrappedKeyInfo();
+    assertThat(actualWrappedKeyInfo.getKeyType()).isEqualTo(KEY_TYPE_XCHACHA20_POLY1305);
+    assertThat(actualWrappedKeyInfo.getKmsWipProvider()).isEqualTo("testWip");
+    assertThat(actualWrappedKeyInfo.getEncryptedDek()).isNotEmpty();
+    assertThat(actualWrappedKeyInfo.getKekKmsResourceId()).isNotEmpty();
+    assertThat(actualWrappedKeyInfo.getKmsIdentity()).isEmpty();
+
+    LookupRequest actualLookupRequest =
+        getProtoFromJson(actualLookupRequests[0].getBodyAsString(), LookupRequest.class);
+    // Verify that LookupRequest contains the hashed Pii.
+    List<String> receivedHashedPii =
+        actualLookupRequest.getDataRecordsList().stream()
+            .map(
+                record -> {
+                  String encryptedKey = record.getLookupKey().getKey();
+                  try {
+                    Aead dek =
+                        decryptEncryptedKeyset(
+                            TEST_KEK_AEAD, actualWrappedKeyInfo.getEncryptedDek());
+                    return AeadKeyGenerator.decryptString(dek, encryptedKey);
+                  } catch (Exception e) {
+                    throw new IllegalStateException("Failed to decrypt the lookup key", e);
+                  }
+                })
+            .collect(Collectors.toList());
+    List<String> expectedPii =
+        hashedPii.stream().filter(Predicate.not(String::isBlank)).collect(Collectors.toList());
+    assertTrue(receivedHashedPii.containsAll(expectedPii));
   }
 
   @Test
@@ -748,7 +901,7 @@ public final class MrpGcpIntegrationTest {
                 record -> {
                   String encryptedKey = record.getLookupKey().getKey();
                   try {
-                    return decryptString(TEST_HYBRID_DECRYPT, encryptedKey);
+                    return HybridKeyGenerator.decryptString(TEST_HYBRID_DECRYPT, encryptedKey);
                   } catch (Exception e) {
                     throw new IllegalStateException("Failed to decrypt the lookup key", e);
                   }
@@ -790,7 +943,7 @@ public final class MrpGcpIntegrationTest {
             wrappedKeyEncryptedEmails.get(2));
     List<String> failures = ImmutableList.of(wrappedKeyEncryptedPhones.get(0));
     var lookupResponse =
-        createResponseWithMatchedKeysAndFailures(matches, failures, /* encrypted= */ true);
+        createResponseWithMatchedKeysAndFailures(matches, failures/* encrypted= */ );
     mockClient
         .when(lookupRequest)
         .respond(getMockServerResponse(200, getJsonFromProto(lookupResponse)));
@@ -823,15 +976,14 @@ public final class MrpGcpIntegrationTest {
             wrappedKeyEncryptedEmails.get(2));
     List<String> failures = ImmutableList.of(wrappedKeyEncryptedPhones.get(0));
     var lookupResponse =
-        createResponseWithMatchedKeysAndFailures(matches, failures, /* encrypted= */ true);
+        createResponseWithMatchedKeysAndFailures(matches, failures/* encrypted= */ );
     mockClient
         .when(lookupRequest)
         .respond(getMockServerResponse(200, getJsonFromProto(lookupResponse)));
     createGcsSchemaFile(gcsFolder, WRAPPED_KEY_ENCRYPTED_FIELDS_SCHEMA_JSON);
     createGcsDataFiles(gcsFolder, ImmutableList.of(wrappedEncryptedFieldsCsv));
 
-    GetJobResponse response =
-        createAndGet(createWrappedKeyEncryptedJobRequest(gcsFolder, "copla"));
+    GetJobResponse response = createAndGet(createWrappedKeyEncryptedJobRequest(gcsFolder, "copla"));
 
     mockClient.verify(schemeRequest, atMost(1));
     mockClient.verify(lookupRequest, atLeast(1));
@@ -994,8 +1146,7 @@ public final class MrpGcpIntegrationTest {
         String.join("\n", WRAPPED_KEY_ENCRYPTED_FIELDS_CSV_HEADER, String.join(",", encryptedRow));
     createGcsDataFiles(gcsFolder, List.of(String.join("\n", badEncryptedData)));
     // Setup frontend request
-    CreateJobRequest encryptedJobRequest =
-        createWrappedKeyEncryptedJobRequest(gcsFolder, "copla");
+    CreateJobRequest encryptedJobRequest = createWrappedKeyEncryptedJobRequest(gcsFolder, "copla");
     // Setup scheme response
     HttpRequest schemeRequest = getMockServerRequest("GET", GET_SCHEME_API_PATH, HTTP_1_1);
     String schemeResponseJson = getJsonFromProto(createSchemeResponse());
@@ -1027,8 +1178,7 @@ public final class MrpGcpIntegrationTest {
     // Add a row with all blank columns to the standard wrapped key test data
     createGcsDataFiles(gcsFolder, List.of(wrappedEncryptedFieldsCsv + ", ,  ,, ,  , , "));
     // Setup frontend request
-    CreateJobRequest encryptedJobRequest =
-        createWrappedKeyEncryptedJobRequest(gcsFolder, "copla");
+    CreateJobRequest encryptedJobRequest = createWrappedKeyEncryptedJobRequest(gcsFolder, "copla");
     // Setup scheme response
     HttpRequest schemeRequest = getMockServerRequest("GET", GET_SCHEME_API_PATH, HTTP_1_1);
     String schemeResponseJson = getJsonFromProto(createSchemeResponse());
@@ -1040,9 +1190,7 @@ public final class MrpGcpIntegrationTest {
             wrappedKeyEncryptedEmails.get(1),
             wrappedKeyEncryptedEmails.get(2));
     List<String> failures = List.of();
-    boolean isEncrypted = true;
-    LookupResponse lookupResponse =
-        createResponseWithMatchedKeysAndFailures(matches, failures, isEncrypted);
+    LookupResponse lookupResponse = createResponseWithMatchedKeysAndFailures(matches, failures);
     HttpRequest lookupRequest = getMockServerRequest("POST", LOOKUP_API_PATH, HTTP_2);
     mockClient
         .when(lookupRequest)
@@ -1574,12 +1722,50 @@ public final class MrpGcpIntegrationTest {
     }
   }
 
+  private static String setupHexEncryptedData() {
+    try {
+      // Encrypt base64 for now
+      String[] lines = GENERIC_DATA_CSV.split("\n");
+
+      // wrappedKey data
+      String testUri = generateAeadUri();
+      var dekKeyset = generateXChaChaKeyset();
+      Aead dekAead = dekKeyset.getPrimitive(Aead.class);
+      String encryptedDek = encryptDek(dekKeyset, TEST_KEK_AEAD);
+      List<String> wrappedEncryptedLines = new ArrayList<>(lines.length);
+      wrappedEncryptedLines.add(WRAPPED_KEY_ENCRYPTED_FIELDS_CSV_HEADER + "\n");
+
+      for (int i = 1; i < lines.length; i++) {
+        String line = lines[i];
+        String[] columns = line.split(",");
+        String[] wrappedKeyEncryptedColumns = new String[columns.length + 2];
+        wrappedKeyEncryptedColumns[0] = tryAeadEncryptString(dekAead, columns[0], HEX);
+        wrappedKeyEncryptedColumns[1] = tryAeadEncryptString(dekAead, columns[1], HEX);
+        wrappedKeyEncryptedColumns[2] = tryAeadEncryptString(dekAead, columns[2], HEX);
+        wrappedKeyEncryptedColumns[3] = tryAeadEncryptString(dekAead, columns[3], HEX);
+        wrappedKeyEncryptedColumns[4] = columns[4];
+        wrappedKeyEncryptedColumns[5] = columns[5];
+        wrappedKeyEncryptedColumns[6] = encryptedDek;
+        wrappedKeyEncryptedColumns[7] = testUri;
+        wrappedEncryptedLines.add(String.join(",", wrappedKeyEncryptedColumns) + "\n");
+      }
+      return String.join("", wrappedEncryptedLines);
+    } catch (GeneralSecurityException e) {
+      throw new IllegalStateException("Cannot encrypt test data", e);
+    }
+  }
+
   private static String tryAeadEncryptString(Aead aead, String plaintext)
+      throws GeneralSecurityException {
+    return tryAeadEncryptString(aead, plaintext, BASE64);
+  }
+
+  private static String tryAeadEncryptString(Aead aead, String plaintext, EncodingType encodingType)
       throws GeneralSecurityException {
     if (plaintext.isBlank()) {
       return plaintext;
     } else {
-      return encryptString(aead, plaintext);
+      return encryptString(aead, plaintext, encodingType);
     }
   }
 
@@ -1599,7 +1785,7 @@ public final class MrpGcpIntegrationTest {
       byte[] cipherText = TEST_HYBRID_ENCRYPT.encrypt(input.getBytes(UTF_8), new byte[0]);
       return base64Url
           ? BaseEncoding.base64Url().omitPadding().encode(cipherText)
-          : BaseEncoding.base64().omitPadding().encode(cipherText);
+          : base64().omitPadding().encode(cipherText);
     } catch (Exception e) {
       String message = "Failed to encrypt the string with Hybrid encrypt" + e.getMessage();
       logger.error(message);
@@ -1608,17 +1794,12 @@ public final class MrpGcpIntegrationTest {
   }
 
   private static LookupResponse createResponseWithMatchedKeys(List<String> hashMatches) {
-    return createResponseWithMatchedKeysAndFailures(hashMatches, ImmutableList.of(), false);
+    return createResponseWithMatchedKeysAndFailures(hashMatches, ImmutableList.of());
   }
 
   private static LookupResponse createResponseWithMatchedKeysAndFailures(
-      List<String> matches, List<String> failures, boolean encrypted) {
-    List<String> lookupKeys = new ArrayList<>();
-    if (encrypted) {
-      lookupKeys.addAll(matches);
-    } else {
-      lookupKeys.addAll(hashedPii);
-    }
+      List<String> matches, List<String> failures) {
+    List<String> lookupKeys = new ArrayList<>(matches);
     ImmutableList<LookupResult> results =
         lookupKeys.stream()
             .map(k -> LookupKey.newBuilder().setKey(k))
@@ -1668,6 +1849,11 @@ public final class MrpGcpIntegrationTest {
 
   private static CreateJobRequest createCreateJobRequest(String prefix, String applicationId)
       throws Exception {
+    return createCreateJobRequest(prefix, applicationId, /* encodingType= */ "");
+  }
+
+  private static CreateJobRequest createCreateJobRequest(
+      String prefix, String applicationId, String encodingType) throws Exception {
     String inputFolder = Path.of(INPUT_PREFIX, prefix).toString();
     String outputFolder = Path.of(OUTPUT_PREFIX, prefix).toString();
     var dataOwners =
@@ -1679,15 +1865,20 @@ public final class MrpGcpIntegrationTest {
                             .setInputDataBucketName(DATA_BUCKET)
                             .setInputDataBlobPrefix(inputFolder)
                             .setIsStreamed(true)));
-    return CreateJobRequest.newBuilder()
-        .setJobRequestId(UUID.randomUUID().toString())
-        .setInputDataBucketName(DATA_BUCKET)
-        .setInputDataBlobPrefix(inputFolder)
-        .setOutputDataBucketName(DATA_BUCKET)
-        .setOutputDataBlobPrefix(outputFolder)
-        .putJobParameters("application_id", applicationId)
-        .putJobParameters("data_owner_list", getJsonFromProto(dataOwners))
-        .build();
+    var request =
+        CreateJobRequest.newBuilder()
+            .setJobRequestId(UUID.randomUUID().toString())
+            .setInputDataBucketName(DATA_BUCKET)
+            .setInputDataBlobPrefix(inputFolder)
+            .setOutputDataBucketName(DATA_BUCKET)
+            .setOutputDataBlobPrefix(outputFolder)
+            .putJobParameters("application_id", applicationId)
+            .putJobParameters("data_owner_list", getJsonFromProto(dataOwners));
+
+    if (!encodingType.isBlank()) {
+      request.putJobParameters("encoding_type", encodingType);
+    }
+    return request.build();
   }
 
   private static CreateJobRequest createCoordKeyEncryptedJobRequest(
@@ -1718,18 +1909,29 @@ public final class MrpGcpIntegrationTest {
 
   private static CreateJobRequest createWrappedKeyEncryptedJobRequest(
       String prefix, String applicationId) throws Exception {
-    return createWrappedKeyEncryptedJobRequest(prefix, applicationId, TEST_WIP);
+    return createWrappedKeyEncryptedJobRequest(
+        prefix, applicationId, TEST_WIP, /* encodingType= */ "");
+  }
+
+  private static CreateJobRequest createWrappedKeyEncryptedJobRequestWithWip(
+      String prefix, String applicationId, String wip) throws Exception {
+    return createWrappedKeyEncryptedJobRequest(prefix, applicationId, wip, /* encodingType= */ "");
+  }
+
+  private static CreateJobRequest createWrappedKeyEncryptedJobRequestWithEncoding(
+      String prefix, String applicationId, String encodingType) throws Exception {
+    return createWrappedKeyEncryptedJobRequest(prefix, applicationId, TEST_WIP, encodingType);
   }
 
   private static CreateJobRequest createWrappedKeyEncryptedJobRequest(
-      String prefix, String applicationId, String wip) throws Exception {
+      String prefix, String applicationId, String wip, String encodingType) throws Exception {
     var encryptionMetadataBuilder =
         EncryptionMetadata.WrappedKeyInfo.newBuilder().setKeyType(XCHACHA20_POLY1305);
     if (!wip.isBlank()) {
       encryptionMetadataBuilder.setKmsWipProvider(wip);
     }
 
-    var createJobRequest = createCreateJobRequest(prefix, applicationId);
+    var createJobRequest = createCreateJobRequest(prefix, applicationId, encodingType);
     var encryptionMetadata =
         EncryptionMetadataProto.EncryptionMetadata.newBuilder()
             .setEncryptionKeyInfo(
@@ -1761,5 +1963,9 @@ public final class MrpGcpIntegrationTest {
       response.withDelay(Delay.seconds(delaySec));
     }
     return response;
+  }
+
+  private String hashString(String s) {
+    return base64().encode(sha256().hashBytes(s.getBytes(UTF_8)).asBytes());
   }
 }

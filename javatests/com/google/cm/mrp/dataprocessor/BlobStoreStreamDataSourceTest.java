@@ -45,6 +45,7 @@ import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.JobProcessorException;
 import com.google.cm.mrp.MatchConfigProvider;
 import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner;
+import com.google.cm.mrp.backend.EncodingTypeProto.EncodingType;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo;
@@ -61,6 +62,8 @@ import com.google.cm.mrp.dataprocessor.readers.ConfidentialMatchDataRecordParser
 import com.google.cm.mrp.dataprocessor.readers.CsvDataReader;
 import com.google.cm.mrp.dataprocessor.readers.DataReader;
 import com.google.cm.mrp.dataprocessor.readers.SerializedProtoDataReader;
+import com.google.cm.mrp.models.JobParameters;
+import com.google.cm.mrp.models.JobParameters.OutputDataLocation;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.scp.operator.cpio.blobstorageclient.BlobStorageClient;
@@ -262,6 +265,14 @@ public class BlobStoreStreamDataSourceTest {
   @Test
   public void next_whenBlobsFoundWithCryptoClientThenReturnsReaderWithCryptoClient()
       throws Exception {
+    JobParameters parameters =
+        JobParameters.builder()
+            .setJobId("test")
+            .setDataLocation(FAKE_DATA_LOCATION)
+            .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
+            .setEncodingType(EncodingType.BASE64)
+            .setEncryptionMetadata(EncryptionMetadata.getDefaultInstance())
+            .build();
     matchConfig = MatchConfigProvider.getMatchConfig("customer_match");
     when(mockBlobStorageClient.listBlobs(BLOB_STORAGE_DATA_LOCATION, Optional.empty()))
         .thenReturn(
@@ -280,9 +291,9 @@ public class BlobStoreStreamDataSourceTest {
             eq(mockInputStream),
             any(Schema.class),
             eq(INPUT_PREFIX + FOLDER_DELIMITER + INPUT_FILE),
+            eq(parameters),
             eq(matchConfig.getEncryptionKeyColumns()),
             any(SuccessMode.class),
-            any(EncryptionMetadata.class),
             eq(aeadCryptoClient)))
         .thenReturn(fakeCsvDataReader);
     BlobStoreStreamDataSource blobStoreStreamDataSource =
@@ -290,11 +301,9 @@ public class BlobStoreStreamDataSourceTest {
             mockBlobStorageClient,
             mockMetricClient,
             dataReaderFactory,
-            FAKE_DATA_LOCATION,
             matchConfig,
-            Optional.empty(),
             FeatureFlags.builder().build(),
-            EncryptionMetadata.getDefaultInstance(),
+            parameters,
             aeadCryptoClient);
 
     DataReader result = blobStoreStreamDataSource.next();
@@ -307,9 +316,9 @@ public class BlobStoreStreamDataSourceTest {
             eq(mockInputStream),
             any(Schema.class),
             eq(INPUT_PREFIX + FOLDER_DELIMITER + INPUT_FILE),
+            eq(parameters),
             eq(matchConfig.getEncryptionKeyColumns()),
             any(SuccessMode.class),
-            eq(EncryptionMetadata.getDefaultInstance()),
             eq(aeadCryptoClient));
     verifyNoMoreInteractions(mockBlobStorageClient, dataReaderFactory, mockInputStream);
   }

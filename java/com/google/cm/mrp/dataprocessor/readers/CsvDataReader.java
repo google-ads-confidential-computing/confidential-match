@@ -16,9 +16,11 @@
 
 package com.google.cm.mrp.dataprocessor.readers;
 
+import static com.google.cm.mrp.backend.EncodingTypeProto.EncodingType.HEX;
 import static com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo.KeyInfoCase.COORDINATOR_KEY_INFO;
 import static com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo.KeyInfoCase.WRAPPED_KEY_INFO;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.COORDINATOR_KEY_MISSING_IN_RECORD;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DATA_READER_CONFIGURATION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_MISSING_IN_RECORD;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INPUT_FILE_READ_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_INPUT_FILE_ERROR;
@@ -34,6 +36,7 @@ import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncry
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.WrappedEncryptionKeys.GcpWrappedKeys;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
+import com.google.cm.mrp.backend.EncodingTypeProto.EncodingType;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo.KeyInfoCase;
 import com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode;
@@ -45,6 +48,7 @@ import com.google.cm.mrp.clients.cryptoclient.CryptoClient;
 import com.google.cm.mrp.dataprocessor.common.Annotations.InputDataChunkSize;
 import com.google.cm.mrp.dataprocessor.converters.SchemaConverter;
 import com.google.cm.mrp.dataprocessor.models.DataChunk;
+import com.google.cm.mrp.models.JobParameters;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
 import com.google.inject.assistedinject.Assisted;
@@ -72,6 +76,9 @@ public final class CsvDataReader extends BaseDataReader {
   private final InputStream inputStream;
   private final Supplier<CSVParser> csvParser;
   private final String name;
+
+  // only used for encrypted data
+  private final Optional<EncodingType> encodingType;
   private final Optional<CSVDataDecrypter> decrypter;
 
   @AssistedInject
@@ -88,6 +95,7 @@ public final class CsvDataReader extends BaseDataReader {
     // Defer creating a CSVParser until needed
     csvParser = Suppliers.memoize(this::initCsvParser);
     decrypter = Optional.empty();
+    encodingType = Optional.empty();
   }
 
   @AssistedInject
@@ -96,20 +104,31 @@ public final class CsvDataReader extends BaseDataReader {
       @Assisted InputStream inputStream,
       @Assisted Schema schema,
       @Assisted String name,
+      @Assisted JobParameters jobParameters,
       @Assisted EncryptionKeyColumns encryptionColumns,
       @Assisted SuccessMode successMode,
-      @Assisted EncryptionMetadata encryptionMetadata,
       @Assisted CryptoClient cryptoClient) {
     this.dataChunkSize = dataChunkSize;
     this.inputStream = inputStream;
     this.schema = schema;
     this.name = name;
+    this.encodingType = jobParameters.encodingType();
     // Defer creating a CSVParser until needed
     csvParser = Suppliers.memoize(this::initCsvParser);
     decrypter =
         Optional.of(
             new CSVDataDecrypter(
-                successMode, cryptoClient, encryptionColumns, encryptionMetadata, schema));
+                successMode,
+                cryptoClient,
+                encryptionColumns,
+                jobParameters
+                    .encryptionMetadata()
+                    .orElseThrow(
+                        () ->
+                            new JobProcessorException(
+                                "Encryption metadata required for encrypted inputs",
+                                DATA_READER_CONFIGURATION_ERROR)),
+                schema));
   }
 
   /** Name of the CSV file. */
@@ -170,6 +189,14 @@ public final class CsvDataReader extends BaseDataReader {
   @Override
   protected Logger getLogger() {
     return logger;
+  }
+
+  @Override
+  protected EncodingType getEncodingType() {
+    return encodingType.orElseThrow(
+        () ->
+            new JobProcessorException(
+                "Encoding type invoked for hashed data", DATA_READER_CONFIGURATION_ERROR));
   }
 
   private CSVParser initCsvParser() {
@@ -236,7 +263,12 @@ public final class CsvDataReader extends BaseDataReader {
             if (result.getErrorCode().isPresent()) {
               dataRecordBuilder.setErrorCode(result.getErrorCode().get());
             } else if (result.getDecryptionSuccessful()) {
-              dataRecordBuilder.putEncryptedKeyValues(i, value);
+              // TODO(b/398114484): remove when LS supports hex
+              if (encodingType.isPresent() && encodingType.get() == HEX) {
+                dataRecordBuilder.putEncryptedKeyValues(i, convertHexToBase64(value));
+              } else {
+                dataRecordBuilder.putEncryptedKeyValues(i, value);
+              }
             }
           } else {
             keyValueBuilder.setStringValue(value);

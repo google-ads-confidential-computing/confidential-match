@@ -34,6 +34,7 @@ import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncry
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.WrappedEncryptionKeys;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.WrappedEncryptionKeys.AwsWrappedKeys;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.WrappedEncryptionKeys.GcpWrappedKeys;
+import com.google.cm.mrp.backend.EncodingTypeProto.EncodingType;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.AwsWrappedKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.GcpWrappedKeyInfo;
@@ -87,7 +88,8 @@ public final class AeadCryptoClient extends BaseCryptoClient {
                     WrappedEncryptionKeys keys = encryptionKeys.getWrappedEncryptionKeys();
                     String kekUri = keys.getKekUri().trim();
 
-                    byte[] dekBytes = base64Decode(keys.getEncryptedDek().trim(), false);
+                    // DEK is always in Base64
+                    byte[] dekBytes = decode(keys.getEncryptedDek().trim(), EncodingType.BASE64);
                     KeysetReader reader = new CustomKeysetReader(ByteString.copyFrom(dekBytes));
                     Aead kmsAead =
                         aeadProvider

@@ -154,12 +154,7 @@ public final class DataProcessorImpl implements DataProcessor {
       logger.info("Job {}: Created LookupDataSource", jobRequestId);
       streamDataSource =
           streamDataSourceFactory.create(
-              jobParameters.dataLocation(),
-              matchConfig,
-              dataOwnerIdentity,
-              featureFlags,
-              encryptionMetadata.get(),
-              cryptoClient.get());
+              matchConfig, featureFlags, jobParameters, cryptoClient.get());
       logger.info("Job {}: Created StreamDataSource", jobRequestId);
     } else {
       lookupDataSource = lookupDataSourceFactory.create(matchConfig, featureFlags, jobParameters);

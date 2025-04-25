@@ -6,44 +6,45 @@
     },
     {
       "column_type": "STRING",
-      "column_name": "coordinator_key_id",
-      "column_alias": "coordinator_key_id"
+      "column_name": "dek",
+      "column_alias": "encrypted_dek"
     },
     {
       "column_type": "STRING",
-      "column_name": "email",
-      "column_alias": "email",
-      "encrypted": true
+      "column_name": "kek",
+      "column_alias": "kek_uri"
     },
     {
       "column_type": "STRING",
-      "column_name": "phone",
-      "column_alias": "phone",
-      "encrypted": true
+      "column_name": "em",
+      "column_alias": "email"
     },
     {
       "column_type": "STRING",
-      "column_name": "first_name",
+      "column_name": "ph",
+      "column_alias": "phone"
+    },
+    {
+      "column_type": "STRING",
+      "column_name": "fn",
       "column_alias": "first_name",
-      "encrypted": true,
       "column_group": 0
     },
     {
       "column_type": "STRING",
-      "column_name": "last_name",
+      "column_name": "ln",
       "column_alias": "last_name",
-      "encrypted": true,
       "column_group": 0
     },
     {
       "column_type": "STRING",
-      "column_name": "country_code",
+      "column_name": "cc",
       "column_alias": "country_code",
       "column_group": 0
     },
     {
       "column_type": "STRING",
-      "column_name": "zip_code",
+      "column_name": "zip",
       "column_alias": "zip_code",
       "column_group": 0
     }

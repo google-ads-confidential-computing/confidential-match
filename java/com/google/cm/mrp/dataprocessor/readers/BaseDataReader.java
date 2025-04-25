@@ -19,6 +19,7 @@ package com.google.cm.mrp.dataprocessor.readers;
 import static com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo.KeyInfoCase.COORDINATOR_KEY_INFO;
 import static com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo.KeyInfoCase.WRAPPED_KEY_INFO;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.COORDINATOR_KEY_MISSING_IN_RECORD;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DATA_READER_CONFIGURATION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DECODING_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DECRYPTION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_DECRYPTION_ERROR;
@@ -36,6 +37,7 @@ import com.google.cm.mrp.JobProcessorException;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.WrappedKeyColumnIndices.GcpWrappedKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys;
+import com.google.cm.mrp.backend.EncodingTypeProto.EncodingType;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo.KeyInfoCase;
@@ -44,6 +46,7 @@ import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.EncryptionKeyColum
 import com.google.cm.mrp.backend.SchemaProto.Schema.Column;
 import com.google.cm.mrp.clients.cryptoclient.CryptoClient;
 import com.google.cm.mrp.clients.cryptoclient.CryptoClient.CryptoClientException;
+import com.google.common.io.BaseEncoding;
 import java.util.List;
 import java.util.Optional;
 import org.apache.commons.lang3.exception.ExceptionUtils;
@@ -74,7 +77,9 @@ public abstract class BaseDataReader implements DataReader {
       if (column.getEncrypted()) {
         columnsBuilder.addEncryptedColumnIndices(i);
       }
-      if (keyType == WRAPPED_KEY_INFO) {
+      // TODO(b/410914524): Proto defaults for aliases could cause collision of metadata and
+      // encryption columns
+      if (keyType == WRAPPED_KEY_INFO && column.hasColumnAlias()) {
         if (column.getColumnAlias().equalsIgnoreCase(dekAlias)) {
           columnsBuilder
               .getEncryptionKeyColumnIndicesBuilder()
@@ -94,7 +99,7 @@ public abstract class BaseDataReader implements DataReader {
               .setGcpColumnIndices(
                   GcpWrappedKeyColumnIndices.newBuilder().setWipProviderIndex(i).build());
         }
-      } else if (keyType == COORDINATOR_KEY_INFO) {
+      } else if (keyType == COORDINATOR_KEY_INFO && column.hasColumnAlias()) {
         if (column.getColumnAlias().equalsIgnoreCase(coordAlias)) {
           columnsBuilder
               .getEncryptionKeyColumnIndicesBuilder()
@@ -139,37 +144,6 @@ public abstract class BaseDataReader implements DataReader {
     return ExceptionUtils.indexOfType(e, StorageException.class) != -1;
   }
 
-  /** Returns the decrypted string and updates dataRecordBuilder. */
-  protected DecryptionResult decryptColumn(
-      CryptoClient cryptoClient,
-      boolean rowLevelErrorsAllowed,
-      Column column,
-      String value,
-      DataRecordEncryptionKeys encryptionKeys) {
-    try {
-      // Return without attempting decryption if the value shouldn't be decrypted
-      if (!column.getEncrypted() || value.isBlank()) {
-        return new DecryptionResult(value, Optional.empty(), /* decryptionSuccessful */ false);
-      }
-      boolean isBase64Url = column.getColumnEncoding() == BASE64_URL;
-      String result = cryptoClient.decrypt(encryptionKeys, value, isBase64Url);
-      return new DecryptionResult(result, Optional.empty(), /* decryptionSuccessful */ true);
-    } catch (Exception ex) {
-      JobResultCode errorCode = getErrorCode(ex);
-      String message =
-          errorCode == DECODING_ERROR
-              ? "Failed to decode column \"" + column.getColumnName() + "\""
-              : "Unable to decrypt column \"" + column.getColumnName() + "\"";
-      getLogger().error(message, ex);
-      if (rowLevelErrorsAllowed && isRowLevelError(errorCode)) {
-        return new DecryptionResult(
-            value, Optional.of(errorCode), /* decryptionSuccessful */ false);
-      } else {
-        throw new JobProcessorException(message, ex, errorCode);
-      }
-    }
-  }
-
   /** Only fetch WIP alias if needed */
   private static Optional<String> maybeGetWipAlias(
       EncryptionKeyColumns keys, EncryptionKeyInfo encryptionKeyInfo) {
@@ -192,6 +166,54 @@ public abstract class BaseDataReader implements DataReader {
       return Optional.of(
           keys.getWrappedKeyColumns().getGcpWrappedKeyColumns().getWipProviderAlias());
     }
+  }
+
+  /** Get encoding type */
+  protected EncodingType getEncodingType() {
+    return EncodingType.BASE64;
+  }
+
+  /** Returns the decrypted string and updates dataRecordBuilder. */
+  protected DecryptionResult decryptColumn(
+      CryptoClient cryptoClient,
+      boolean rowLevelErrorsAllowed,
+      Column column,
+      String value,
+      DataRecordEncryptionKeys encryptionKeys) {
+    try {
+      // Return without attempting decryption if the value shouldn't be decrypted
+      if (!column.getEncrypted() || value.isBlank()) {
+        return new DecryptionResult(value, Optional.empty(), /* decryptionSuccessful */ false);
+      }
+      EncodingType encodingType =
+          column.getColumnEncoding() == BASE64_URL ? EncodingType.BASE64URL : getEncodingType();
+      String result = cryptoClient.decrypt(encryptionKeys, value, encodingType);
+      return new DecryptionResult(result, Optional.empty(), /* decryptionSuccessful */ true);
+    } catch (Exception ex) {
+      JobResultCode errorCode = getErrorCode(ex);
+      String message =
+          errorCode == DECODING_ERROR
+              ? "Failed to decode column \"" + column.getColumnName() + "\""
+              : "Unable to decrypt column \"" + column.getColumnName() + "\"";
+      getLogger().error(message, ex);
+      if (rowLevelErrorsAllowed && isRowLevelError(errorCode)) {
+        return new DecryptionResult(
+            value, Optional.of(errorCode), /* decryptionSuccessful */ false);
+      } else {
+        throw new JobProcessorException(message, ex, errorCode);
+      }
+    }
+  }
+
+  protected String convertHexToBase64(String encryptedInput) {
+    String value = encryptedInput.toUpperCase();
+    if (!BaseEncoding.base16().canDecode(value)) {
+      String msg = "Hex conversion called on nonHex input.";
+      logger.error(msg);
+      throw new JobProcessorException(msg, DATA_READER_CONFIGURATION_ERROR);
+    }
+    byte[] bytes = BaseEncoding.base16().decode(value);
+    return BaseEncoding.base64().encode(bytes);
   }
 
   /** Returns decryption results, which may be a valid result or an error code. */

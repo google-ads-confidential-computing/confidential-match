@@ -129,6 +129,7 @@ java_test(
         "//java/com/google/cm/mrp/clients/cryptoclient",
         "//java/com/google/cm/mrp/dataprocessor",
         "//java/com/google/cm/mrp/dataprocessor/readers",
+        "//java/com/google/cm/mrp/models",
         "//java/external:clients_blobstorageclient",
         "//java/external:clients_blobstorageclient_model",
         "//java/external:clients_metricclient",

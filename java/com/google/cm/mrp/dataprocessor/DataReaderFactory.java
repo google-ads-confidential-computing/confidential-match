@@ -25,6 +25,7 @@ import com.google.cm.mrp.clients.cryptoclient.CryptoClient;
 import com.google.cm.mrp.dataprocessor.readers.CsvDataReader;
 import com.google.cm.mrp.dataprocessor.readers.DataReader;
 import com.google.cm.mrp.dataprocessor.readers.SerializedProtoDataReader;
+import com.google.cm.mrp.models.JobParameters;
 import java.io.InputStream;
 import javax.inject.Named;
 
@@ -41,9 +42,9 @@ public interface DataReaderFactory {
       InputStream inputStream,
       Schema schema,
       String name,
+      JobParameters jobParameters,
       EncryptionKeyColumns encryptionKeyColumns,
       SuccessMode successMode,
-      EncryptionMetadata encryptionMetadata,
       CryptoClient cryptoClient);
 
   /** Factory method for constructing {@link SerializedProtoDataReader} objects. */

@@ -157,8 +157,7 @@ public final class SerializedProtoDataReaderTest {
             COORDINATOR_ENCRYPTION_METADATA,
             hybridCryptoClient)) {
       assertThat(dataReader.getSchema()).isNotNull();
-      assertThat(
-              ImmutableList.copyOf(SchemaConverter.convertToColumnAliases(dataReader.getSchema())))
+      assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
           .containsExactly(
               "metadata",
               "coordinator_key_id",
@@ -257,8 +256,7 @@ public final class SerializedProtoDataReaderTest {
             WRAPPED_ENCRYPTION_METADATA,
             aeadCryptoClient)) {
       assertThat(dataReader.getSchema()).isNotNull();
-      assertThat(
-              ImmutableList.copyOf(SchemaConverter.convertToColumnAliases(dataReader.getSchema())))
+      assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
           .containsExactly(
               "metadata",
               "encrypted_dek",
@@ -364,8 +362,7 @@ public final class SerializedProtoDataReaderTest {
             WRAPPED_ENCRYPTION_METADATA,
             aeadCryptoClient)) {
       assertThat(dataReader.getSchema()).isNotNull();
-      assertThat(
-              ImmutableList.copyOf(SchemaConverter.convertToColumnAliases(dataReader.getSchema())))
+      assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
           .containsExactly(
               "metadata",
               "encrypted_dek",
@@ -476,8 +473,7 @@ public final class SerializedProtoDataReaderTest {
             NO_WIP_WRAPPED_ENCRYPTION_METADATA,
             aeadCryptoClient)) {
       assertThat(dataReader.getSchema()).isNotNull();
-      assertThat(
-              ImmutableList.copyOf(SchemaConverter.convertToColumnAliases(dataReader.getSchema())))
+      assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
           .containsExactly(
               "metadata",
               "encrypted_dek",
@@ -553,10 +549,20 @@ public final class SerializedProtoDataReaderTest {
             micMatchConfig,
             SuccessMode.ALLOW_PARTIAL_SUCCESS)) {
       assertThat(dataReader.getSchema()).isNotNull();
+      assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
+          .containsExactly(
+              "metadata",
+              "email",
+              "phone",
+              "first_name",
+              "last_name",
+              "country_code",
+              "zip_code",
+              ROW_MARKER_COLUMN_NAME);
       assertThat(
               ImmutableList.copyOf(SchemaConverter.convertToColumnAliases(dataReader.getSchema())))
           .containsExactly(
-              "metadata",
+              "",
               "email",
               "phone",
               "first_name",
@@ -629,8 +635,7 @@ public final class SerializedProtoDataReaderTest {
             micMatchConfig,
             SuccessMode.ALLOW_PARTIAL_SUCCESS)) {
       assertThat(dataReader.getSchema()).isNotNull();
-      assertThat(
-              ImmutableList.copyOf(SchemaConverter.convertToColumnAliases(dataReader.getSchema())))
+      assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
           .containsExactly(
               "metadata",
               "email",
@@ -768,8 +773,7 @@ public final class SerializedProtoDataReaderTest {
             WRAPPED_ENCRYPTION_METADATA,
             aeadCryptoClient)) {
       assertThat(dataReader.getSchema()).isNotNull();
-      assertThat(
-              ImmutableList.copyOf(SchemaConverter.convertToColumnAliases(dataReader.getSchema())))
+      assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
           .containsExactly(
               "metadata",
               "encrypted_dek",

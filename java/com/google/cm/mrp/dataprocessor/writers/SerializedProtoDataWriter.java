@@ -26,6 +26,7 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WRITER_
 import static com.google.cm.mrp.dataprocessor.common.Constants.ROW_MARKER_COLUMN_NAME;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
+import static java.util.Map.entry;
 
 import com.google.cm.mrp.JobProcessorException;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeChildField;
@@ -50,6 +51,7 @@ import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.EncryptionKeyColum
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.SuccessConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.SuccessConfig.PartialSuccessAttributes;
 import com.google.cm.mrp.backend.SchemaProto.Schema;
+import com.google.cm.mrp.backend.SchemaProto.Schema.Column;
 import com.google.cm.mrp.dataprocessor.common.Annotations.MaxRecordsPerOutputFile;
 import com.google.cm.mrp.dataprocessor.destinations.DataDestination;
 import com.google.cm.mrp.dataprocessor.models.DataChunk;
@@ -70,6 +72,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -99,7 +102,8 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
               .build());
   private final ImmutableSet<Integer> metadataIndices;
   private final ImmutableSet<Integer> matchFieldIndices;
-  private final ImmutableMap<String, Set<Integer>> matchCompositeFieldIndices;
+  private final ImmutableMap<Integer, String> groupNumberToGroupAlias;
+  private final ImmutableMap<Integer, ImmutableSet<Integer>> matchCompositeFieldGroupToIndices;
   private final Optional<Integer> recordStatusFieldIndex;
   private final Optional<Integer> rowMarkerIndex;
   private final Optional<DataRecordEncryptionColumns> dataRecordEncryptionColumns;
@@ -125,9 +129,14 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
     fileNumber = 0;
 
     ImmutableMap<String, Integer> columnIndexMap = getSchemaColumnIndexMap(schema);
-    matchFieldIndices = getMatchFieldIndices(matchConfig, columnIndexMap);
-    matchCompositeFieldIndices = getMatchCompositeFieldIndices(matchConfig, columnIndexMap);
-    dataRecordEncryptionColumns = getDataRecordEncryptionColumns(matchConfig, columnIndexMap);
+    ImmutableMap<String, String> nameToAliasMap = getSchemaColumnNamesToAliases(schema);
+    ImmutableMap<String, Integer> nameToGroupNumber = getSchemaColumnNamesToGroupNumber(schema);
+    groupNumberToGroupAlias = getGroupNumberToGroupAlias(matchConfig, schema);
+    matchFieldIndices = getMatchFieldIndices(matchConfig, columnIndexMap, nameToAliasMap);
+    matchCompositeFieldGroupToIndices =
+        getMatchCompositeFieldGroupNumberToIndices(columnIndexMap, nameToGroupNumber);
+    dataRecordEncryptionColumns =
+        getDataRecordEncryptionColumns(matchConfig, columnIndexMap, nameToAliasMap);
     recordStatusFieldIndex = getRecordStatusFieldIndex(matchConfig, columnIndexMap);
     rowMarkerIndex = Optional.ofNullable(columnIndexMap.get(ROW_MARKER_COLUMN_NAME));
     // Must be called last since dependent on initialization of other global variables.
@@ -344,13 +353,13 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
                 })
             .collect(Collectors.toList());
     // Builds MatchKeys with CompositeFields
-    matchCompositeFieldIndices.forEach(
-        (compositeFieldName, indices) -> {
+    matchCompositeFieldGroupToIndices.forEach(
+        (compositeFieldGroupNumber, indices) -> {
           var matchKeyBuilder =
               MatchKey.newBuilder()
                   .setCompositeField(
                       CompositeField.newBuilder()
-                          .setKey(compositeFieldName)
+                          .setKey(groupNumberToGroupAlias.get(compositeFieldGroupNumber))
                           .addAllChildFields(
                               indices.stream()
                                   .filter(
@@ -372,6 +381,55 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
           }
         });
     return matchKeys;
+  }
+
+  /** Returns a mapping of column group numbers to their group alias */
+  private ImmutableMap<Integer, String> getGroupNumberToGroupAlias(
+      MatchConfig matchConfig, Schema schema) {
+    ImmutableMap<String, String> matchColumnAliasToCompositeFieldAlias =
+        matchConfig.getMatchConditionsList().stream()
+            .filter(matchCondition -> matchCondition.getDataSource1Column().getColumnsCount() > 1)
+            .flatMap(
+                matchCondition ->
+                    matchCondition.getDataSource1Column().getColumnsList().stream()
+                        .map(
+                            column ->
+                                entry(
+                                    column.getColumnAlias(),
+                                    matchCondition.getDataSource1Column().getColumnAlias())))
+            .collect(
+                ImmutableMap.toImmutableMap(
+                    Entry::getKey, Entry::getValue, (existingValue, newValue) -> existingValue));
+
+    return schema.getColumnsList().stream()
+        .filter(
+            column ->
+                column.hasColumnGroup()
+                    && column.hasColumnAlias()
+                    && matchColumnAliasToCompositeFieldAlias.containsKey(column.getColumnAlias()))
+        .map(
+            column ->
+                entry(
+                    column.getColumnGroup(),
+                    matchColumnAliasToCompositeFieldAlias.get(column.getColumnAlias())))
+        .collect(
+            ImmutableMap.toImmutableMap(
+                Entry::getKey, Entry::getValue, (existingValue, newValue) -> existingValue));
+  }
+
+  /** Returns a mapping of column names to their alias from a {@link Schema}. */
+  private ImmutableMap<String, String> getSchemaColumnNamesToAliases(Schema schema) {
+    return schema.getColumnsList().stream()
+        .filter(Column::hasColumnAlias)
+        .collect(ImmutableMap.toImmutableMap(Column::getColumnName, Column::getColumnAlias));
+  }
+
+  /** Returns a mapping of column names to their group number from a {@link Schema}. */
+  private ImmutableMap<String, Integer> getSchemaColumnNamesToGroupNumber(Schema schema) {
+    return schema.getColumnsList().stream()
+        .filter(Column::hasColumnGroup)
+        .map(column -> entry(column.getColumnName(), column.getColumnGroup()))
+        .collect(ImmutableMap.toImmutableMap(Entry::getKey, Entry::getValue));
   }
 
   /** Gets the metadata fields from a {@link DataRecord}. */
@@ -426,32 +484,42 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
    * MatchConfig}.
    */
   private ImmutableSet<Integer> getMatchFieldIndices(
-      MatchConfig matchConfig, ImmutableMap<String, Integer> schemaMap) {
-    return matchConfig.getMatchConditionsList().stream()
-        .filter(matchCondition -> matchCondition.getDataSource1Column().getColumnsCount() == 1)
-        .map(matchCondition -> matchCondition.getDataSource1Column().getColumnAlias())
-        .filter(schemaMap::containsKey)
-        .map(schemaMap::get)
-        .collect(toImmutableSet());
+      MatchConfig matchConfig,
+      ImmutableMap<String, Integer> schemaMap,
+      ImmutableMap<String, String> nameToAliasMap) {
+    ImmutableSet<String> matchAliases =
+        matchConfig.getMatchConditionsList().stream()
+            .filter(matchCondition -> matchCondition.getDataSource1Column().getColumnsCount() == 1)
+            .map(matchCondition -> matchCondition.getDataSource1Column().getColumnAlias())
+            .collect(ImmutableSet.toImmutableSet());
+
+    return schemaMap.entrySet().stream()
+        .filter(
+            entry -> {
+              String columnName = entry.getKey();
+              return nameToAliasMap.containsKey(columnName)
+                  && matchAliases.contains(nameToAliasMap.get(columnName));
+            })
+        .map(Entry::getValue)
+        .collect(ImmutableSet.toImmutableSet());
   }
 
   /**
-   * Gets a mapping of compositeColumn aliases from the {@link MatchConfig} to the set of their
-   * corresponding column indices in the {@link Schema}.
+   * Gets a mapping of compositeColumn group numbers to the set of their corresponding column
+   * indices in the {@link Schema}.
    */
-  private ImmutableMap<String, Set<Integer>> getMatchCompositeFieldIndices(
-      MatchConfig matchConfig, ImmutableMap<String, Integer> schemaMap) {
-    return matchConfig.getMatchConditionsList().stream()
-        .filter(matchCondition -> matchCondition.getDataSource1Column().getColumnsCount() > 1)
-        .collect(
-            toImmutableMap(
-                matchCondition -> matchCondition.getDataSource1Column().getColumnAlias(),
-                matchCondition ->
-                    matchCondition.getDataSource1Column().getColumnsList().stream()
-                        .map(MatchConfig.Column::getColumnAlias)
-                        .filter(schemaMap::containsKey)
-                        .map(schemaMap::get)
-                        .collect(toImmutableSet())));
+  private ImmutableMap<Integer, ImmutableSet<Integer>> getMatchCompositeFieldGroupNumberToIndices(
+      ImmutableMap<String, Integer> schemaMap, ImmutableMap<String, Integer> nameToGroupNumberMap) {
+
+    Map<Integer, ImmutableSet<Integer>> compositeColumnGroupNumberToColumnIndices =
+        schemaMap.entrySet().stream()
+            .filter(entrySet -> nameToGroupNumberMap.containsKey(entrySet.getKey()))
+            .collect(
+                Collectors.groupingBy(
+                    entrySet -> nameToGroupNumberMap.get(entrySet.getKey()),
+                    Collectors.mapping(Entry::getValue, ImmutableSet.toImmutableSet())));
+
+    return ImmutableMap.copyOf(compositeColumnGroupNumberToColumnIndices);
   }
 
   /**
@@ -459,37 +527,53 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
    * for encryption key columns specified in the {@link MatchConfig}.
    */
   private Optional<DataRecordEncryptionColumns> getDataRecordEncryptionColumns(
-      MatchConfig matchConfig, ImmutableMap<String, Integer> schemaMap) {
+      MatchConfig matchConfig,
+      ImmutableMap<String, Integer> schemaMap,
+      ImmutableMap<String, String> nameToAliasMap) {
+
+    // Maps alias to index. This is valid for encryption key data since only one set of encryption
+    // keys can be in a DataRecord.
+    ImmutableMap.Builder<String, Integer> aliasToIndexBuilder = new ImmutableMap.Builder<>();
+    schemaMap.forEach(
+        (columnName, index) -> {
+          if (nameToAliasMap.containsKey(columnName)) {
+            String columnAlias = nameToAliasMap.get(columnName);
+            aliasToIndexBuilder.put(columnAlias, index);
+          }
+        });
+    ImmutableMap<String, Integer> aliasToIndexMap = aliasToIndexBuilder.build();
+
+    // Creates the DataRecordEncryptionColumns
     var encryptionKeyColumnIndicesBuilder = EncryptionKeyColumnIndices.newBuilder();
     EncryptionKeyColumns encryptionKeyColumns = matchConfig.getEncryptionKeyColumns();
     if (encryptionKeyColumns.hasWrappedKeyColumns()
-        && schemaMap.containsKey(
+        && aliasToIndexMap.containsKey(
             encryptionKeyColumns.getWrappedKeyColumns().getEncryptedDekColumnAlias())
-        && schemaMap.containsKey(
+        && aliasToIndexMap.containsKey(
             encryptionKeyColumns.getWrappedKeyColumns().getKekUriColumnAlias())) {
       WrappedKeyColumns wrappedKeyColumns = encryptionKeyColumns.getWrappedKeyColumns();
       var wrappedKeyIndicesBuilder =
           WrappedKeyColumnIndices.newBuilder()
               .setEncryptedDekColumnIndex(
-                  schemaMap.get(wrappedKeyColumns.getEncryptedDekColumnAlias()))
-              .setKekUriColumnIndex(schemaMap.get(wrappedKeyColumns.getKekUriColumnAlias()));
+                  aliasToIndexMap.get(wrappedKeyColumns.getEncryptedDekColumnAlias()))
+              .setKekUriColumnIndex(aliasToIndexMap.get(wrappedKeyColumns.getKekUriColumnAlias()));
       if (wrappedKeyColumns.hasGcpWrappedKeyColumns()
-          && schemaMap.containsKey(
+          && aliasToIndexMap.containsKey(
               wrappedKeyColumns.getGcpWrappedKeyColumns().getWipProviderAlias())) {
         wrappedKeyIndicesBuilder.setGcpColumnIndices(
             GcpWrappedKeyColumnIndices.newBuilder()
                 .setWipProviderIndex(
-                    schemaMap.get(
+                    aliasToIndexMap.get(
                         wrappedKeyColumns.getGcpWrappedKeyColumns().getWipProviderAlias())));
       }
       encryptionKeyColumnIndicesBuilder.setWrappedKeyColumnIndices(wrappedKeyIndicesBuilder);
     } else if (encryptionKeyColumns.hasCoordinatorKeyColumn()
-        && schemaMap.containsKey(
+        && aliasToIndexMap.containsKey(
             encryptionKeyColumns.getCoordinatorKeyColumn().getCoordinatorKeyColumnAlias())) {
       encryptionKeyColumnIndicesBuilder.setCoordinatorKeyColumnIndices(
           CoordinatorKeyColumnIndices.newBuilder()
               .setCoordinatorKeyColumnIndex(
-                  schemaMap.get(
+                  aliasToIndexMap.get(
                       encryptionKeyColumns
                           .getCoordinatorKeyColumn()
                           .getCoordinatorKeyColumnAlias())));
@@ -518,7 +602,7 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
   /** Gets the set of {@link Schema} indices for metadata columns. */
   private ImmutableSet<Integer> getMetadataIndices(ImmutableMap<String, Integer> schemaMap) {
     Set<Integer> excludedIndices = new HashSet<>(matchFieldIndices);
-    matchCompositeFieldIndices.values().forEach(excludedIndices::addAll);
+    matchCompositeFieldGroupToIndices.values().forEach(excludedIndices::addAll);
     recordStatusFieldIndex.ifPresent(excludedIndices::add);
     rowMarkerIndex.ifPresent(excludedIndices::add);
 

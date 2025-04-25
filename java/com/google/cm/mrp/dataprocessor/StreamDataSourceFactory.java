@@ -18,9 +18,9 @@ package com.google.cm.mrp.dataprocessor;
 
 import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner.DataLocation;
-import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.clients.cryptoclient.CryptoClient;
+import com.google.cm.mrp.models.JobParameters;
 import java.util.Optional;
 
 /** Factory interface for {@link StreamDataSource}. */
@@ -34,10 +34,8 @@ public interface StreamDataSourceFactory {
 
   /** Factory method for constructing {@link StreamDataSource} objects with encryption. */
   StreamDataSource create(
-      DataLocation dataLocation,
       MatchConfig matchConfig,
-      Optional<String> dataOwnerIdentity,
       FeatureFlags featureFlags,
-      EncryptionMetadata encryptionMetadata,
+      JobParameters jobParameters,
       CryptoClient cryptoClient);
 }

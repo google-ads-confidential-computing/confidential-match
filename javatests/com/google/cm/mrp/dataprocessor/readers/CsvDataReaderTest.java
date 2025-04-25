@@ -41,13 +41,14 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 import com.google.cloud.storage.StorageException;
 import com.google.cm.mrp.JobProcessorException;
+import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner.DataLocation;
+import com.google.cm.mrp.backend.EncodingTypeProto.EncodingType;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.CoordinatorInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.CoordinatorKeyInfo;
@@ -66,6 +67,8 @@ import com.google.cm.mrp.clients.cryptoclient.CryptoClient.CryptoClientException
 import com.google.cm.mrp.clients.cryptoclient.HybridCryptoClient;
 import com.google.cm.mrp.dataprocessor.converters.SchemaConverter;
 import com.google.cm.mrp.dataprocessor.models.DataChunk;
+import com.google.cm.mrp.models.JobParameters;
+import com.google.cm.mrp.models.JobParameters.OutputDataLocation;
 import com.google.cm.util.ProtoUtils;
 import com.google.common.collect.ImmutableList;
 import com.google.common.io.Resources;
@@ -101,31 +104,57 @@ public final class CsvDataReaderTest {
                           .setGcpWrappedKeyInfo(
                               GcpWrappedKeyInfo.newBuilder().setWipProvider(TEST_WIP))))
           .build();
-  private static final EncryptionMetadata NO_WIP_WRAPPED_ENCRYPTION_METADATA =
-      EncryptionMetadata.newBuilder()
-          .setEncryptionKeyInfo(
-              EncryptionKeyInfo.newBuilder()
-                  .setWrappedKeyInfo(
-                      WrappedKeyInfo.newBuilder()
-                          .setKeyType(KeyType.XCHACHA20_POLY1305)
-                          .setGcpWrappedKeyInfo(GcpWrappedKeyInfo.newBuilder().setWipProvider(""))))
+
+  private static final JobParameters WRAPPED_KEY_PARAMS =
+      JobParameters.builder()
+          .setJobId("test")
+          .setDataLocation(DataLocation.getDefaultInstance())
+          .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
+          .setEncodingType(EncodingType.BASE64)
+          .setEncryptionMetadata(WRAPPED_ENCRYPTION_METADATA)
           .build();
-  private static final EncryptionMetadata COORDINATOR_ENCRYPTION_METADATA =
-      EncryptionMetadata.newBuilder()
-          .setEncryptionKeyInfo(
-              EncryptionKeyInfo.newBuilder()
-                  .setCoordinatorKeyInfo(
-                      CoordinatorKeyInfo.newBuilder()
-                          .addCoordinatorInfo(
-                              CoordinatorInfo.newBuilder()
-                                  .setKeyServiceEndpoint("TEST_ENDPOINT")
-                                  .setKmsIdentity("TEST_IDENTITY")
-                                  .setKmsWipProvider("TEST_WIP"))
-                          .addCoordinatorInfo(
-                              CoordinatorInfo.newBuilder()
-                                  .setKeyServiceEndpoint("TEST_ENDPOINT_B")
-                                  .setKmsIdentity("TEST_IDENTITY_B")
-                                  .setKmsWipProvider("TEST_WIP_B"))))
+
+  private static final JobParameters NO_WIP_WRAPPED_KEY_PARAMS =
+      JobParameters.builder()
+          .setJobId("test")
+          .setDataLocation(DataLocation.getDefaultInstance())
+          .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
+          .setEncodingType(EncodingType.BASE64)
+          .setEncryptionMetadata(
+              EncryptionMetadata.newBuilder()
+                  .setEncryptionKeyInfo(
+                      EncryptionKeyInfo.newBuilder()
+                          .setWrappedKeyInfo(
+                              WrappedKeyInfo.newBuilder()
+                                  .setKeyType(KeyType.XCHACHA20_POLY1305)
+                                  .setGcpWrappedKeyInfo(
+                                      GcpWrappedKeyInfo.newBuilder().setWipProvider(""))))
+                  .build())
+          .build();
+
+  private static final JobParameters COORDINATOR_KEY_PARAMS =
+      JobParameters.builder()
+          .setJobId("test")
+          .setDataLocation(DataLocation.getDefaultInstance())
+          .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
+          .setEncodingType(EncodingType.BASE64)
+          .setEncryptionMetadata(
+              EncryptionMetadata.newBuilder()
+                  .setEncryptionKeyInfo(
+                      EncryptionKeyInfo.newBuilder()
+                          .setCoordinatorKeyInfo(
+                              CoordinatorKeyInfo.newBuilder()
+                                  .addCoordinatorInfo(
+                                      CoordinatorInfo.newBuilder()
+                                          .setKeyServiceEndpoint("TEST_ENDPOINT")
+                                          .setKmsIdentity("TEST_IDENTITY")
+                                          .setKmsWipProvider("TEST_WIP"))
+                                  .addCoordinatorInfo(
+                                      CoordinatorInfo.newBuilder()
+                                          .setKeyServiceEndpoint("TEST_ENDPOINT_B")
+                                          .setKmsIdentity("TEST_IDENTITY_B")
+                                          .setKmsWipProvider("TEST_WIP_B"))))
+                  .build())
           .build();
 
   @Rule public final MockitoRule mockito = MockitoJUnit.rule();
@@ -351,9 +380,115 @@ public final class CsvDataReaderTest {
             new FileInputStream(file),
             schema,
             "test",
+            WRAPPED_KEY_PARAMS,
             cmMatchConfig.getEncryptionKeyColumns(),
             SuccessMode.ONLY_COMPLETE_SUCCESS,
-            WRAPPED_ENCRYPTION_METADATA,
+            aeadCryptoClient)) {
+      assertThat(dataReader.getSchema()).isNotNull();
+      assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
+          .containsExactly(
+              "Email", "Phone", "FirstName", "LastName", "Zip", "Country", "Dek", "Kek");
+
+      DataChunk dataChunk = dataReader.next();
+
+      assertThat(dataChunk.encryptionColumns().isPresent()).isTrue();
+      var encryptionColumns = dataChunk.encryptionColumns().get();
+      assertThat(encryptionColumns.getDataRecordEncryptionKeys().hasWrappedEncryptionKeys())
+          .isFalse();
+      assertThat(encryptionColumns.getEncryptedColumnIndicesList()).containsExactly(0, 1, 2, 3);
+      assertThat(
+              encryptionColumns
+                  .getEncryptionKeyColumnIndices()
+                  .getWrappedKeyColumnIndices()
+                  .getEncryptedDekColumnIndex())
+          .isEqualTo(6);
+      assertThat(
+              encryptionColumns
+                  .getEncryptionKeyColumnIndices()
+                  .getWrappedKeyColumnIndices()
+                  .getKekUriColumnIndex())
+          .isEqualTo(7);
+      var dataRecords = dataChunk.records();
+      assertThat(dataRecords).hasSize(11);
+      for (int i = 0; i < dataRecords.size() - 1; ++i) {
+        var record = dataRecords.get(i);
+        assertThat(record.getKeyValues(0).getStringValue()).isEqualTo(i + "@google.com");
+        assertThat(record.getKeyValues(1).getStringValue()).isEqualTo("999-999-999" + i);
+        assertThat(record.getKeyValues(2).getStringValue()).isEqualTo("first_name" + i);
+        assertThat(record.getKeyValues(3).getStringValue()).isEqualTo("last_name" + i);
+        assertThat(record.getKeyValues(4).getStringValue()).isEqualTo("9999" + i);
+        assertThat(record.getKeyValues(5).getStringValue()).isEqualTo("US");
+        // verify KEK
+        assertThat(record.getKeyValues(7).getStringValue()).startsWith("gcp-kms://");
+        // verify DEK exists
+        assertThat(record.getKeyValues(6).hasStringValue()).isTrue();
+        var dek = record.getKeyValues(6).getStringValue();
+        assertThat(record.getEncryptedKeyValuesCount()).isEqualTo(4);
+        // verify encryptedRecords decrypt correctly using DEK
+        assertThat(decryptString(dek, record.getEncryptedKeyValuesOrThrow(0)))
+            .isEqualTo(i + "@google.com");
+        assertThat(decryptString(dek, record.getEncryptedKeyValuesOrThrow(1)))
+            .isEqualTo("999-999-999" + i);
+        assertThat(decryptString(dek, record.getEncryptedKeyValuesOrThrow(2)))
+            .isEqualTo("first_name" + i);
+        assertThat(decryptString(dek, record.getEncryptedKeyValuesOrThrow(3)))
+            .isEqualTo("last_name" + i);
+      }
+      var record = dataRecords.get(10);
+      assertThat(record.getKeyValues(0).getStringValue()).isEqualTo("");
+      assertThat(record.getKeyValues(1).getStringValue()).isEqualTo("");
+      assertThat(record.getKeyValues(2).getStringValue()).isEqualTo(" ");
+      assertThat(record.getKeyValues(3).getStringValue()).isEqualTo(" ");
+      assertThat(record.getKeyValues(4).getStringValue()).isEqualTo("");
+      assertThat(record.getKeyValues(5).getStringValue()).isEqualTo("");
+      assertThat(record.getKeyValues(7).getStringValue()).startsWith("gcp-kms://");
+      assertThat(record.getKeyValues(6).hasStringValue()).isTrue();
+      var dek = record.getKeyValues(6).getStringValue();
+      assertThat(record.getEncryptedKeyValuesCount()).isEqualTo(0);
+    }
+  }
+
+  @Test
+  public void next_encryptedHexEncoded_returnsDecryptedRecords() throws Exception {
+    when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
+    AeadCryptoClient aeadCryptoClient = makeAeadCryptoClient();
+    Schema schema =
+        ProtoUtils.getProtoFromJson(
+            Resources.toString(
+                Objects.requireNonNull(
+                    getClass().getResource("testdata/wrapped_key_encrypted_schema.json")),
+                UTF_8),
+            Schema.class);
+    var file = File.createTempFile("mrp_test", "csv");
+    try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+      writer.write(String.join(",", SchemaConverter.convertToColumnNames(schema)));
+      writer.newLine();
+      for (int i = 0; i < 10; ++i) {
+        String[] values = generateEncryptedFields(i, EncodingType.HEX);
+        writer.write(String.join(",", values));
+        writer.newLine();
+      }
+      String[] values = {"", "", " ", " ", "", "", generateEncryptedDek(), generateAeadUri()};
+      writer.write(String.join(",", values));
+      writer.newLine();
+    }
+    JobParameters testParams =
+        JobParameters.builder()
+            .setJobId("test")
+            .setDataLocation(DataLocation.getDefaultInstance())
+            .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
+            .setEncodingType(EncodingType.HEX)
+            .setEncryptionMetadata(WRAPPED_ENCRYPTION_METADATA)
+            .build();
+    try (DataReader dataReader =
+        new CsvDataReader(
+            1000,
+            new FileInputStream(file),
+            schema,
+            "test",
+            testParams,
+            cmMatchConfig.getEncryptionKeyColumns(),
+            SuccessMode.ONLY_COMPLETE_SUCCESS,
             aeadCryptoClient)) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
@@ -446,9 +581,9 @@ public final class CsvDataReaderTest {
             new FileInputStream(file),
             schema,
             "test",
+            WRAPPED_KEY_PARAMS,
             cmMatchConfig.getEncryptionKeyColumns(),
             SuccessMode.ONLY_COMPLETE_SUCCESS,
-            WRAPPED_ENCRYPTION_METADATA,
             mockCryptoClient)) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
@@ -493,9 +628,9 @@ public final class CsvDataReaderTest {
                         new FileInputStream(file),
                         schema,
                         "test",
+                        COORDINATOR_KEY_PARAMS,
                         cmMatchConfig.getEncryptionKeyColumns(),
                         SuccessMode.ONLY_COMPLETE_SUCCESS,
-                        COORDINATOR_ENCRYPTION_METADATA,
                         mockCryptoClient)
                     .next());
     assertThat(ex.getErrorCode()).isEqualTo(UNSUPPORTED_ENCRYPTION_TYPE);
@@ -531,9 +666,9 @@ public final class CsvDataReaderTest {
             new FileInputStream(file),
             schema,
             "test",
+            NO_WIP_WRAPPED_KEY_PARAMS,
             matchConfigWithWip.getEncryptionKeyColumns(),
             SuccessMode.ONLY_COMPLETE_SUCCESS,
-            NO_WIP_WRAPPED_ENCRYPTION_METADATA,
             aeadCryptoClient)) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
@@ -615,9 +750,9 @@ public final class CsvDataReaderTest {
                         new FileInputStream(file),
                         schema,
                         "test",
+                        NO_WIP_WRAPPED_KEY_PARAMS,
                         cmMatchConfig.getEncryptionKeyColumns(),
                         SuccessMode.ONLY_COMPLETE_SUCCESS,
-                        NO_WIP_WRAPPED_ENCRYPTION_METADATA,
                         mockCryptoClient)
                     .next());
 
@@ -655,9 +790,9 @@ public final class CsvDataReaderTest {
                         new FileInputStream(file),
                         schema,
                         "test",
+                        NO_WIP_WRAPPED_KEY_PARAMS,
                         matchConfigWithWip.getEncryptionKeyColumns(),
                         SuccessMode.ONLY_COMPLETE_SUCCESS,
-                        NO_WIP_WRAPPED_ENCRYPTION_METADATA,
                         mockCryptoClient)
                     .next());
 
@@ -684,7 +819,7 @@ public final class CsvDataReaderTest {
         writer.newLine();
       }
     }
-    when(mockCryptoClient.decrypt(any(), anyString(), anyBoolean()))
+    when(mockCryptoClient.decrypt(any(), anyString(), any(EncodingType.class)))
         .thenThrow(new CryptoClientException(WIP_AUTH_FAILED));
     try (DataReader dataReader =
         new CsvDataReader(
@@ -692,9 +827,9 @@ public final class CsvDataReaderTest {
             new FileInputStream(file),
             schema,
             "test",
+            WRAPPED_KEY_PARAMS,
             cmMatchConfig.getEncryptionKeyColumns(),
             SuccessMode.ONLY_COMPLETE_SUCCESS,
-            WRAPPED_ENCRYPTION_METADATA,
             mockCryptoClient)) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
@@ -745,7 +880,7 @@ public final class CsvDataReaderTest {
         writer.newLine();
       }
     }
-    when(mockCryptoClient.decrypt(any(), anyString(), anyBoolean()))
+    when(mockCryptoClient.decrypt(any(), anyString(), any(EncodingType.class)))
         .thenThrow(new CryptoClientException(DEK_DECRYPTION_ERROR));
     try (DataReader dataReader =
         new CsvDataReader(
@@ -753,9 +888,9 @@ public final class CsvDataReaderTest {
             new FileInputStream(file),
             schema,
             "test",
+            WRAPPED_KEY_PARAMS,
             cmMatchConfig.getEncryptionKeyColumns(),
             SuccessMode.ALLOW_PARTIAL_SUCCESS,
-            WRAPPED_ENCRYPTION_METADATA,
             mockCryptoClient)) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
@@ -829,9 +964,9 @@ public final class CsvDataReaderTest {
             new FileInputStream(file),
             schema,
             "test",
+            WRAPPED_KEY_PARAMS,
             cmMatchConfig.getEncryptionKeyColumns(),
             SuccessMode.ALLOW_PARTIAL_SUCCESS,
-            WRAPPED_ENCRYPTION_METADATA,
             mockCryptoClient)) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
@@ -883,9 +1018,9 @@ public final class CsvDataReaderTest {
             new FileInputStream(file),
             schema,
             "test",
+            WRAPPED_KEY_PARAMS,
             cmMatchConfig.getEncryptionKeyColumns(),
             SuccessMode.ALLOW_PARTIAL_SUCCESS,
-            WRAPPED_ENCRYPTION_METADATA,
             mockCryptoClient)) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
@@ -937,9 +1072,9 @@ public final class CsvDataReaderTest {
             new FileInputStream(file),
             schema,
             "test",
+            NO_WIP_WRAPPED_KEY_PARAMS,
             matchConfigWithWip.getEncryptionKeyColumns(),
             SuccessMode.ALLOW_PARTIAL_SUCCESS,
-            NO_WIP_WRAPPED_ENCRYPTION_METADATA,
             mockCryptoClient)) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
@@ -984,7 +1119,7 @@ public final class CsvDataReaderTest {
         writer.newLine();
       }
     }
-    when(mockCryptoClient.decrypt(any(), anyString(), anyBoolean()))
+    when(mockCryptoClient.decrypt(any(), anyString(), any(EncodingType.class)))
         .thenThrow(new CryptoClientException(WIP_AUTH_FAILED));
     try (DataReader dataReader =
         new CsvDataReader(
@@ -992,9 +1127,9 @@ public final class CsvDataReaderTest {
             new FileInputStream(file),
             schema,
             "test",
+            WRAPPED_KEY_PARAMS, // jobLevel WIP
             matchConfigWithWip.getEncryptionKeyColumns(),
             SuccessMode.ALLOW_PARTIAL_SUCCESS,
-            WRAPPED_ENCRYPTION_METADATA, //jobLevel WIP
             mockCryptoClient)) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
@@ -1056,7 +1191,7 @@ public final class CsvDataReaderTest {
         writer.newLine();
       }
     }
-    when(mockCryptoClient.decrypt(any(), anyString(), anyBoolean()))
+    when(mockCryptoClient.decrypt(any(), anyString(), any(EncodingType.class)))
         .thenThrow(new CryptoClientException(JOB_DECRYPTION_ERROR));
 
     try (DataReader dataReader =
@@ -1065,9 +1200,9 @@ public final class CsvDataReaderTest {
             new FileInputStream(file),
             schema,
             "test",
+            WRAPPED_KEY_PARAMS,
             cmMatchConfig.getEncryptionKeyColumns(),
             SuccessMode.ALLOW_PARTIAL_SUCCESS,
-            WRAPPED_ENCRYPTION_METADATA,
             mockCryptoClient)) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
@@ -1114,9 +1249,9 @@ public final class CsvDataReaderTest {
             new FileInputStream(file),
             schema,
             "test",
+            COORDINATOR_KEY_PARAMS,
             matchConfigWithCoordKey.getEncryptionKeyColumns(),
             SuccessMode.ONLY_COMPLETE_SUCCESS,
-            COORDINATOR_ENCRYPTION_METADATA,
             hybridCryptoClient)) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
@@ -1174,9 +1309,9 @@ public final class CsvDataReaderTest {
             new FileInputStream(file),
             schema,
             "test",
+            COORDINATOR_KEY_PARAMS,
             matchConfigWithCoordKey.getEncryptionKeyColumns(),
             SuccessMode.ALLOW_PARTIAL_SUCCESS,
-            COORDINATOR_ENCRYPTION_METADATA,
             hybridCryptoClient)) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
@@ -1231,9 +1366,9 @@ public final class CsvDataReaderTest {
             new FileInputStream(file),
             schema,
             "test",
+            COORDINATOR_KEY_PARAMS,
             matchConfigWithCoordKey.getEncryptionKeyColumns(),
             SuccessMode.ONLY_COMPLETE_SUCCESS,
-            COORDINATOR_ENCRYPTION_METADATA,
             hybridCryptoClient)) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
@@ -1296,9 +1431,9 @@ public final class CsvDataReaderTest {
             new FileInputStream(file),
             schema,
             "test",
+            COORDINATOR_KEY_PARAMS,
             matchConfigWithCoordKey.getEncryptionKeyColumns(),
             SuccessMode.ONLY_COMPLETE_SUCCESS,
-            COORDINATOR_ENCRYPTION_METADATA,
             hybridCryptoClient)) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
@@ -1355,9 +1490,9 @@ public final class CsvDataReaderTest {
             new FileInputStream(file),
             schema,
             "test",
+            COORDINATOR_KEY_PARAMS,
             matchConfigWithCoordKey.getEncryptionKeyColumns(),
             SuccessMode.ALLOW_PARTIAL_SUCCESS,
-            COORDINATOR_ENCRYPTION_METADATA,
             hybridCryptoClient)) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
@@ -1408,9 +1543,9 @@ public final class CsvDataReaderTest {
             new FileInputStream(file),
             schema,
             "test",
+            COORDINATOR_KEY_PARAMS,
             matchConfigWithCoordKey.getEncryptionKeyColumns(),
             SuccessMode.ONLY_COMPLETE_SUCCESS,
-            COORDINATOR_ENCRYPTION_METADATA,
             hybridCryptoClient)) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
@@ -1458,14 +1593,19 @@ public final class CsvDataReaderTest {
     }
   }
 
-  private static String[] generateEncryptedFields(int i) throws Exception {
+  private static String[] generateEncryptedFields(int idx) throws Exception {
+    return generateEncryptedFields(idx, EncodingType.BASE64);
+  }
+
+  private static String[] generateEncryptedFields(int idx, EncodingType encodingType)
+      throws Exception {
     var dek = generateEncryptedDek();
     String testKek = generateAeadUri();
-    String encryptedEmail = encryptString(dek, i + "@google.com");
-    String encryptedPhone = encryptString(dek, "999-999-999" + i);
-    String encryptedFirstName = encryptString(dek, "first_name" + i);
-    String encryptedLastName = encryptString(dek, "last_name" + i);
-    String zip = "9999" + i;
+    String encryptedEmail = encryptString(dek, idx + "@google.com", encodingType);
+    String encryptedPhone = encryptString(dek, "999-999-999" + idx, encodingType);
+    String encryptedFirstName = encryptString(dek, "first_name" + idx, encodingType);
+    String encryptedLastName = encryptString(dek, "last_name" + idx, encodingType);
+    String zip = "9999" + idx;
     String country = "US";
     return new String[] {
       encryptedEmail,

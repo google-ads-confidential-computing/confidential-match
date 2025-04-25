@@ -17,7 +17,12 @@
         "columns": [
           {
             "order": 0,
-            "column_alias": "email"
+            "column_alias": "email",
+            "conditional_match_transformations": [
+              {
+                "transformation_id": "HexToBase64Transformation"
+              }
+            ]
           }
         ]
       },
@@ -38,7 +43,12 @@
         "columns": [
           {
             "order": 0,
-            "column_alias": "phone"
+            "column_alias": "phone",
+            "conditional_match_transformations": [
+              {
+                "transformation_id": "HexToBase64Transformation"
+              }
+            ]
           }
         ]
       },
@@ -59,11 +69,21 @@
         "columns": [
           {
             "order": 0,
-            "column_alias": "first_name"
+            "column_alias": "first_name",
+            "conditional_match_transformations": [
+              {
+                "transformation_id": "HexToBase64Transformation"
+              }
+            ]
           },
           {
             "order": 1,
-            "column_alias": "last_name"
+            "column_alias": "last_name",
+            "conditional_match_transformations": [
+              {
+                "transformation_id": "HexToBase64Transformation"
+              }
+            ]
           },
           {
             "order": 2,

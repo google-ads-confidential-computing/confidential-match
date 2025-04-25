@@ -54,7 +54,7 @@ message MatchKey {
 }
 
 message Field {
-  // The key is the column's alias in the match config.
+  // The key is the column's name in the schema.
   KeyValue key_value = 1;
   // Output-only column: All grouped fields to include in output
   repeated MatchedOutputField matched_output_fields = 2;
@@ -69,7 +69,7 @@ message CompositeField {
 }
 
 message CompositeChildField {
-  // The key is the column's alias in the match config.
+  // The key is the column's name in the schema.
   KeyValue key_value = 1;
 }
 

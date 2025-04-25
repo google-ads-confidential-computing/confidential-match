@@ -1,53 +1,53 @@
 {
   "columns": [
     {
-      "column_name": "email",
+      "column_name": "em",
       "column_type": "STRING",
       "column_alias": "email"
     },
     {
-      "column_name": "phone",
+      "column_name": "ph",
       "column_type": "STRING",
       "column_alias": "phone"
     },
     {
-      "column_name": "first_name",
+      "column_name": "fn",
       "column_type": "STRING",
       "column_alias": "first_name",
       "column_group": 0
     },
     {
-      "column_name": "last_name",
+      "column_name": "ln",
       "column_type": "STRING",
       "column_alias": "last_name",
       "column_group": 0
     },
     {
-      "column_name": "zip_code",
+      "column_name": "zc",
       "column_type": "STRING",
       "column_alias": "zip_code",
       "column_group": 0
     },
     {
-      "column_name": "country_code",
+      "column_name": "cc",
       "column_type": "STRING",
       "column_alias": "country_code",
       "column_group": 0
     },
     {
-      "column_name": "instagram",
+      "column_name": "insta",
       "column_type": "STRING",
       "column_alias": "instagram",
       "column_group": 1
     },
     {
-      "column_name": "tiktok",
+      "column_name": "tik",
       "column_type": "STRING",
       "column_alias": "tiktok",
       "column_group": 1
     },
     {
-      "column_name": "coordinator_key_id",
+      "column_name": "coord_key_id",
       "column_type": "STRING",
       "column_alias": "coordinator_key_id"
     },

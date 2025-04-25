@@ -35,7 +35,12 @@
         "columns": [
           {
             "order": 0,
-            "column_alias": "phone"
+            "column_alias": "phone",
+            "conditional_match_transformations": [
+              {
+                "transformation_id": "HexToBase64Transformation"
+              }
+            ]
           }
         ]
       },
