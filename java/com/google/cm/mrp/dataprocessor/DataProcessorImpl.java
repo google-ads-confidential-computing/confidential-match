@@ -253,7 +253,8 @@ public final class DataProcessorImpl implements DataProcessor {
           sumStatsMapEntries(stats, MatchStatistics::conditionMatches),
           sumStatsMapEntries(stats, MatchStatistics::validConditionChecks),
           sumStatsMapEntries(stats, MatchStatistics::datasource1Errors),
-          sumStatsMapEntries(stats, MatchStatistics::datasource2ConditionMatches));
+          sumStatsMapEntries(stats, MatchStatistics::datasource2ConditionMatches),
+          streamDataSource.getSchema().getDataFormat());
 
     } catch (CompletionException e) {
       // Unwrap JobProcessorException from the CompletionException to allow job-level retries

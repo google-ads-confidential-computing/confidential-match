@@ -180,6 +180,7 @@ public final class DataProcessorImplTest {
     when(mockStreamDataSourceFactory.create(
             any(DataOwner.DataLocation.class), eq(CM_CONFIG), any(), any(FeatureFlags.class)))
         .thenReturn(mockStreamDataSource);
+    when(mockStreamDataSource.getSchema()).thenReturn(DEFAULT_SCHEMA);
     when(mockStreamDataSource.size()).thenReturn(2);
     when(mockStreamDataSource.next()).thenReturn(mockDataReader);
     when(mockDataReader.hasNext()).thenReturn(true).thenReturn(true).thenReturn(false);
@@ -229,6 +230,7 @@ public final class DataProcessorImplTest {
         .create(any(DataOwner.DataLocation.class), eq(CM_CONFIG), any(), any(FeatureFlags.class));
     verify(mockStreamDataSource, times(5)).size();
     verify(mockStreamDataSource, times(2)).next();
+    verify(mockStreamDataSource, times(1)).getSchema();
     assertThat(destinationInfoCaptor.getValue().getGcsDestination().getOutputBucket())
         .isEqualTo(OUTPUT_BUCKET);
     assertThat(destinationInfoCaptor.getValue().getGcsDestination().getOutputPrefix())
@@ -327,7 +329,7 @@ public final class DataProcessorImplTest {
         .create(any(DataOwner.DataLocation.class), eq(CM_CONFIG), any(), any(FeatureFlags.class));
     verify(mockStreamDataSource, times(5)).size();
     verify(mockStreamDataSource, times(2)).next();
-    verify(mockStreamDataSource, times(4)).getSchema();
+    verify(mockStreamDataSource, times(5)).getSchema();
     assertThat(destinationInfoCaptor.getValue().getGcsDestination().getOutputBucket())
         .isEqualTo(OUTPUT_BUCKET);
     assertThat(destinationInfoCaptor.getValue().getGcsDestination().getOutputPrefix())
@@ -360,6 +362,7 @@ public final class DataProcessorImplTest {
     List<String> outputColumns = newOutputColumnsList(matchConfig);
     when(mockStreamDataSourceFactory.create(any(), eq(matchConfig), any(), any(FeatureFlags.class)))
         .thenReturn(mockStreamDataSource);
+    when(mockStreamDataSource.getSchema()).thenReturn(DEFAULT_SCHEMA);
     when(mockStreamDataSource.size()).thenReturn(2);
     when(mockStreamDataSource.next()).thenReturn(mockDataReader);
     when(mockDataReader.hasNext()).thenReturn(true).thenReturn(true).thenReturn(false);
@@ -407,6 +410,7 @@ public final class DataProcessorImplTest {
     verify(mockLookupDataSource, times(2)).lookup(mockDataChunk, Optional.empty());
     verify(mockStreamDataSourceFactory)
         .create(any(DataOwner.DataLocation.class), eq(matchConfig), any(), any(FeatureFlags.class));
+    verify(mockStreamDataSource, times(1)).getSchema();
     verify(mockStreamDataSource, times(5)).size();
     verify(mockStreamDataSource, times(2)).next();
     assertThat(destinationInfoCaptor.getValue().getGcsDestination().getOutputBucket())
@@ -444,6 +448,7 @@ public final class DataProcessorImplTest {
     List<String> outputColumns = newOutputColumnsList(matchConfig);
     when(mockStreamDataSourceFactory.create(any(), eq(matchConfig), any(), any(FeatureFlags.class)))
         .thenReturn(mockStreamDataSource);
+    when(mockStreamDataSource.getSchema()).thenReturn(DEFAULT_SCHEMA);
     when(mockStreamDataSource.size()).thenReturn(2);
     when(mockStreamDataSource.next()).thenReturn(mockDataReader);
     when(mockDataReader.hasNext()).thenReturn(true).thenReturn(true).thenReturn(false);
@@ -493,6 +498,7 @@ public final class DataProcessorImplTest {
         .create(any(DataOwner.DataLocation.class), eq(matchConfig), any(), any(FeatureFlags.class));
     verify(mockStreamDataSource, times(5)).size();
     verify(mockStreamDataSource, times(2)).next();
+    verify(mockStreamDataSource, times(1)).getSchema();
     assertThat(destinationInfoCaptor.getValue().getGcsDestination().getOutputBucket())
         .isEqualTo(OUTPUT_BUCKET);
     assertThat(destinationInfoCaptor.getValue().getGcsDestination().getOutputPrefix())
