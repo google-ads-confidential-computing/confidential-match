@@ -23,24 +23,11 @@ SCP_VERSION = "v0.273.0"  # latest as of Wed Apr 16 14:41:25 2025 -0700
 
 SCP_REPOSITORY = "https://github.com/google-ads-confidential-computing/conf-data-processing-architecture-reference"
 
-# The following lines are utilized by the `run_within_container.sh` script
-# when setting up the environment within a container.
-# Since internal dependencies cannot be fetched within a Docker container,
-# we upload a local copy of the repo to the container and use that as a
-# dependency instead.
-#
-# CONTAINER_BUILD__UNCOMMENT:local_repository(
-# CONTAINER_BUILD__UNCOMMENT:    name = "com_google_adm_cloud_scp",
-# CONTAINER_BUILD__UNCOMMENT:    path = "/scp",
-# CONTAINER_BUILD__UNCOMMENT:)
-#
-# CONTAINER_BUILD__REMOVE_SECTION.START
 git_repository(
     name = "com_google_adm_cloud_scp",
     remote = SCP_REPOSITORY,
     tag = SCP_VERSION,
 )
-# CONTAINER_BUILD__REMOVE_SECTION.END
 
 ################################################################################
 # Rules JVM External: Begin
@@ -68,6 +55,13 @@ rules_jvm_external_setup()
 ################################################################################
 # Download all http_archives and git_repositories: Begin
 ################################################################################
+
+# Bazelisk for the Lookup Server builder image (file is named "downloaded")
+http_file(
+    name = "bazelisk",
+    sha256 = "6539c12842ad76966f3d493e8f80d67caa84ec4a000e220d5459833c967c12bc",
+    url = "https://github.com/bazelbuild/bazelisk/releases/download/v1.26.0/bazelisk-linux-amd64",
+)
 
 git_repository(
     name = "com_google_re2",
@@ -118,17 +112,6 @@ distroless_dependencies()
 load("@rules_distroless//distroless:toolchains.bzl", "distroless_register_toolchains")
 
 distroless_register_toolchains()
-
-############
-# Bazelisk #
-############
-
-# Bazelisk for the Lookup Server build image
-http_file(
-    name = "bazelisk",
-    sha256 = "6b0bcb2ea15bca16fffabe6fda75803440375354c085480fe361d2cbf32501db",
-    url = "https://github.com/bazelbuild/bazelisk/releases/download/v1.12.0/bazelisk-linux-amd64",
-)
 
 ################################################################################
 # Download all http_archives and git_repositories: End
@@ -427,18 +410,17 @@ rules_pkg_dependencies()
 # Base image for the MRP and some tests
 container_pull(
     name = "java_base",
-    digest = "sha256:1606422cc472612cb5bcd885684b4bf87b3813246c266df473357dce5a0fb4b4",
+    digest = "sha256:d0ca593abaf2415c6828cad12c5cc8757d1ca7f50d544233ef442f85f9a9fae1",
     registry = "gcr.io",
-    repository = "distroless/java",
+    repository = "distroless/java17-debian12",
 )
 
 # Base layer of the lookup server base and builder images
 container_pull(
-    name = "debian_11",
-    digest = "sha256:a9f115e23865353139b9312d7596b5183e5c76b4b96830a739304e06e1ed2588",
-    registry = "index.docker.io",
-    repository = "amd64/debian",
-    tag = "11",
+    name = "debian12_base",
+    digest = "sha256:1c62ac5d3b7b18ddbbda0f8a49f4d734a9ad21df68531f8f59f73babf28a9050",
+    registry = "marketplace.gcr.io",
+    repository = "google/debian12",
 )
 
 # Testing Images
@@ -483,6 +465,7 @@ container_pull(
 load("@rules_distroless//apt:apt.bzl", "apt")
 
 # Packages for the Lookup Server base image
+# To update, follow instructions in the manifest file
 apt.install(
     name = "lookup_server_apt",
     lock = "//cc/lookup_server/deploy:lookup_server_apt.lock.json",
@@ -494,6 +477,7 @@ load("@lookup_server_apt//:packages.bzl", "lookup_server_apt_packages")
 lookup_server_apt_packages()
 
 # Packages for the Lookup Server builder image
+# To update, follow instructions in the manifest file
 apt.install(
     name = "lookup_server_builder_apt",
     lock = "//cc/tools/build:lookup_server_builder_apt.lock.json",

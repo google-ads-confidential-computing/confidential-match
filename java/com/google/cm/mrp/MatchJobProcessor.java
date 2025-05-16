@@ -65,6 +65,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
@@ -373,7 +374,7 @@ public final class MatchJobProcessor implements JobProcessor {
 
   private static EncodingType validateAndGetEncodingType(Map<String, String> jobParamsMap) {
     if (!jobParamsMap.containsKey(ENCODING_TYPE)) return EncodingType.BASE64;
-    String apiEncodingType = jobParamsMap.get(ENCODING_TYPE);
+    String apiEncodingType = jobParamsMap.get(ENCODING_TYPE).toUpperCase(Locale.US);
     try {
       return EncodingType.valueOf(apiEncodingType);
     } catch (IllegalArgumentException e) {
@@ -522,11 +523,19 @@ public final class MatchJobProcessor implements JobProcessor {
       long conditionChecks = Optional.ofNullable(checksForCondition.getValue()).orElse(0L);
       double conditionMatchPercentage =
           conditionChecks == 0L ? 0.0 : (100.0 * conditionMatches) / conditionChecks;
+      double datasource2ConditionMatchPercentage =
+          conditionChecks == 0L ? 0.0 : (100.0 * datasource2Matches) / conditionChecks;
       writeAndLogMetric("nummatchespercondition", "Count", conditionMatches, typeLabels, result);
       writeAndLogMetric(
           "numdatasource2matchespercondition", "Count", datasource2Matches, typeLabels, result);
       writeAndLogMetric(
           "matchpercentagepercondition", "Percent", conditionMatchPercentage, typeLabels, result);
+      writeAndLogMetric(
+          "datasource2matchpercentagepercondition",
+          "Percent",
+          datasource2ConditionMatchPercentage,
+          typeLabels,
+          result);
     }
 
     // Add the DataFormat to the result without recording it as a metric

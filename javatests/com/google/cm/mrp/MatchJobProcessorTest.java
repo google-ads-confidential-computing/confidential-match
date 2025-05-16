@@ -219,6 +219,7 @@ public final class MatchJobProcessorTest {
     resultsMap.put("nummatches", "11111111");
     resultsMap.put("numpii", "20000000");
     resultsMap.put("nummatchespercondition email", "11111111");
+    resultsMap.put("datasource2matchpercentagepercondition email", "55.55555");
     resultsMap.put("fileformat", "CSV");
     ImmutableMap<String, Long> conditionMatchCounts = ImmutableMap.of("email", 11111111L);
     ImmutableMap<String, Long> validConditionMatches = ImmutableMap.of("email", 20000000L);
@@ -275,7 +276,7 @@ public final class MatchJobProcessorTest {
 
     processor.process(job);
 
-    verify(mockMetricClient, times(12)).recordMetric(metricCaptor.capture());
+    verify(mockMetricClient, times(13)).recordMetric(metricCaptor.capture());
     var statsLabels =
         ImmutableMap.ofEntries(
             Map.entry("CustomerServiceAccount", "Default"),
@@ -295,7 +296,6 @@ public final class MatchJobProcessorTest {
             .putAll(statsLabels)
             .put("MatchCondition", "email")
             .build();
-    var test = metricCaptor.getAllValues();
     assertThat(metricCaptor.getAllValues())
         .containsExactly(
             makeMetric("jobcount", "Count", 1.0, jobLabels),
@@ -309,7 +309,9 @@ public final class MatchJobProcessorTest {
             makeMetric("matchpercentage", "Percent", 55.555555, statsLabels),
             makeMetric("nummatchespercondition", "Count", 11111111.0, conditionLabels),
             makeMetric("numdatasource2matchespercondition", "Count", 11111111.0, conditionLabels),
-            makeMetric("matchpercentagepercondition", "Percent", 55.555555, conditionLabels));
+            makeMetric("matchpercentagepercondition", "Percent", 55.555555, conditionLabels),
+            makeMetric(
+                "datasource2matchpercentagepercondition", "Percent", 55.555555, conditionLabels));
   }
 
   @Test
@@ -356,7 +358,6 @@ public final class MatchJobProcessorTest {
             .putAll(statsLabels)
             .put("ErrorCode", "DEK_DECRYPTION_ERROR")
             .build();
-    var test = metricCaptor.getAllValues();
     assertThat(metricCaptor.getAllValues())
         .containsExactly(
             makeMetric("jobcount", "Count", 1.0, jobLabels),

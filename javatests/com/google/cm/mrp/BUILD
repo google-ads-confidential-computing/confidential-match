@@ -48,6 +48,16 @@ java_test(
 )
 
 java_test(
+    name = "MatchConfigProviderTest",
+    srcs = ["MatchConfigProviderTest.java"],
+    deps = [
+        "//java/com/google/cm/mrp:matchworker_runner",
+        "//java/external:google_truth",
+        "//protos/mrp/backend:java_proto",
+    ],
+)
+
+java_test(
     name = "MatchJobProcessorTest",
     srcs = ["MatchJobProcessorTest.java"],
     resources = [

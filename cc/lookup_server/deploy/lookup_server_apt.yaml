@@ -12,23 +12,32 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Packages to install in Lookup Service images
+# Packages to install in Lookup Server base images
 #
 # URLs use a timestamp from archive snapshots at https://snapshot.debian.org/
 #
-# Whenever this file changes, the lock must be updated with this command:
+# After updating anything in this file, follow these steps:
+#
+# 1. Run this command to update the lock file:
+#
 #   bazel run @lookup_server_apt//:lock
-# Then update //cc/lookup_server/deploy/BUILD according to its instructions
+#
+# 2. Run this command to get the names of all packages, including dependencies:
+#
+#   jq -j '.packages | map("\"\(.name)\",") | join("\n")' \
+#     lookup_server_apt.lock.json
+#
+# 3. Replace the names in LS_PACKAGE_NAMES in this folder's BUILD file
 
 version: 1
 
 sources:
-- channel: bullseye main contrib
-  url: https://snapshot.debian.org/archive/debian/20241125T204553Z
-- channel: bullseye-security main
-  url: https://snapshot.debian.org/archive/debian-security/20241125T204553Z
-- channel: bullseye-updates main
-  url: https://snapshot.debian.org/archive/debian/20241125T204553Z
+- channel: bookworm main contrib
+  url: https://snapshot.debian.org/archive/debian/20250512T203351Z
+- channel: bookworm-security main
+  url: https://snapshot.debian.org/archive/debian-security/20250512T233325Z
+- channel: bookworm-updates main
+  url: https://snapshot.debian.org/archive/debian/20250512T203351Z
 
 archs:
 - "amd64"

@@ -45,7 +45,6 @@ import static com.google.cm.mrp.testutils.gcp.Constants.TEST_KEK_JSON;
 import static java.util.concurrent.Executors.newFixedThreadPool;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.api.client.http.HttpRequestFactory;
 import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.cloud.NoCredentials;
 import com.google.cloud.storage.StorageOptions;
@@ -89,12 +88,12 @@ import com.google.scp.shared.crypto.tink.CloudAeadSelector;
 import com.google.scp.shared.mapper.TimeObjectMapper;
 import java.io.IOException;
 import java.util.Optional;
-import javax.net.ssl.HttpsURLConnection;
-import org.apache.hc.client5.http.HttpRequestRetryStrategy;
 import org.apache.hc.client5.http.config.ConnectionConfig;
 import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.client5.http.impl.async.CloseableHttpAsyncClient;
 import org.apache.hc.client5.http.impl.async.HttpAsyncClients;
+import org.apache.hc.client5.http.ssl.ClientTlsStrategyBuilder;
+import org.apache.hc.core5.http.ssl.TLS;
 import org.apache.hc.core5.reactor.IOReactorConfig;
 import org.apache.hc.core5.util.TimeValue;
 import org.apache.hc.core5.util.Timeout;
@@ -113,6 +112,8 @@ public final class LocalGcpWorkerApplication {
   private static final class LocalGcpWorkerModule extends AbstractModule {
 
     private static final Timeout DEFAULT_TIMEOUT = Timeout.ofMilliseconds(500);
+    private static final TimeValue BASE_RETRY_DELAY = TimeValue.ofMilliseconds(10);
+    private static final int RETRY_DELAY_MULTIPLIER = 2;
     private static final String GCS_ENDPOINT = System.getenv("GCS_ENDPOINT");
     private static final Optional<String> PUBSUB_ENDPOINT =
         Optional.ofNullable(System.getenv("PUBSUB_ENDPOINT"));
@@ -123,11 +124,6 @@ public final class LocalGcpWorkerApplication {
     /** Configures the bindings for this module. */
     @Override
     protected void configure() {
-      // Required SSL config for making HTTPS connections to mock server containers
-      HttpsURLConnection.setDefaultSSLSocketFactory(
-          new KeyStoreFactory(Configuration.configuration(), new MockServerLogger())
-              .sslContext()
-              .getSocketFactory());
       bind(String.class).annotatedWith(GcpProjectId.class).toInstance(PROJECT_ID);
       bind(Integer.class)
           .annotatedWith(JobProcessorMaxRetries.class)
@@ -156,34 +152,32 @@ public final class LocalGcpWorkerApplication {
     @Provides
     @Singleton
     LookupServiceClient provideLookupServiceClient() {
-      // Create orchestrator client's HTTP client
-      HttpRequestFactory orchestratorHttpClient = new NetHttpTransport().createRequestFactory();
-      // Create lookup service shard client's HTTP client
-      TimeValue lookupRequestRetryDelayBase = TimeValue.ofMilliseconds(10);
-      int lookupRequestRetryDelayMultiplier = 2;
-      HttpRequestRetryStrategy retryStrategy =
-          new ExponentialBackoffRetryStrategy(
-              LOOKUP_SERVICE_MAX_RETRIES,
-              lookupRequestRetryDelayBase,
-              lookupRequestRetryDelayMultiplier);
-      RequestConfig requestConfig =
-          RequestConfig.custom()
-              .setConnectionRequestTimeout(DEFAULT_TIMEOUT)
-              .setResponseTimeout(DEFAULT_TIMEOUT)
-              .build();
       CloseableHttpAsyncClient shardHttpClient =
           HttpAsyncClients.customHttp2()
-              .setRetryStrategy(retryStrategy)
+              .setRetryStrategy(
+                  new ExponentialBackoffRetryStrategy(
+                      LOOKUP_SERVICE_MAX_RETRIES, BASE_RETRY_DELAY, RETRY_DELAY_MULTIPLIER))
               .setDefaultConnectionConfig(
                   ConnectionConfig.custom().setConnectTimeout(DEFAULT_TIMEOUT).build())
               .setIOReactorConfig(IOReactorConfig.custom().setSoTimeout(DEFAULT_TIMEOUT).build())
-              .setDefaultRequestConfig(requestConfig)
+              .setDefaultRequestConfig(
+                  RequestConfig.custom()
+                      .setConnectionRequestTimeout(DEFAULT_TIMEOUT)
+                      .setResponseTimeout(DEFAULT_TIMEOUT)
+                      .build())
+              .setTlsStrategy(
+                  ClientTlsStrategyBuilder.create()
+                      .setTlsVersions(TLS.V_1_2)
+                      .setSslContext(
+                          new KeyStoreFactory(Configuration.configuration(), new MockServerLogger())
+                              .sslContext())
+                      .build())
               .build();
-
       shardHttpClient.start();
       // Create lookup service client
       return new LookupServiceClientImpl(
-          new OrchestratorClientImpl(orchestratorHttpClient, ORCHESTRATOR_ENDPOINT),
+          new OrchestratorClientImpl(
+              new NetHttpTransport().createRequestFactory(), ORCHESTRATOR_ENDPOINT),
           new LookupServiceShardClientImpl(shardHttpClient, JSON.getFormatHandler()),
           newFixedThreadPool(LOOKUP_CLIENT_THREADS),
           LOOKUP_CLIENT_MAX_RECORDS_PER_REQUEST,

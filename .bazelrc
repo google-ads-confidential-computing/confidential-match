@@ -1,4 +1,8 @@
+# Hide warnings from building external dependencies
+build --output_filter='^//((?!(external):).)*$'
+
 # C++
+build --repo_env=BAZEL_CXXOPTS=-std=c++17
 build --action_env=BAZEL_CXXOPTS=-std=c++17
 build --client_env=BAZEL_CXXOPT=-std=c++17
 build --cxxopt=-std=c++17
@@ -22,3 +26,9 @@ test --java_language_version=11
 test --java_runtime_version=remotejdk_11
 # Fix non-deterministic Java compilation failures
 build --incompatible_sandbox_hermetic_tmp
+
+# Config for Lookup Service's run_within_container.sh
+# Enable with --config=run-within-container
+build:run-within-container --//cc/lookup_server/server/src:platform=gcp
+build:run-within-container --@com_google_adm_cloud_scp//cc/public/cpio/interface:platform=gcp
+build:run-within-container --@com_google_adm_cloud_scp//cc/public/cpio/interface:run_inside_tee=True

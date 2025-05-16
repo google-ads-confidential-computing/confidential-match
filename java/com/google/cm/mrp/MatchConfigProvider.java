@@ -19,9 +19,11 @@ package com.google.cm.mrp;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_PARAMETERS;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
+import com.google.cm.mrp.backend.ApplicationProto.ApplicationId;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.util.ProtoUtils;
 import com.google.common.io.Resources;
+import java.util.Locale;
 import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,13 +38,18 @@ public class MatchConfigProvider {
   /** Returns a configuration object for a given application ID */
   public static MatchConfig getMatchConfig(String application_id) {
     try {
-      return ProtoUtils.getProtoFromJson(
-          Resources.toString(
-              Objects.requireNonNull(
-                  MatchConfigProvider.class.getResource(
-                      "configs/" + application_id + "_config.json")),
-              UTF_8),
-          MatchConfig.class);
+      // Proto enums must be uppercase
+      ApplicationId applicationProto = ApplicationId.valueOf(application_id.toUpperCase(Locale.US));
+      MatchConfig matchConfig =
+          ProtoUtils.getProtoFromJson(
+              Resources.toString(
+                  Objects.requireNonNull(
+                      MatchConfigProvider.class.getResource(
+                          // filenames are lowercase
+                          "configs/" + application_id.toLowerCase(Locale.US) + "_config.json")),
+                  UTF_8),
+              MatchConfig.class);
+      return matchConfig.toBuilder().setApplicationId(applicationProto).build();
     } catch (Exception e) {
       String message =
           String.format("Failed to get MatchConfig for application %s", application_id);

@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Copyright 2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,173 +13,108 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+################################################################################
+# Reproducibly build and load Lookup Service images and run C++ tests.
+#
+# Usage: run_within_container.sh [<bazel image tar target>|<bazel test targets>]
+#
+# If the first target ends in ".tar", the script will assume it is an image
+# target, building it and then loading it into Docker. Otherwise, the targets
+# will be run as Bazel tests. All targets are relative to the Bazel workspace
+# directory.
+#
+# The container uses /tmp/cfm_build_output/ to store the Bazel output directory
+# and generated image tar files.
+#
+# Prerequisites:
+# * Bazel or Bazelisk is installed as "bazel"
+# * gcloud is installed and can read Google Cloud ADC credentials (for an image
+#   dependency)
+# * Have read and write permissions to create and write to /tmp/cfm_build_output
+# * Can execute Docker without sudo
+################################################################################
 
 set -euox pipefail
 
-if [[ "$*" != *"--bazel_command="* || "$*" != *"--bazel_output_directory="* ]]; then
-  info_msg=$(cat <<-END
-    Must provide all input variables. Switches are:\n
-      --bazel_command=<value>\n
-      --bazel_output_directory=<value>\n
-END
-)
-  echo -e $info_msg
+# Report failures and interruptions
+trap "echo BUILD FAILED" ERR INT TERM
+
+# Exit if no arguments were provided
+if (( $# == 0 )); then
+  echo ERROR: No arguments provided
   exit 1
 fi
 
-is_louhi_release=false
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --bazel_command=*)
-      bazel_command="${1#*=}"
-      ;;
-    --bazel_output_directory=*)
-      bazel_output_directory="${1#*=}"
-      ;;
-    --output_tar_name=*)
-      output_tar_name="${1#*=}"
-      ;;
-    --cp_source_path=*)
-      cp_source_path="${1#*=}"
-      ;;
-    --cp_destination_path=*)
-      cp_destination_path="${1#*=}"
-      ;;
-    --is_louhi_release=*)
-      is_louhi_release="${1#*=}"
-      ;;
-    *)
-      printf "***************************\n"
-      printf "* Error: Invalid argument.*\n"
-      printf "***************************\n"
-      exit 1
-  esac
-  shift
-done
+# Run in repo to guarantee that Bazel finds this workspace
+cd "${BASH_SOURCE[0]%/*}/../../.."
 
-if $is_louhi_release; then
-  temp_storage_path="/workspace/louhi_ws/tmp/cfm-container-build"
-  output_tar_path="/workspace/louhi_ws/tmp/cfm-tar"
+# Load the builder image as bazel/cc/tools/build:container_to_build_cc
+bazel run //cc/tools/build:container_to_build_cc
+
+# Pull the SCP repository with Bazel, so it can be mounted to the container
+bazel sync --only=com_google_adm_cloud_scp
+
+# If $ROOT_DIR is set, this is in our Docker-in-Docker in automation
+if [[ -n "${ROOT_DIR:+true}" ]]; then
+  echo Detected execution in container
+  # Create temp folder in workspace dir because it's in a volume
+  # It won't be cached between runs since it can slow down automation
+  trap "rm -rf ${PWD}/dind-tmp" EXIT
+  mkdir -p "${PWD}/dind-tmp"
+  out_dir="${PWD}/dind-tmp/cfm_build_output"
+  # Move the SCP repo from the host output_base to the temp folder
+  scp_dir="${PWD}/dind-tmp/scp"
+  mv -T "$(bazel info output_base)/external/com_google_adm_cloud_scp" \
+    "${scp_dir}"
 else
-  temp_storage_path="/tmp/cfm-container-build"
-  output_tar_path="/tmp/cfm-tar"
+  echo Detected execution on host OS
+  out_dir=/tmp/cfm_build_output
+  scp_dir="$(bazel info output_base)/external/com_google_adm_cloud_scp"
 fi
 
-# Create the output directory if it does not exist
-[ ! -d "$bazel_output_directory" ] && mkdir -p $bazel_output_directory
+# Create output folder using current user permissions
+mkdir -p "${out_dir}"
 
-[[ $bazel_command != *"//cc"* ]] && \
-  echo "" && \
-  echo "ERROR: The path in the command [$bazel_command] does not start with the absolute //cc bazel target path." && \
-  exit 1
+# The first bash commands to run inside the container
+# * Requires GCP credentials for Docker to pull the base image
+# * Restores the user's permissions for the output directory after execution
+container_init_command="
+  echo startup --output_user_root=${out_dir}/bazel >> ~/.bazelrc
+  echo common --override_repository=com_google_adm_cloud_scp=/scp >> ~/.bazelrc
+  echo build --config=run-within-container >> ~/.bazelrc
+  echo $(gcloud auth print-access-token) | docker login -u oauth2accesstoken \
+    --password-stdin https://marketplace.gcr.io &> /dev/null
+  trap 'chown --recursive --reference=${out_dir} ${out_dir} \
+        && chmod --recursive --reference=${out_dir} ${out_dir}' EXIT
+  chown --silent --recursive root:root ${out_dir}/bazel
+  bazel sync --only=com_google_adm_cloud_scp
+  "
 
-repo_top_level_dir=$(git rev-parse --show-toplevel)
-timestamp=$(date "+%Y%m%d-%H%M%S%N")
-run_version="cfm_cc_build_$timestamp"
-image_name='bazel/cc/tools/build:container_to_build_cc'
-
-run_on_exit() {
-  rm -rf $temp_storage_path
-
-  echo ""
-  if [ "$1" == "0" ]; then
-    echo "Done :)"
-  else
-    echo "Done :("
-  fi
-
-  docker rm -f $(docker ps -a -q --format="{{.ID}}" \
-    --filter ancestor="${image_name}")
-}
-
-# Make sure run_on_exit runs even when we encounter errors
-trap "run_on_exit 1" ERR
-
-# Set up the temporary working directories
-rm -rf $temp_storage_path
-mkdir -p $temp_storage_path
-
-if [ -n "${output_tar_name-}" ]; then
-  rm -rf $output_tar_path
-  mkdir -p $output_tar_path
-fi
-
-# Determine the SCP tag or commit to use for the repository in the container
-scp_tag=$(sed -rn 's/^SCP_VERSION\s*=\s*"(.*)"\s*(#.*)?$/\1/p' "${repo_top_level_dir}/WORKSPACE")
-scp_commit=$(sed -rn 's/^SCP_COMMIT\s*=\s*"(.*)"\s*(#.*)?$/\1/p' "${repo_top_level_dir}/WORKSPACE")
-scp_repo="$(grep -Phom1 '^\s*SCP_REPOSITORY\s*=\s*"\K[^"]*' "${repo_top_level_dir}/WORKSPACE")"
-# Fetch the internal SCP repository (required as a dependency)
-if [ -n "${scp_tag}" ] && [ -n "${scp_commit}" ]; then
-  echo "Only one of SCP version tag or commit can be set in '${repo_top_level_dir}/WORKSPACE'."
-  exit 1
-elif [ -n "${scp_tag}" ]; then
-  echo "Using SCP version tag: ${scp_tag}"
-  (cd $temp_storage_path && git clone $scp_repo --depth 1 --branch $scp_tag scp)
-elif [ -n "${scp_commit}" ]; then
-  echo "Using SCP commit: ${scp_commit}"
-  (cd $temp_storage_path && git clone $scp_repo scp && cd "scp" && git checkout "${scp_commit}")
+# If there is one arg that ends in ".tar", build it and load it into Docker
+# Otherwise, treat args as "bazel test" arguments
+if [[ "$1" == *.tar ]]; then
+  rm -f "${out_dir}/image.tar"
+  bazel_command="bazel build $1 && cp -f \"\$(bazel info execution_root)/\$(
+    bazel cquery --output=files $1)\" \"${out_dir}/image.tar\""
 else
-  echo "Failed to read the SCP tag or commit from '${repo_top_level_dir}/WORKSPACE'."
-  exit 1
+  bazel_command="bazel test $@"
 fi
 
-# Create and load the Lookup Service builder image as
-# bazel/cc/tools/build:container_to_build_cc
-bazel build //cc/tools/build:container_to_build_cc.tar
-docker load --input "$(bazel info execution_root)/$(
-  bazel cquery //cc/tools/build:container_to_build_cc.tar --output=files)"
+# Build in the container, with a read-only workspace and SCP repository
+# * Uses a read-only volume for source code, rather than copying
+# * Caches outputs across runs in /tmp/cfm_build_output when on a host OS
+docker run --rm \
+  --network host \
+  -v "${out_dir}":"${out_dir}" \
+  -v "${scp_dir}":/scp:ro \
+  -v "$(bazel info workspace)":/src/confidential-match:ro \
+  -w /src/confidential-match \
+  bazel/cc/tools/build:container_to_build_cc \
+  bash -c "${container_init_command} ${bazel_command}"
 
-docker_bazel_output_dir=$bazel_output_directory/$run_version
-
-# Run the build container
-# --privileged: Needed to access the docker socket on the host machine
-# --network host: We want the tests to be executable the same way they would be on the host machine
-docker -D run -d -i \
-    --privileged \
-    --network host \
-    -v $docker_bazel_output_dir:/tmp/bazel_build_output \
-    -v /var/run/docker.sock:/var/run/docker.sock \
-    --name $run_version $image_name
-
-# Copy the confidential match source code into the build container
-docker cp $repo_top_level_dir $run_version:/cm
-
-if [ -n "${cp_source_path:-}" ]; then
-  echo "copying ${cp_source_path} to /cm/${cp_destination_path}"
-  docker cp $cp_source_path $run_version:/cm/$cp_destination_path
+# If an image was built, load it
+if [[ -f "${out_dir}/image.tar" ]]; then
+  docker load --input "${out_dir}/image.tar"
 fi
 
-# Remove the bazel artifacts from the copied files if they exist
-docker exec $run_version \
-  bash -c "([[ $(find $repo_top_level_dir -name 'bazel-*' | wc -l) -gt 0 ]] && rm -rf /cm/bazel-*) || true"
-
-# Update the confidential match dependencies in the workspace for a container build
-docker exec $run_version \
-  bash -c "sed -i 's/^#\s*CONTAINER_BUILD__UNCOMMENT://' /cm/WORKSPACE"
-docker exec $run_version \
-  bash -c "sed -i -n '/^#\s*CONTAINER_BUILD__REMOVE_SECTION\.START/,/^#\s*CONTAINER_BUILD__REMOVE_SECTION\.END/!p' /cm/WORKSPACE"
-
-# Copy the SCP source code into the build container
-docker cp "${temp_storage_path}/scp" $run_version:/scp
-
-# Change the ownership of the copied files to the root user within the build container
-docker exec $run_version chown -R root:root /cm
-docker exec $run_version chown -R root:root /scp
-
-# Set the build output directory
-docker exec $run_version \
-  bash -c "echo 'startup --output_user_root=/tmp/bazel_build_output' >> /cm/.bazelrc"
-
-# Execute the command
-docker exec -w /cm $run_version bash -c "$bazel_command"
-
-# Change the build output directory permissions to the user running this script
-user_id="$(id -u)"
-docker exec $run_version chown -R $user_id:$user_id /tmp/bazel_build_output
-
-if [ -n "${output_tar_name-}" ]; then
-  # Copy the container image to the output
-  cp $(find $docker_bazel_output_dir -name $output_tar_name) $output_tar_path
-  cp $(find $docker_bazel_output_dir -name command.profile.gz) $output_tar_path || echo "Failed to find build profile."
-fi
-run_on_exit 0
+echo BUILD SUCCEEDED

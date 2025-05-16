@@ -23,6 +23,7 @@ java_library(
         "configs/adh_config.json",
         "configs/copla_config.json",
         "configs/customer_match_config.json",
+        "configs/dm_api_config.json",
         "configs/mic_audience_config.json",
         "configs/mic_config.json",
     ],

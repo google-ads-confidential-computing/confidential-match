@@ -31,7 +31,9 @@ import org.apache.hc.client5.http.config.ConnectionConfig;
 import org.apache.hc.client5.http.config.RequestConfig;
 import org.apache.hc.client5.http.impl.async.CloseableHttpAsyncClient;
 import org.apache.hc.client5.http.impl.async.HttpAsyncClients;
+import org.apache.hc.client5.http.ssl.ClientTlsStrategyBuilder;
 import org.apache.hc.core5.http.HttpRequestInterceptor;
+import org.apache.hc.core5.http.ssl.TLS;
 import org.apache.hc.core5.reactor.IOReactorConfig;
 import org.apache.hc.core5.util.TimeValue;
 import org.apache.hc.core5.util.Timeout;
@@ -111,6 +113,7 @@ public final class LookupServiceShardClientGcpModule extends LookupServiceShardC
                     .build()) // Establishing connection
             .setIOReactorConfig(IOReactorConfig.custom().setSoTimeout(REQUEST_TIMEOUT).build())
             .addRequestInterceptorLast(lookupServiceAuthHeadersInterceptor())
+            .setTlsStrategy(ClientTlsStrategyBuilder.create().setTlsVersions(TLS.V_1_3).build())
             .build();
 
     httpClient.start();

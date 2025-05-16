@@ -17,34 +17,26 @@ load("@rules_distroless//apt:defs.bzl", "dpkg_statusd")
 load("@rules_distroless//distroless:defs.bzl", "cacerts")
 load("@rules_pkg//:pkg.bzl", "pkg_tar")
 
-# Packages added to the lookup server image, including dependencies
-# When packages change, update this list with this command's output:
-#   jq '.packages[].name' lookup_server_apt.lock.json
+# Packages added to the lookup server image, including dependencies.
+# See lookup_server_apt.yaml for more details.
 LS_PACKAGE_NAMES = [
     "ca-certificates",
     "debconf",
-    "perl-base",
-    "dpkg",
-    "tar",
-    "libselinux1",
-    "libpcre2-8-0",
-    "libc6",
-    "libcrypt1",
-    "libgcc-s1",
-    "gcc-10-base",
-    "libacl1",
-    "zlib1g",
-    "liblzma5",
-    "libbz2-1.0",
     "openssl",
-    "libssl1.1",
+    "libssl3",
+    "libc6",
+    "libgcc-s1",
+    "gcc-12-base",
     "libatomic1",
     "libxml2-dev",
     "libxml2",
-    "libicu67",
+    "zlib1g",
+    "liblzma5",
+    "libicu72",
     "libstdc++6",
     "libicu-dev",
     "libc6-dev",
+    "rpcsvc-proto",
     "libnsl-dev",
     "libtirpc-dev",
     "libtirpc3",
@@ -57,21 +49,22 @@ LS_PACKAGE_NAMES = [
     "libcom-err2",
     "libnsl2",
     "libcrypt-dev",
+    "libcrypt1",
     "linux-libc-dev",
     "libc-dev-bin",
     "icu-devtools",
     "netbase",
     "rsyslog",
+    "libzstd1",
     "libuuid1",
     "libsystemd0",
-    "libzstd1",
     "liblz4-1",
     "libgcrypt20",
     "libgpg-error0",
+    "libcap2",
     "liblognorm5",
     "libfastjson4",
     "libestr0",
-    "init-system-helpers",
 ]
 
 # Package installer build targets
@@ -108,6 +101,12 @@ pkg_tar(
     tags = ["manual"],
 )
 
+pkg_tar(
+    name = "startup_script_layer",
+    srcs = [":startup_script.sh"],
+    tags = ["manual"],
+)
+
 # Bundles ca-certificates as /etc/ssl/certs/ca-certificates.crt
 # Images must set the environment variable SSL_CERT_FILE to this full file path
 # https://github.com/GoogleContainerTools/rules_distroless/blob/v0.3.9/docs/rules.md#cacerts
@@ -119,11 +118,8 @@ cacerts(
 
 container_image(
     name = "lookup_server_gcp_image_4_vcpu",
-    base = "@debian_11//image",
-    cmd = [
-        "/bin/bash",
-        "startup_script",
-    ],
+    base = "@debian12_base//image",
+    cmd = ["/startup_script.sh"],
     env = {
         "enabled_log_levels": "Debug,Info,Warning,Error,Critical",
         "async_executor_queue_size": "1000",
@@ -133,7 +129,6 @@ container_image(
         # Required to use :cacerts, see that target definition for details
         "SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt",
     },
-    files = ["startup_script"],
     labels = {
         "tee.launch_policy.allow_cmd_override": "false",
         "tee.launch_policy.allow_env_override": "cluster_id,cluster_group_id,environment",
@@ -148,17 +143,15 @@ container_image(
     tars = [
         ":cacerts",
         ":lookup_service_layer",
+        ":startup_script_layer",
     ] + LS_PACKAGES + LS_PACKAGE_INSTALL_STATUSES,
     volumes = ["/opt/google/ssl/self-signed-certs"],
 )
 
 container_image(
     name = "lookup_server_gcp_image_48_vcpu",
-    base = "@debian_11//image",
-    cmd = [
-        "/bin/bash",
-        "startup_script",
-    ],
+    base = "@debian12_base//image",
+    cmd = ["/startup_script.sh"],
     env = {
         "enabled_log_levels": "Info,Warning,Error,Critical",
         "async_executor_queue_size": "100000",
@@ -168,7 +161,6 @@ container_image(
         # Required to use :cacerts, see that target definition for details
         "SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt",
     },
-    files = ["startup_script"],
     labels = {
         "tee.launch_policy.allow_cmd_override": "false",
         "tee.launch_policy.allow_env_override": "cluster_id,cluster_group_id,environment",
@@ -183,6 +175,7 @@ container_image(
     tars = [
         ":cacerts",
         ":lookup_service_layer",
+        ":startup_script_layer",
     ] + LS_PACKAGES + LS_PACKAGE_INSTALL_STATUSES,
     volumes = ["/opt/google/ssl/self-signed-certs"],
 )
