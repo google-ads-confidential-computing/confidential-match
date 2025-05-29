@@ -108,6 +108,7 @@ java_test(
         "//java/external:mockito",
         "//java/external:protobuf_java",
         "//java/external:tink",
+        "//javatests/com/google/cm/mrp/clients/testutils",
         "//javatests/com/google/cm/mrp/testutils",
         "//protos/lookup_server/api:java_proto",
         "//protos/mrp/api:java_proto",

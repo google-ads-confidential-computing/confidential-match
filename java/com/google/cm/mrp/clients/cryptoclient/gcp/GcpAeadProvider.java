@@ -20,6 +20,9 @@ import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cm.mrp.clients.cryptoclient.AeadProvider;
 import com.google.cm.mrp.clients.cryptoclient.models.AeadProviderParameters;
 import com.google.cm.mrp.clients.cryptoclient.models.AeadProviderParameters.GcpParameters;
+import com.google.crypto.tink.Aead;
+import com.google.crypto.tink.KeysetHandle;
+import com.google.crypto.tink.KeysetReader;
 import com.google.crypto.tink.integration.gcpkms.GcpKmsClient;
 import com.google.scp.shared.crypto.tink.CloudAeadSelector;
 import java.io.IOException;
@@ -31,6 +34,7 @@ import org.slf4j.LoggerFactory;
 /** Gets AEADs from GCP KMS using attested credentials if necessary */
 public final class GcpAeadProvider implements AeadProvider {
   private static final Logger logger = LoggerFactory.getLogger(GcpAeadProvider.class);
+  private static final String KEK_URI_PREFIX = "gcp-kms://";
 
   public GcpAeadProvider() {}
 
@@ -52,6 +56,17 @@ public final class GcpAeadProvider implements AeadProvider {
     return getKmsClient(credentials);
   }
 
+  @Override
+  public KeysetHandle readKeysetHandle(KeysetReader dekReader, Aead kekAead)
+      throws AeadProviderException {
+    try {
+      return KeysetHandle.read(dekReader, kekAead);
+    } catch (GeneralSecurityException | IOException e) {
+      // TODO(b/419403254): Handle with more specific cases, currently handled in caller
+      throw new AeadProviderException(e);
+    }
+  }
+
   private GoogleCredentials getCredentials(
       String kmsWipProvider, Optional<String> serviceAccountToImpersonate)
       throws AeadProviderException {
@@ -66,8 +81,8 @@ public final class GcpAeadProvider implements AeadProvider {
 
   private CloudAeadSelector getKmsClient(GoogleCredentials credentials) {
     return (kekUri) -> {
-      if (!kekUri.startsWith("gcp-kms://") && kekUri.startsWith("projects/")) {
-        kekUri = "gcp-kms://" + kekUri;
+      if (!kekUri.startsWith(KEK_URI_PREFIX) && kekUri.startsWith("projects/")) {
+        kekUri = KEK_URI_PREFIX + kekUri;
       }
       GcpKmsClient client = new GcpKmsClient();
       try {

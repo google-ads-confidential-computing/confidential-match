@@ -352,6 +352,16 @@ alias(
 )
 
 alias(
+    name = "aws_kms",
+    actual = "@maven//:software_amazon_awssdk_kms",
+)
+
+alias(
+    name = "aws_sts",
+    actual = "@maven//:software_amazon_awssdk_sts",
+)
+
+alias(
     name = "aws_http_client_spi",
     actual = "@maven//:software_amazon_awssdk_http_client_spi",
 )

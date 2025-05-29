@@ -14,28 +14,23 @@
 
 package(default_visibility = ["//visibility:public"])
 
-java_library(
-    name = "cryptoclient",
-    srcs = glob([
-        "*.java",
-        "converters/*.java",
-        "models/*.java",
-    ]),
+java_test(
+    name = "AwsAeadProviderTest",
+    srcs = ["AwsAeadProviderTest.java"],
     deps = [
-        "//java/com/google/cm/mrp:exceptions",
-        "//java/com/google/cm/mrp/models",
-        "//java/external:apache_commons_lang",
-        "//java/external:autovalue",
-        "//java/external:clients_cryptoclient",
-        "//java/external:guava",
-        "//java/external:guice",
-        "//java/external:guice-assistedinject",
-        "//java/external:javax_inject",
+        "//java/com/google/cm/mrp/clients/attestation",
+        "//java/com/google/cm/mrp/clients/cryptoclient",
+        "//java/com/google/cm/mrp/clients/cryptoclient/aws",
+        "//java/external:apache_httpclient5",
+        "//java/external:apache_httpcore5",
+        "//java/external:aws_kms",
+        "//java/external:aws_sts",
+        "//java/external:google_truth",
+        "//java/external:mockito",
         "//java/external:protobuf_java",
         "//java/external:shared_crypto_tink",
-        "//java/external:slf4j",
         "//java/external:tink",
-        "//java/external:tink-gcpkms",
+        "//javatests/com/google/cm/mrp/clients/testutils",
         "//protos/mrp/backend:java_proto",
     ],
 )

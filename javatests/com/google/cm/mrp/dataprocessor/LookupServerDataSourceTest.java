@@ -25,6 +25,7 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.LOOKUP_SERVICE_FAILURE;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.LOOKUP_SERVICE_INVALID_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.MISSING_ENCRYPTION_COLUMN;
+import static com.google.cm.mrp.clients.testutils.AeadProviderTestUtil.realKeysetHandleRead;
 import static com.google.cm.mrp.dataprocessor.LookupServerDataSource.PII_VALUE;
 import static com.google.cm.mrp.testutils.AeadKeyGenerator.decryptString;
 import static com.google.cm.mrp.testutils.AeadKeyGenerator.encryptString;
@@ -301,6 +302,7 @@ public final class LookupServerDataSourceTest {
     var dek = generateEncryptedDek();
     String encryptedEmail = encryptString(dek, "fake.email@google.com");
     when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
     when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
         .thenReturn(
             LookupServiceClientResponse.builder()
@@ -1581,6 +1583,7 @@ public final class LookupServerDataSourceTest {
     String encryptedFirstName = encryptString(dek, "fake_first_name");
     String encryptedLastName = encryptString(dek, "fake_last_name");
     when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
     when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
         .thenAnswer(
             invocation -> {
@@ -1712,6 +1715,7 @@ public final class LookupServerDataSourceTest {
     String encryptedFirstName = encryptString(dek, "fake_first_name");
     String encryptedLastName = encryptString(dek, "fake_last_name");
     when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
     when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
         .thenAnswer(
             invocation -> {
@@ -1947,6 +1951,7 @@ public final class LookupServerDataSourceTest {
     String encryptedFirstName = encryptString(dek, "fake_first_name");
     String encryptedLastName = encryptString(dek, "fake_last_name");
     when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
     when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
         .thenAnswer(
             invocation -> {
@@ -2105,6 +2110,7 @@ public final class LookupServerDataSourceTest {
     String encryptedFirstName1 = encryptString(dek1, "fake_first_name1");
     String encryptedLastName1 = encryptString(dek1, "fake_last_name1");
     when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
     when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
         .thenAnswer(
             invocation -> {
@@ -2320,8 +2326,8 @@ public final class LookupServerDataSourceTest {
     String encryptedLastName1 = encryptString(dek, "fake_last_name1");
     String wip0 = "testWip0";
     String wip1 = "testWip1";
-
     when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
     when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
         .thenAnswer(
             invocation -> {
@@ -3042,6 +3048,7 @@ public final class LookupServerDataSourceTest {
     String encryptedFirstName1 = encryptString(dek1, "fake_first_name1");
     String encryptedLastName1 = encryptString(dek1, "fake_last_name1");
     when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
     when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
         .thenAnswer(
             invocation -> {
@@ -3236,6 +3243,7 @@ public final class LookupServerDataSourceTest {
     String encryptedFirstName = encryptString(dek0, "fake_first_name");
     String encryptedLastName = encryptString(dek0, "fake_last_name");
     when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
     when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
         .thenAnswer(
             invocation -> {

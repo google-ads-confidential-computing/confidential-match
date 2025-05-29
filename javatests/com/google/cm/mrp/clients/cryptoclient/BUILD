@@ -26,6 +26,7 @@ java_test(
         "//java/external:shared_crypto_tink",
         "//java/external:shared_util",
         "//java/external:tink",
+        "//javatests/com/google/cm/mrp/clients/testutils",
         "//javatests/com/google/cm/mrp/testutils",
         "//javatests/com/google/cm/mrp/testutils/fakes",
         "//protos/mrp/backend:java_proto",

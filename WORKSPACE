@@ -350,6 +350,7 @@ maven_install(
         "software.amazon.awssdk:regions:" + AWS_SDK_VERSION,
         "software.amazon.awssdk:s3:" + AWS_SDK_VERSION,
         "software.amazon.awssdk:aws-core:" + AWS_SDK_VERSION,
+        "software.amazon.awssdk:kms:" + AWS_SDK_VERSION,
         "software.amazon.awssdk:ssm:" + AWS_SDK_VERSION,
         "software.amazon.awssdk:sts:" + AWS_SDK_VERSION,
         "software.amazon.awssdk:sqs:" + AWS_SDK_VERSION,

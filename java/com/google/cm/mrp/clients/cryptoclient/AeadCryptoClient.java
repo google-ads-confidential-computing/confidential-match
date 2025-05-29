@@ -42,6 +42,7 @@ import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.Wrap
 import com.google.cm.mrp.clients.cryptoclient.AeadProvider.AeadProviderException;
 import com.google.cm.mrp.clients.cryptoclient.AeadProvider.UncheckedAeadProviderException;
 import com.google.cm.mrp.clients.cryptoclient.converters.AeadProviderParametersConverter;
+import com.google.cm.mrp.clients.cryptoclient.models.DekKeysetReader;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -50,7 +51,6 @@ import com.google.common.util.concurrent.UncheckedExecutionException;
 import com.google.crypto.tink.Aead;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.KeysetReader;
-import com.google.crypto.tink.proto.EncryptedKeyset;
 import com.google.crypto.tink.proto.KeysetInfo.KeyInfo;
 import com.google.inject.assistedinject.Assisted;
 import com.google.inject.assistedinject.AssistedInject;
@@ -90,36 +90,31 @@ public final class AeadCryptoClient extends BaseCryptoClient {
 
                     // DEK is always in Base64
                     byte[] dekBytes = decode(keys.getEncryptedDek().trim(), EncodingType.BASE64);
-                    KeysetReader reader = new CustomKeysetReader(ByteString.copyFrom(dekBytes));
+                    KeysetReader reader = new DekKeysetReader(ByteString.copyFrom(dekBytes));
                     Aead kmsAead =
                         aeadProvider
                             .getAeadSelector(
                                 AeadProviderParametersConverter.convertToAeadProviderParameters(
                                     encryptionKeys))
                             .getAead(kekUri);
-                    KeysetHandle keyset = KeysetHandle.read(reader, kmsAead);
+                    KeysetHandle dekKeyset = aeadProvider.readKeysetHandle(reader, kmsAead);
                     // Validate that all key types match the job's key type
-                    for (KeyInfo key : getKeysetInfo(keyset).getKeyInfoList()) {
+                    for (KeyInfo key : getKeysetInfo(dekKeyset).getKeyInfoList()) {
                       if (!keyTypeUrl.equals(key.getTypeUrl())) {
                         String message = "Unexpected DEK type: " + key.getTypeUrl();
                         logger.warn(message);
                         throw new CryptoClientException(DEK_KEY_TYPE_MISMATCH);
                       }
                     }
-                    return keyset.getPrimitive(Aead.class);
-                  } catch (GeneralSecurityException e) {
-                    throwIfWipFailure(e);
-                    logger.warn(
-                        "DEK could not be decrypted with given KEK. Will not be retried in job.",
-                        e);
-                    invalidDecrypters.add(encryptionKeys.toString());
-                    throw new CryptoClientException(e, DEK_DECRYPTION_ERROR);
+                    return dekKeyset.getPrimitive(Aead.class);
                   } catch (AeadProviderException | UncheckedAeadProviderException e) {
+                    // TODO(b/419403254): refactor to GCP-specific provider
+                    throwIfWipFailure(e);
                     logger.warn(
                         "KEK could not be used in AeadProvider. Will not be retried in job.", e);
                     invalidDecrypters.add(encryptionKeys.toString());
-                    throw new CryptoClientException(e, DEK_DECRYPTION_ERROR);
-                  } catch (RuntimeException | IOException e) {
+                    throw new CryptoClientException(e, e.getJobResultCode());
+                  } catch (GeneralSecurityException | RuntimeException e) {
                     logger.warn(
                         "DEK could not be decrypted with given KEK. Will not be retried in job.",
                         e);
@@ -265,26 +260,6 @@ public final class AeadCryptoClient extends BaseCryptoClient {
       throw new CryptoClientException(WIP_MISSING_IN_RECORD);
     } else {
       return encryptionKeys;
-    }
-  }
-
-  // Allows parsing an encrypted keyset handle without unnecessary serialization steps
-  private static class CustomKeysetReader implements KeysetReader {
-
-    private final ByteString dek;
-
-    public CustomKeysetReader(ByteString dek) {
-      this.dek = dek;
-    }
-
-    @Override
-    public com.google.crypto.tink.proto.Keyset read() {
-      throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public EncryptedKeyset readEncrypted() {
-      return EncryptedKeyset.newBuilder().setEncryptedKeyset(dek).build();
     }
   }
 }

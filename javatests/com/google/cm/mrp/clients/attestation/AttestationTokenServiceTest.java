@@ -16,8 +16,11 @@
 
 package com.google.cm.mrp.clients.attestation;
 
+import static com.google.cm.mrp.clients.testutils.AttestationTokenTestUtil.createFakeJwt;
+import static com.google.cm.mrp.clients.testutils.AttestationTokenTestUtil.getAttestationTokenAsJson;
+import static com.google.cm.mrp.clients.testutils.AttestationTokenTestUtil.getHttpResponseForGivenTestToken;
+import static com.google.cm.mrp.clients.testutils.AttestationTokenTestUtil.getHttpResponseForGivenTestTokenAndResponseCode;
 import static com.google.common.truth.Truth.assertThat;
-import static java.util.Base64.getUrlEncoder;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
@@ -27,14 +30,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.cm.mrp.clients.attestation.AttestationTokenServiceExceptions.AttestationTokenServiceException;
 import com.google.scp.shared.mapper.GuavaObjectMapper;
 import java.io.IOException;
-import java.time.Instant;
 import java.util.List;
 import org.apache.hc.client5.http.impl.classic.CloseableHttpClient;
 import org.apache.hc.core5.http.ClassicHttpRequest;
 import org.apache.hc.core5.http.io.HttpClientResponseHandler;
 import org.apache.hc.core5.http.io.entity.EntityUtils;
-import org.apache.hc.core5.http.io.entity.StringEntity;
-import org.apache.hc.core5.http.message.BasicClassicHttpResponse;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -43,7 +43,6 @@ import org.junit.runners.JUnit4;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
-import org.mockito.invocation.InvocationOnMock;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 
@@ -56,7 +55,7 @@ public class AttestationTokenServiceTest {
   private static final List<String> SIGNATURES = List.of("keyId1");
   @Mock private CloseableHttpClient httpClient;
   private @Captor ArgumentCaptor<ClassicHttpRequest> requestCaptor;
-  private final String testToken = createFakeJwt(getJsonToken());
+  private final String testToken = createFakeJwt(getAttestationTokenAsJson());
   private AttestationTokenService tokenService;
 
   @Before
@@ -67,16 +66,7 @@ public class AttestationTokenServiceTest {
   @Test
   public void getAttestationToken_success() throws Exception {
     when(httpClient.execute(requestCaptor.capture(), any(HttpClientResponseHandler.class)))
-        .thenAnswer(
-            (InvocationOnMock invocation) -> {
-              var response = new BasicClassicHttpResponse(200);
-              response.setEntity(new StringEntity(testToken));
-
-              @SuppressWarnings("unchecked")
-              HttpClientResponseHandler<String> handler =
-                  (HttpClientResponseHandler<String>) invocation.getArguments()[1];
-              return handler.handleResponse(response);
-            });
+        .thenAnswer(getHttpResponseForGivenTestToken(testToken));
 
     assertThat(tokenService.getToken()).isEqualTo(testToken);
 
@@ -96,16 +86,7 @@ public class AttestationTokenServiceTest {
   public void getAttestationTokenForAudience_Success() throws Exception {
     String audience = "testAudience";
     when(httpClient.execute(requestCaptor.capture(), any(HttpClientResponseHandler.class)))
-        .thenAnswer(
-            (InvocationOnMock invocation) -> {
-              var response = new BasicClassicHttpResponse(200);
-              response.setEntity(new StringEntity(testToken));
-
-              @SuppressWarnings("unchecked")
-              HttpClientResponseHandler<String> handler =
-                  (HttpClientResponseHandler<String>) invocation.getArguments()[1];
-              return handler.handleResponse(response);
-            });
+        .thenAnswer(getHttpResponseForGivenTestToken(testToken));
 
     assertThat(tokenService.getToken()).isEqualTo(testToken);
 
@@ -124,15 +105,7 @@ public class AttestationTokenServiceTest {
   public void getAttestationTokenForAudience_BadResponseCode_Throws() throws Exception {
     when(httpClient.execute(any(), any(HttpClientResponseHandler.class)))
         .thenAnswer(
-            (InvocationOnMock invocation) -> {
-              var response = new BasicClassicHttpResponse(500);
-              response.setEntity(new StringEntity("INTERNAL ERROR"));
-
-              @SuppressWarnings("unchecked")
-              HttpClientResponseHandler<String> handler =
-                  (HttpClientResponseHandler<String>) invocation.getArguments()[1];
-              return handler.handleResponse(response);
-            });
+            getHttpResponseForGivenTestTokenAndResponseCode("INTERNAL_ERROR", /* code= */ 500));
 
     var ex = assertThrows(AttestationTokenServiceException.class, () -> tokenService.getToken());
     assertThat(ex.getMessage()).isEqualTo("Could not get token from cache.");
@@ -145,27 +118,6 @@ public class AttestationTokenServiceTest {
 
     var ex = assertThrows(AttestationTokenServiceException.class, () -> tokenService.getToken());
     assertThat(ex.getMessage()).isEqualTo("Could not get token from cache.");
-  }
-
-  private static String getJsonToken() {
-    long time = Instant.now().getEpochSecond();
-    return "{\"hwmodel\":   \"GCP_INTEL_TDX\",\"swname\":    \"CONFIDENTIAL_SPACE\",\"swversion\":"
-        + " \"240900\",\"confidential_space.support_attributes\":"
-        + " \"LATEST=STABLE=USABLE\",\"gce.project_id\":"
-        + " \"projectidpaddedto30chars0000000000000000000\",\"gce.zone\":      "
-        + " \"northamerica-northeast1-a\",\"container.signatures.key_ids\":"
-        + " \"abcd357b59e9407fb017ca0e3e783b2bd5acbfea6c83dd82971a4150df5b25f9\",\"exp\": "
-        + time
-        + "}";
-  }
-
-  public static String createFakeJwt(String jsonPayload) {
-    String header = "{\"alg\":\"HS256\",\"typ\":\"JWT\"}";
-    String encodedHeader = getUrlEncoder().encodeToString(header.getBytes());
-    String encodedPayload = getUrlEncoder().encodeToString(jsonPayload.getBytes());
-    String signature = "fakesignature";
-
-    return encodedHeader + "." + encodedPayload + "." + signature;
   }
 
   private static ConfidentialSpaceTokenRequest getExpectedConfidentialSpaceTokenRequest(

@@ -19,6 +19,8 @@ package com.google.cm.mrp.clients.cryptoclient;
 import static com.google.cm.mrp.backend.EncodingTypeProto.EncodingType.BASE64;
 import static com.google.cm.mrp.backend.EncodingTypeProto.EncodingType.HEX;
 import static com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.KeyType.XCHACHA20_POLY1305;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_KEK;
+import static com.google.cm.mrp.clients.testutils.AeadProviderTestUtil.realKeysetHandleRead;
 import static com.google.cm.mrp.testutils.AeadKeyGenerator.decryptString;
 import static com.google.cm.mrp.testutils.AeadKeyGenerator.encryptDek;
 import static com.google.cm.mrp.testutils.AeadKeyGenerator.encryptString;
@@ -94,6 +96,7 @@ public class AeadCryptoClientTest {
   public void encrypt_withDataRecordEncryptionKeysSuccess() throws Exception {
     when(mockAeadProvider.getAeadSelector(eq(TEST_PARAMETERS)))
         .thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
     String testKek = generateAeadUri();
     var keyset = generateXChaChaKeyset();
     var encryptedDek = encryptDek(keyset);
@@ -111,6 +114,7 @@ public class AeadCryptoClientTest {
       throws Exception {
     when(mockAeadProvider.getAeadSelector(eq(TEST_PARAMETERS)))
         .thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
     String testKek = " " + generateAeadUri().substring(10); // gcp-kms:// is 10 chars
     var keyset = generateXChaChaKeyset();
     var encryptedDek = encryptDek(keyset);
@@ -127,6 +131,7 @@ public class AeadCryptoClientTest {
   public void decrypt_withDataRecordEncryptionKeysSuccess() throws Exception {
     when(mockAeadProvider.getAeadSelector(eq(TEST_PARAMETERS)))
         .thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
     String testKek = generateAeadUri();
     var keyset = generateXChaChaKeyset();
     var encryptedDek = encryptDek(keyset);
@@ -143,6 +148,7 @@ public class AeadCryptoClientTest {
       throws Exception {
     when(mockAeadProvider.getAeadSelector(eq(TEST_PARAMETERS)))
         .thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
     String testKek = " " + generateAeadUri().substring(10); // gcp-kms:// is 10 chars
     var keyset = generateXChaChaKeyset();
     var encryptedDek = encryptDek(keyset);
@@ -158,6 +164,7 @@ public class AeadCryptoClientTest {
   public void decrypt_withDataRecordEncryptionKeys_HexEncoding_Success() throws Exception {
     when(mockAeadProvider.getAeadSelector(eq(TEST_PARAMETERS)))
         .thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
     String testKek = generateAeadUri();
     var keyset = generateXChaChaKeyset();
     var encryptedDek = encryptDek(keyset);
@@ -179,6 +186,7 @@ public class AeadCryptoClientTest {
                     .setKeyType(XCHACHA20_POLY1305)
                     .setGcpWrappedKeyInfo(GcpWrappedKeyInfo.getDefaultInstance()))
             .build();
+    when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
     var testParams = AeadProviderParameters.forWipProvider(rowLevelWip);
     when(mockAeadProvider.getAeadSelector(eq(testParams))).thenReturn(getDefaultAeadSelector());
     String testKek = generateAeadUri();
@@ -217,7 +225,7 @@ public class AeadCryptoClientTest {
   @Test
   public void decrypt_aeadProviderException_failure() throws Exception {
     when(mockAeadProvider.getAeadSelector(eq(TEST_PARAMETERS)))
-        .thenThrow(AeadProviderException.class);
+        .thenThrow(new AeadProviderException("test", new RuntimeException(), INVALID_KEK));
     String testKek = generateAeadUri();
     var keyset = generateXChaChaKeyset();
     var encryptedDek = encryptDek(keyset);
@@ -230,7 +238,7 @@ public class AeadCryptoClientTest {
         assertThrows(
             CryptoClientException.class,
             () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
-    assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.DEK_DECRYPTION_ERROR);
+    assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.INVALID_KEK);
   }
 
   @Test
@@ -347,10 +355,12 @@ public class AeadCryptoClientTest {
 
   @Test
   public void decryptDek_InvalidWipThrowsException() throws Exception {
-    when(mockAead.decrypt(any(), any()))
-        .thenThrow(new GeneralSecurityException(new OAuthException("invalid_target")));
-    when(mockAeadSelector.getAead(any())).thenReturn(mockAead);
-    when(mockAeadProvider.getAeadSelector(eq(TEST_PARAMETERS))).thenReturn(mockAeadSelector);
+    when(mockAeadProvider.getAeadSelector(eq(TEST_PARAMETERS)))
+        .thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any()))
+        .thenThrow(
+            new AeadProviderException(
+                new GeneralSecurityException(new OAuthException("invalid_target"))));
     String testKek = generateAeadUri();
     var keyset = generateXChaChaKeyset();
     var encryptedDek = encryptDek(keyset);
@@ -368,10 +378,12 @@ public class AeadCryptoClientTest {
 
   @Test
   public void decryptDek_WipConditionFailedThrowsException() throws Exception {
-    when(mockAead.decrypt(any(), any()))
-        .thenThrow(new GeneralSecurityException(new OAuthException("unauthorized_client")));
-    when(mockAeadSelector.getAead(any())).thenReturn(mockAead);
-    when(mockAeadProvider.getAeadSelector(eq(TEST_PARAMETERS))).thenReturn(mockAeadSelector);
+    when(mockAeadProvider.getAeadSelector(eq(TEST_PARAMETERS)))
+        .thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any()))
+        .thenThrow(
+            new AeadProviderException(
+                new GeneralSecurityException(new OAuthException("unauthorized_client"))));
     String testKek = generateAeadUri();
     var keyset = generateXChaChaKeyset();
     var encryptedDek = encryptDek(keyset);
@@ -393,6 +405,7 @@ public class AeadCryptoClientTest {
     keysetProto.addKeyBuilder().getKeyDataBuilder().setTypeUrl("unsupported");
     when(mockAead.decrypt(any(), any())).thenReturn(keysetProto.build().toByteArray());
     when(mockAeadProvider.getAeadSelector(eq(TEST_PARAMETERS))).thenReturn(unused -> mockAead);
+    when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
     var cryptoClient = new AeadCryptoClient(mockAeadProvider, TEST_KEY_INFO);
 
     var ex =

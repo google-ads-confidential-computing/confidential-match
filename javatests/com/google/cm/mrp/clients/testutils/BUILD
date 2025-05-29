@@ -14,17 +14,15 @@
 
 package(default_visibility = ["//visibility:public"])
 
-java_test(
-    name = "AttestationTokenServiceTest",
-    srcs = ["AttestationTokenServiceTest.java"],
+java_library(
+    name = "testutils",
+    srcs = glob(["*.java"]),
     deps = [
-        "//java/com/google/cm/mrp/clients/attestation",
         "//java/external:apache_httpclient5",
         "//java/external:apache_httpcore5",
-        "//java/external:google_truth",
         "//java/external:jackson_databind",
         "//java/external:mockito",
         "//java/external:shared_mapper",
-        "//javatests/com/google/cm/mrp/clients/testutils",
+        "//java/external:tink",
     ],
 )

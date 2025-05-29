@@ -50,6 +50,12 @@ enum JobResultCode {
   UNSUPPORTED_ENCRYPTION_TYPE = 121; // Encryption key type (Wrapped or Coordinator) not supported by application_id
   INTERNAL_ERROR = 122; // Internal error code
   INVALID_DATA_FORMAT = 123; // Unsupported data format
+  UNAUTHORIZED_AUDIENCE = 124; // Audience rejected by AWS KMS policy
+  INVALID_ROLE_FORMAT = 125; // AWS does not exist or no permission
+  INVALID_ROLE_PARAMETER = 126; // AWS Role does not exist or no permission
+  AWS_AUTH_FAILED = 127; // Attestation was rejected by AWS KMS
+  INVALID_KEK = 128; // KEK cannot decrypt data due to not existing or incorrect (not attestation)
+  INVALID_KEK_FORMAT = 129; // KEK was not formatted correctly
 
   // Partial errors; 200 <= resultCode < 300
   PARTIAL_SUCCESS = 200;

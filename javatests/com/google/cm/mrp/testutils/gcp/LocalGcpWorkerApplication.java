@@ -71,8 +71,11 @@ import com.google.cm.mrp.selectors.JobClientSelector;
 import com.google.cm.mrp.selectors.LifecycleClientSelector;
 import com.google.cm.mrp.selectors.MetricClientSelector;
 import com.google.cm.util.ExponentialBackoffRetryStrategy;
+import com.google.crypto.tink.Aead;
 import com.google.crypto.tink.HybridDecrypt;
 import com.google.crypto.tink.HybridEncrypt;
+import com.google.crypto.tink.KeysetHandle;
+import com.google.crypto.tink.KeysetReader;
 import com.google.inject.AbstractModule;
 import com.google.inject.Provides;
 import com.google.inject.Singleton;
@@ -87,6 +90,7 @@ import com.google.scp.shared.clients.configclient.gcp.Annotations.GcpProjectId;
 import com.google.scp.shared.crypto.tink.CloudAeadSelector;
 import com.google.scp.shared.mapper.TimeObjectMapper;
 import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.util.Optional;
 import org.apache.hc.client5.http.config.ConnectionConfig;
 import org.apache.hc.client5.http.config.RequestConfig;
@@ -283,6 +287,15 @@ public final class LocalGcpWorkerApplication {
     }
 
     @Override
+    public KeysetHandle readKeysetHandle(KeysetReader dekReader, Aead kekAead) {
+      try {
+        return KeysetHandle.read(dekReader, kekAead);
+      } catch (GeneralSecurityException | IOException e) {
+        throw new RuntimeException(e);
+      }
+    }
+
+    @Override
     public void close() throws IOException {
       // No-op
     }
@@ -293,6 +306,15 @@ public final class LocalGcpWorkerApplication {
     @Override
     public CloudAeadSelector getAeadSelector(AeadProviderParameters aeadProviderParameters) {
       return (unusedKekUri) -> getAeadFromJsonKeyset(TEST_KEK_JSON);
+    }
+
+    @Override
+    public KeysetHandle readKeysetHandle(KeysetReader dekReader, Aead kekAead) {
+      try {
+        return KeysetHandle.read(dekReader, kekAead);
+      } catch (GeneralSecurityException | IOException e) {
+        throw new RuntimeException(e);
+      }
     }
 
     @Override

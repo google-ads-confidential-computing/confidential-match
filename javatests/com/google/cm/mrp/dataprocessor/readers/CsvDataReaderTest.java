@@ -25,6 +25,7 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.KEK_MIS
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.UNSUPPORTED_ENCRYPTION_TYPE;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WIP_AUTH_FAILED;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WIP_MISSING_IN_RECORD;
+import static com.google.cm.mrp.clients.testutils.AeadProviderTestUtil.realKeysetHandleRead;
 import static com.google.cm.mrp.testutils.AeadKeyGenerator.decryptString;
 import static com.google.cm.mrp.testutils.AeadKeyGenerator.encryptString;
 import static com.google.cm.mrp.testutils.AeadKeyGenerator.generateAeadUri;
@@ -353,6 +354,7 @@ public final class CsvDataReaderTest {
   @Test
   public void next_encryptedReturnsDecryptedRecords() throws Exception {
     when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
     AeadCryptoClient aeadCryptoClient = makeAeadCryptoClient();
     Schema schema =
         ProtoUtils.getProtoFromJson(
@@ -451,6 +453,7 @@ public final class CsvDataReaderTest {
   @Test
   public void next_encryptedHexEncoded_returnsDecryptedRecords() throws Exception {
     when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
     AeadCryptoClient aeadCryptoClient = makeAeadCryptoClient();
     Schema schema =
         ProtoUtils.getProtoFromJson(
@@ -642,6 +645,7 @@ public final class CsvDataReaderTest {
   @Test
   public void next_encryptedWithRowWip_returnsDecryptedRecords() throws Exception {
     when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
     AeadCryptoClient aeadCryptoClient = makeAeadCryptoClient();
     Schema schema =
         ProtoUtils.getProtoFromJson(

@@ -16,6 +16,12 @@
 
 package com.google.cm.mrp.clients.cryptoclient.aws;
 
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.AWS_AUTH_FAILED;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_DECRYPTION_ERROR;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_KEK;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_KEK_FORMAT;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_ROLE_FORMAT;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.UNAUTHORIZED_AUDIENCE;
 import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 
 import com.google.cm.mrp.clients.attestation.AttestationTokenService;
@@ -23,6 +29,9 @@ import com.google.cm.mrp.clients.attestation.AttestationTokenServiceExceptions.A
 import com.google.cm.mrp.clients.cryptoclient.AeadProvider;
 import com.google.cm.mrp.clients.cryptoclient.models.AeadProviderParameters;
 import com.google.cm.mrp.clients.cryptoclient.models.AeadProviderParameters.AwsParameters;
+import com.google.crypto.tink.Aead;
+import com.google.crypto.tink.KeysetHandle;
+import com.google.crypto.tink.KeysetReader;
 import com.google.crypto.tink.integration.awskmsv2.AwsKmsV2Client;
 import com.google.scp.shared.crypto.tink.CloudAeadSelector;
 import java.io.BufferedWriter;
@@ -32,25 +41,42 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.GeneralSecurityException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 import javax.inject.Inject;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider;
 import software.amazon.awssdk.http.SdkHttpClient;
 import software.amazon.awssdk.http.apache.ApacheHttpClient;
+import software.amazon.awssdk.services.kms.model.IncorrectKeyException;
+import software.amazon.awssdk.services.sts.model.InvalidIdentityTokenException;
+import software.amazon.awssdk.services.sts.model.StsException;
 
 /** Gets AEADs from AWS KMS using attested credentials */
 public final class AwsAeadProvider implements AeadProvider {
   private static final Logger logger = LoggerFactory.getLogger(AwsAeadProvider.class);
 
   private static final SdkHttpClient HTTP_CLIENT = ApacheHttpClient.builder().build();
+  private static final String KEK_URI_PREFIX = "aws-kms://";
   private static final String FILE_PREFIX = "cfm-aws";
   private static final String ROLE_SESSION_NAME = "cfm-worker";
   private final AttestationTokenService attestationTokenService;
   private final List<Path> tokenFilePaths;
+  private static final String[] INVALID_ROLE_MSGS = {
+    "'roleArn' failed to satisfy constraint", "Request ARN is invalid"
+  };
+
+  private static final String WRONG_KEK_MSG =
+      "The key ID in the request does not identify a CMK that can perform this operation";
+
+  private static final String INVALID_AUDIENCE_MSG = "Incorrect token audience";
+
+  private static final String ATTESTATION_MSG =
+      "Not authorized to perform sts:AssumeRoleWithWebIdentity";
 
   @Inject
   public AwsAeadProvider(AttestationTokenService attestationTokenService) {
@@ -70,6 +96,43 @@ public final class AwsAeadProvider implements AeadProvider {
     Path tokenFilePath = createNewTokenFile();
     getAndWriteTokenToFile(tokenFilePath, awsParameters.audience());
     return getAwsClientForRole(awsParameters.roleArn(), tokenFilePath);
+  }
+
+  @Override
+  public KeysetHandle readKeysetHandle(KeysetReader dekReader, Aead kekAead)
+      throws AeadProviderException {
+    try {
+      return KeysetHandle.read(dekReader, kekAead);
+    } catch (Exception exception) {
+      Throwable rootEx = ExceptionUtils.getRootCause(exception);
+      if (rootEx instanceof InvalidIdentityTokenException
+          && rootEx.getMessage().contains(INVALID_AUDIENCE_MSG)) {
+        String msg = "Invalid audience passed to AWS KMS.";
+        logger.warn(msg);
+        throw new AeadProviderException(msg, rootEx, UNAUTHORIZED_AUDIENCE);
+      } else if (rootEx instanceof IncorrectKeyException
+          && rootEx.getMessage().contains(WRONG_KEK_MSG)) {
+        String msg =
+            "KEK cannot decrypt DEK, either because it doesn't exist or does not have permission.";
+        logger.info(msg);
+        throw new AeadProviderException(msg, rootEx, INVALID_KEK);
+
+      } else if (rootEx instanceof StsException) {
+        String errorMessage = rootEx.getMessage();
+        if (Arrays.stream(INVALID_ROLE_MSGS).anyMatch(errorMessage::contains)) {
+          String msg = "Invalid role ARN (bad format) passed.";
+          logger.warn(msg);
+          throw new AeadProviderException(msg, rootEx, INVALID_ROLE_FORMAT);
+        } else if (errorMessage.contains(ATTESTATION_MSG)) {
+          String msg = "Attestation failed, either due to KMS trust conditions or role is invalid.";
+          logger.info(msg);
+          throw new AeadProviderException(msg, rootEx, AWS_AUTH_FAILED);
+        }
+      }
+      String msg = "KeysetHandle read failed for unknown reason.";
+      logger.warn(msg);
+      throw new AeadProviderException(msg, rootEx, DEK_DECRYPTION_ERROR);
+    }
   }
 
   /** Closes AeadProvider, deleting existing files. */
@@ -101,8 +164,17 @@ public final class AwsAeadProvider implements AeadProvider {
 
   private CloudAeadSelector getAwsClientForRole(String roleArn, Path tokenFilePath) {
     return (kekUri) -> {
+      if (!kekUri.startsWith(KEK_URI_PREFIX)) {
+        kekUri = KEK_URI_PREFIX + kekUri;
+      }
       AwsKmsV2Client kmsV2Client = buildAwsV2Client(roleArn, tokenFilePath);
-      return kmsV2Client.getAead(kekUri);
+      try {
+        return kmsV2Client.getAead(kekUri);
+      } catch (IllegalArgumentException | IndexOutOfBoundsException e) {
+        String msg = "Invalid format for KEK";
+        logger.info(msg);
+        throw new UncheckedAeadProviderException(msg, e, INVALID_KEK_FORMAT);
+      }
     };
   }
 
