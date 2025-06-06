@@ -20,6 +20,7 @@ import com.google.auto.value.AutoValue;
 import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner.DataLocation;
 import com.google.cm.mrp.backend.EncodingTypeProto.EncodingType;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
+import com.google.cm.mrp.backend.ModeProto.Mode;
 import java.util.List;
 import java.util.Optional;
 
@@ -27,7 +28,7 @@ import java.util.Optional;
 public abstract class JobParameters {
   /** Returns a new builder. */
   public static Builder builder() {
-    return new AutoValue_JobParameters.Builder();
+    return new AutoValue_JobParameters.Builder().setMode(Mode.REDACT);
   }
 
   /** Returns jobId for current job */
@@ -46,6 +47,9 @@ public abstract class JobParameters {
   /** Returns encodingType to use to decode data if needed */
   public abstract Optional<EncodingType> encodingType();
 
+  /** Returns mode to use for data matching operations */
+  public abstract Mode mode();
+
   /** Returns outputDataLocation where to write outputs */
   public abstract OutputDataLocation outputDataLocation();
 
@@ -61,6 +65,9 @@ public abstract class JobParameters {
 
     /** Sets encodingType */
     public abstract Builder setEncodingType(EncodingType encodingType);
+
+    /** Sets mode */
+    public abstract Builder setMode(Mode mode);
 
     /** Sets outputDataLocation */
     public abstract Builder setOutputDataLocation(OutputDataLocation outputDataLocation);

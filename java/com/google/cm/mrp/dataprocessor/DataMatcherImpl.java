@@ -18,13 +18,15 @@ package com.google.cm.mrp.dataprocessor;
 
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PARTIAL_SUCCESS_CONFIG_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.SUCCESS;
-import static com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.Mode.REDACT;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.UNSUPPORTED_MODE_ERROR;
+import static com.google.cm.mrp.backend.ModeProto.Mode.REDACT;
 import static com.google.common.hash.Hashing.sha256;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.cm.mrp.JobProcessorException;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord.KeyValue;
+import com.google.cm.mrp.backend.FieldMatchProto.FieldMatch;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.Column;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.CompositeColumn;
@@ -35,7 +37,8 @@ import com.google.cm.mrp.backend.SchemaProto.Schema;
 import com.google.cm.mrp.backend.SchemaProto.Schema.ColumnType;
 import com.google.cm.mrp.dataprocessor.models.DataChunk;
 import com.google.cm.mrp.dataprocessor.models.DataMatchResult;
-import com.google.cm.mrp.dataprocessor.models.KeyValuePair;
+import com.google.cm.mrp.dataprocessor.models.Field;
+import com.google.cm.mrp.dataprocessor.models.FieldsWithMetadata;
 import com.google.cm.mrp.dataprocessor.models.MatchColumnIndices;
 import com.google.cm.mrp.dataprocessor.models.MatchStatistics;
 import com.google.cm.mrp.dataprocessor.models.SingleColumnIndices;
@@ -54,6 +57,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
@@ -126,14 +130,9 @@ public final class DataMatcherImpl implements DataMatcher {
   @SuppressWarnings("UnstableApiUsage")
   public DataMatchResult match(
       DataChunk dataChunkFromDataSource1, DataChunk dataChunkFromDataSource2) {
-
-    // this size is accurate for REDACT mode logic. For TRANSFORM mode, we will have to change it.
-    final ImmutableList.Builder<DataRecord> records =
-        ImmutableList.builderWithExpectedSize(dataChunkFromDataSource1.records().size());
-
-    // We can build a HashMap once, and then match against it multiple times for performance.
-    final Map<KeyValuePair, Integer> keyValuePairCount =
-        buildKeyValuePairCountForDataSource2(dataChunkFromDataSource2);
+    // Collects all fields at once, so they can be matched multiple times for performance.
+    final FieldsWithMetadata dataSource2Fields =
+        buildDataSource2FieldsWithMetadata(dataChunkFromDataSource2);
 
     MatchColumnsList dataSource1MatchColumnsList =
         MatchColumnsList.generateMatchColumnsListForDataSource1(
@@ -156,64 +155,68 @@ public final class DataMatcherImpl implements DataMatcher {
     // Counts the number of conditions that were matched in datasource 2
     var datasource2ConditionMatches = new HashMap<String, Long>();
 
-    if (REDACT.equals(matchConfig.getMode())) {
-      // Set of KeyValuePairs that we have already processed.  This is used to avoid over counting
-      // datasource2ConditionMatches when there are duplicate kvPairs in datasource1.  The values in
-      // keyValuePairCount should already include the sum of all the datasource2 matches for a
-      // given keyValuePair.
-      HashSet<KeyValuePair> processedKvPairs = new HashSet<>();
-      for (DataRecord dataRecord : dataChunkFromDataSource1.records()) {
-        DataRecord outputRecord;
+    final ImmutableList.Builder<DataRecord> outputRecords =
+        ImmutableList.builderWithExpectedSize(dataChunkFromDataSource1.records().size());
+    // Set of fields that we have already processed. This is used to avoid over counting
+    // datasource2ConditionMatches when there are duplicate fields in datasource1.  The values in
+    // dataSource2Fields should already include the sum of all the datasource2
+    // matches for a given fields.
+    HashSet<Field> processedFields = new HashSet<>();
+    for (DataRecord dataRecord : dataChunkFromDataSource1.records()) {
+      DataRecord outputRecord;
 
-        if (shouldAppendRecordStatus() && dataRecord.hasErrorCode()) {
-          String errorCode = dataRecord.getErrorCode().name();
+      if (shouldAppendRecordStatus() && dataRecord.hasErrorCode()) {
+        String errorCode = dataRecord.getErrorCode().name();
+        outputRecord =
+            redact(
+                dataRecord,
+                successConfig.getPartialSuccessAttributes().getRedactErrorWith(),
+                /* redactPredicate= */ dataSource1MatchColumnsList::isMatchColumn,
+                /* recordStatus= */ Optional.of(errorCode));
+        datasource1ErrorCounts.merge(errorCode, 1L, Long::sum);
+      } else {
+        final List<FieldMatch> matchedFields =
+            getMatchedFields(
+                /* dataRecord= */ transformer.transform(dataRecord),
+                dataSource2Fields,
+                dataSource1MatchColumnsList,
+                conditionMatchCounts,
+                validConditionCheckCounts,
+                datasource2ConditionMatches,
+                processedFields);
+
+        numDataRecordsWithMatch += matchedFields.isEmpty() ? 0 : 1;
+
+        if (REDACT == jobParameters.mode()) {
           outputRecord =
               redact(
                   dataRecord,
-                  successConfig.getPartialSuccessAttributes().getRedactErrorWith(),
-                  /* redactPredicate= */ dataSource1MatchColumnsList::isMatchColumn,
-                  /* recordStatus= */ Optional.of(errorCode));
-          datasource1ErrorCounts.merge(errorCode, 1L, Long::sum);
-        } else {
-          final List<Integer> matchedColumns =
-              getMatchedColumns(
-                  /* dataRecord= */ transformer.transform(dataRecord),
-                  keyValuePairCount,
-                  dataSource1MatchColumnsList,
-                  conditionMatchCounts,
-                  validConditionCheckCounts,
-                  datasource2ConditionMatches,
-                  processedKvPairs);
-
-          numDataRecordsWithMatch += matchedColumns.isEmpty() ? 0 : 1;
-
-          outputRecord =
-              redact(
-                  dataRecord,
-                  matchConfig.getRedactUnmatchedWith(),
+                  matchConfig.getModeConfigs().getRedactModeConfig().getRedactUnmatchedWith(),
                   /* redactPredicate= */ i ->
-                      dataSource1MatchColumnsList.isMatchColumn(i) && !matchedColumns.contains(i),
+                      dataSource1MatchColumnsList.isMatchColumn(i)
+                          && matchedFields.stream()
+                              .noneMatch(field -> field.hasIndex() && field.getIndex() == i),
                   /* recordStatus= */ shouldAppendRecordStatus()
                       ? Optional.of(SUCCESS.name())
                       : Optional.empty());
-        }
-
-        if (!isEmpty(outputRecord)) {
-          records.add(outputRecord);
+        } else {
+          throw new JobProcessorException(
+              "Unknown mode: " + jobParameters.mode(), UNSUPPORTED_MODE_ERROR);
         }
       }
-    } else {
-      // TODO(b/309462754): Add data matching logic for TRANSFORM mode
-      throw new UnsupportedOperationException(
-          "TRANSFORM match configuration is not supported yet.");
+
+      if (!isEmpty(outputRecord)) {
+        outputRecords.add(outputRecord);
+      }
     }
+
     // TODO: Change the schema in the returned dataChunk for TRANSFORM mode.  The DataSource1 schema
     // can be used for REDACT mode, but this is not the case for TRANSFORM mode. This will require
     // changes in the DataWriter since the schema is not read from this DataChunk
     return DataMatchResult.create(
         DataChunk.builder()
             .setSchema(getUpdatedSchema(dataChunkFromDataSource1.schema()))
-            .setRecords(records.build())
+            .setRecords(outputRecords.build())
             .build(),
         MatchStatistics.create(
             0,
@@ -225,13 +228,14 @@ public final class DataMatcherImpl implements DataMatcher {
             datasource2ConditionMatches));
   }
 
-  // Returns a map where the key is the key value pair (column name, column value) and the value is
-  // the number of instances of this key value pair in the data chunk.  The number of instances of
-  // each key value pair represents the number of times that data record was matched in datasource
-  // 2.
-  private Map<KeyValuePair, Integer> buildKeyValuePairCountForDataSource2(
+  /**
+   * Iterates through all the {@link DataRecord}s in DataSource2, extracts each field (or
+   * compositeField) as well its relevant metadata (such as the count of a field within the
+   * DataSource). Returns a {@link FieldsWithMetadata} mapping each field to its metadata.
+   */
+  private FieldsWithMetadata buildDataSource2FieldsWithMetadata(
       DataChunk dataChunkFromDataSource2) {
-    HashMap<KeyValuePair, Integer> keyValuePairCount = new HashMap<>();
+    FieldsWithMetadata fields = new FieldsWithMetadata();
     // HashSet of datasource2 columns (single column match condition) that have already been
     // processed
     HashSet<String> recordedDataSource2ColumnSingle = new HashSet<>();
@@ -245,49 +249,50 @@ public final class DataMatcherImpl implements DataMatcher {
           continue;
         }
         recordedDataSource2ColumnSingle.add(columnAlias);
-        updateKeyValuePairCountForSingleColumnMatchCondition(
-            matchCondition, keyValuePairCount, dataChunkFromDataSource2);
+        updateFieldsForSingleColumnMatchCondition(matchCondition, fields, dataChunkFromDataSource2);
       } else {
         String columnAlias = matchCondition.getDataSource2Column().getColumnAlias();
         if (recordedDataSource2ColumnMulti.contains(columnAlias)) {
           continue;
         }
         recordedDataSource2ColumnMulti.add(columnAlias);
-        updateKeyValuePairCountForMultiColumnMatchCondition(
-            matchCondition, keyValuePairCount, dataChunkFromDataSource2);
+        updateFieldsForMultiColumnMatchCondition(matchCondition, fields, dataChunkFromDataSource2);
       }
     }
-    return keyValuePairCount;
+    return fields;
   }
 
-  private void updateKeyValuePairCountForSingleColumnMatchCondition(
+  private void updateFieldsForSingleColumnMatchCondition(
       MatchCondition singleColumnMatchCondition,
-      Map<KeyValuePair, Integer> keyValuePairCount,
+      FieldsWithMetadata fields,
       DataChunk dataChunkFromDataSource2) {
     Schema schema = dataChunkFromDataSource2.schema();
     SingleColumnIndices columnIndices =
         MatchColumnsList.getMatchColumnsForSingleColumnMatchCondition(
             schema, singleColumnMatchCondition.getDataSource2Column().getColumnsList());
-    for (DataRecord dataRecord : dataChunkFromDataSource2.records()) {
-      for (Integer columnIndex : columnIndices.indicesList()) {
-        keyValuePairCount.merge(
-            KeyValuePair.builder()
-                .setKey(
-                    singleColumnMatchCondition
-                        .getDataSource2Column()
-                        .getColumns(0)
-                        .getColumnAlias())
-                .setValue(dataRecord.getKeyValues(columnIndex).getStringValue())
-                .build(),
-            1,
-            Integer::sum);
+    if (REDACT == jobParameters.mode()) {
+      for (DataRecord dataRecord : dataChunkFromDataSource2.records()) {
+        for (Integer columnIndex : columnIndices.indicesList()) {
+          fields.upsertField(
+              Field.builder()
+                  .setKey(
+                      singleColumnMatchCondition
+                          .getDataSource2Column()
+                          .getColumns(0)
+                          .getColumnAlias())
+                  .setValue(dataRecord.getKeyValues(columnIndex).getStringValue())
+                  .build());
+        }
       }
+    } else {
+      throw new JobProcessorException(
+          "Unknown mode: " + jobParameters.mode(), UNSUPPORTED_MODE_ERROR);
     }
   }
 
-  private void updateKeyValuePairCountForMultiColumnMatchCondition(
+  private void updateFieldsForMultiColumnMatchCondition(
       MatchCondition multiColumnMatchCondition,
-      Map<KeyValuePair, Integer> keyValuePairCount,
+      FieldsWithMetadata fields,
       DataChunk dataChunkFromDataSource2) {
     Schema schema = dataChunkFromDataSource2.schema();
     // Create a map whose key is the column group and value is the list of indices of columns
@@ -296,105 +301,113 @@ public final class DataMatcherImpl implements DataMatcher {
         MatchColumnsList.getMatchColumnsForMultiColumnMatchCondition(
                 schema, multiColumnMatchCondition.getDataSource2Column().getColumnsList())
             .columnGroupIndicesMultimap();
-    for (DataRecord dataRecord : dataChunkFromDataSource2.records()) {
-      for (Collection<Integer> columnIndices : columnGroups.asMap().values()) {
-        String combinedValues =
-            columnIndices.stream()
-                .map(dataRecord::getKeyValues)
-                .map(KeyValue::getStringValue)
-                .collect(Collectors.joining());
-        keyValuePairCount.merge(
-            KeyValuePair.builder()
-                .setKey(multiColumnMatchCondition.getDataSource2Column().getColumnAlias())
-                .setValue(hashString(combinedValues))
-                .build(),
-            1,
-            Integer::sum);
+    if (REDACT == jobParameters.mode()) {
+      for (DataRecord dataRecord : dataChunkFromDataSource2.records()) {
+        for (Collection<Integer> columnIndices : columnGroups.asMap().values()) {
+          String combinedValues =
+              columnIndices.stream()
+                  .map(dataRecord::getKeyValues)
+                  .map(KeyValue::getStringValue)
+                  .collect(Collectors.joining());
+          fields.upsertField(
+              Field.builder()
+                  .setKey(multiColumnMatchCondition.getDataSource2Column().getColumnAlias())
+                  .setValue(hashString(combinedValues))
+                  .build());
+        }
       }
+    } else {
+      throw new JobProcessorException(
+          "Unknown mode: " + jobParameters.mode(), UNSUPPORTED_MODE_ERROR);
     }
   }
 
-  // Gets all the keys that have a match in keyValuePairSet. Updates matched conditions map.
-  private List<Integer> getMatchedColumns(
+  // Gets all the keys that have a match in dataSource2Fields. Updates matched conditions map.
+  private List<FieldMatch> getMatchedFields(
       DataRecord dataRecord,
-      Map<KeyValuePair, Integer> keyValuePairCount,
+      FieldsWithMetadata dataSource2fields,
       MatchColumnsList matchColumnsList,
       Map<String, Long> matchedConditions,
       Map<String, Long> validConditions,
       Map<String, Long> datasource2ConditionMatches,
-      HashSet<KeyValuePair> processedKvPairs) {
-    List<Integer> matchedColumns = new ArrayList<>();
+      HashSet<Field> processedFields) {
+    List<FieldMatch> matchedFields = new ArrayList<>();
     for (int i = 0; i < matchConfig.getMatchConditionsCount(); ++i) {
       MatchCondition matchCondition = matchConfig.getMatchConditions(i);
       CompositeColumn dataSource1Column = matchCondition.getDataSource1Column();
       MatchColumnIndices matchColumns = matchColumnsList.getList().get(i);
-      List<Integer> matches =
+      List<FieldMatch> matches =
           dataSource1Column.getColumnsCount() == 1
-              ? getMatchedColumnsForSingleColumnMatchCondition(
+              ? getMatchedFieldsForSingleColumnMatchCondition(
                   matchCondition,
                   dataRecord,
-                  keyValuePairCount,
+                  dataSource2fields,
                   matchColumns.singleColumnIndices().indicesList(),
                   validConditions,
                   matchedConditions,
                   datasource2ConditionMatches,
-                  processedKvPairs)
-              : getMatchedColumnsForMultiColumnMatchCondition(
+                  processedFields)
+              : getMatchedFieldsForMultiColumnMatchCondition(
                   matchCondition,
                   dataRecord,
-                  keyValuePairCount,
+                  dataSource2fields,
                   matchColumns.columnGroupIndices().columnGroupIndicesMultimap(),
                   validConditions,
                   matchedConditions,
                   datasource2ConditionMatches,
-                  processedKvPairs);
-      matchedColumns.addAll(matches);
+                  processedFields);
+      matchedFields.addAll(matches);
     }
-    return matchedColumns;
+    return matchedFields;
   }
 
   /**
-   * Finds and returns all columns that matched using a single column MatchCondition.
+   * Finds and returns all fields that matched using a single column MatchCondition.
    *
    * @param singleColumnMatchCondition a MatchCondition whose DataSource1Column only has one column
    * @param dataRecord the DataRecord to be matched against
-   * @param keyValuePairCount the map representing the data records in DataSource2 that the
-   *     dataRecord will be matched against
-   * @param columnIndices the indices of the columns in the DataChunk schema that correspond to the
-   *     column in the DataSource1Column of the singleColumnMatchCondition
+   * @param dataSource2Fields all the fields from DataSource2 that the dataRecord will be matched
+   *     against
+   * @param dataSource1columnIndices the indices of the columns in the DataChunk schema that
+   *     correspond to the column in the DataSource1Column of the singleColumnMatchCondition
    */
-  private ImmutableList<Integer> getMatchedColumnsForSingleColumnMatchCondition(
+  private ImmutableList<FieldMatch> getMatchedFieldsForSingleColumnMatchCondition(
       MatchCondition singleColumnMatchCondition,
       DataRecord dataRecord,
-      Map<KeyValuePair, Integer> keyValuePairCount,
-      List<Integer> columnIndices,
+      FieldsWithMetadata dataSource2Fields,
+      List<Integer> dataSource1columnIndices,
       Map<String, Long> validConditions,
       Map<String, Long> matchedConditions,
       Map<String, Long> datasource2ConditionMatches,
-      HashSet<KeyValuePair> processedKvPairs) {
-    ImmutableList.Builder<Integer> matchedColumns = ImmutableList.builder();
+      HashSet<Field> processedFields) {
+    ImmutableList.Builder<FieldMatch> matchedFields = ImmutableList.builder();
     String conditionName = singleColumnMatchCondition.getDataSource1Column().getColumnAlias();
     long numValidMatchAttempts = 0L;
-    for (Integer i : columnIndices) {
+    for (Integer i : dataSource1columnIndices) {
       KeyValue kv = dataRecord.getKeyValues(i);
       String stringValue = kv.getStringValue();
       numValidMatchAttempts += kv.getStringValue().isEmpty() ? 0 : 1;
-      KeyValuePair kvPair =
-          KeyValuePair.builder()
+      Field fieldKey =
+          Field.builder()
               .setKey(singleColumnMatchCondition.getDataSource2Column().getColumnAlias())
               .setValue(stringValue)
               .build();
-      int count = keyValuePairCount.getOrDefault(kvPair, 0);
-      if (count > 0) {
-        matchedColumns.add(i);
-        matchedConditions.merge(conditionName, 1L, Long::sum);
-        if (processedKvPairs.add(kvPair)) {
-          datasource2ConditionMatches.merge(conditionName, (long) count, Long::sum);
+      if (REDACT == jobParameters.mode()) {
+        int matchesCount = dataSource2Fields.getCountForField(fieldKey);
+        if (matchesCount > 0) {
+          matchedFields.add(FieldMatch.newBuilder().setIndex(i).build());
+          matchedConditions.merge(conditionName, 1L, Long::sum);
+          if (processedFields.add(fieldKey)) {
+            datasource2ConditionMatches.merge(conditionName, (long) matchesCount, Long::sum);
+          }
         }
+      } else {
+        throw new JobProcessorException(
+            "Unknown mode: " + jobParameters.mode(), UNSUPPORTED_MODE_ERROR);
       }
     }
     validConditions.merge(conditionName, numValidMatchAttempts, Long::sum);
-    return matchedColumns.build();
+    return matchedFields.build();
   }
 
   /**
@@ -402,67 +415,72 @@ public final class DataMatcherImpl implements DataMatcher {
    *
    * @param multiColumnMatchCondition a MatchCondition whose DataSource1Column has multiple columns
    * @param dataRecord the DataRecord to be matched against
-   * @param keyValuePairCount the set representing the data records in DataSource2 that the
-   *     dataRecord will be matched against
-   * @param columnGroups a map whose values are the list of indices of the columns that have the
-   *     same column group. The columns in each group correspond to the columns in the
+   * @param dataSource2Fields all the fields from DataSource2 that the dataRecord will be matched
+   *     against
+   * @param dataSource1columnGroups a map whose values are the list of indices of the columns that
+   *     have the same column group. The columns in each group correspond to the columns in the
    *     DataSource1Column of the multiColumnMatchCondition
    */
-  private ImmutableList<Integer> getMatchedColumnsForMultiColumnMatchCondition(
+  private ImmutableList<FieldMatch> getMatchedFieldsForMultiColumnMatchCondition(
       MatchCondition multiColumnMatchCondition,
       DataRecord dataRecord,
-      Map<KeyValuePair, Integer> keyValuePairCount,
-      ListMultimap<Integer, Integer> columnGroups,
+      FieldsWithMetadata dataSource2Fields,
+      ListMultimap<Integer, Integer> dataSource1columnGroups,
       Map<String, Long> validConditions,
       Map<String, Long> matchedConditions,
       Map<String, Long> datasource2ConditionMatches,
-      HashSet<KeyValuePair> processedKvPairs) {
-    ImmutableList.Builder<Integer> matchedColumns = ImmutableList.builder();
+      HashSet<Field> processedFields) {
+    ImmutableList.Builder<FieldMatch> matchedFields = ImmutableList.builder();
     String conditionName = multiColumnMatchCondition.getDataSource1Column().getColumnAlias();
     long numValidMatchAttempts = 0L;
     // For every group, append all the values together, hash the result, and look for a match in the
-    // keyValuePairSet.  Maps returned by ListMultimap.asMap() have List values with insert ordering
-    // preserved, although the method signature doesn't explicitly say so.
-    for (Collection<Integer> columnGroupIndices : columnGroups.asMap().values()) {
+    // dataSource2Fields. Maps returned by ListMultimap.asMap() have List values with insert
+    // ordering preserved, although the method signature doesn't explicitly say so.
+    for (Entry<Integer, Collection<Integer>> columnGroupIndexEntry :
+        dataSource1columnGroups.asMap().entrySet()) {
       // The logic here relies on the fact that the column lists are all already sorted by column
       // order, to ensure the resulting hash value is consistent every time.
       String combinedValues =
-          columnGroupIndices.stream()
+          columnGroupIndexEntry.getValue().stream()
               .map(dataRecord::getKeyValues)
               .map(KeyValue::getStringValue)
               .collect(Collectors.joining());
 
-      // The corresponding kvPair that would be in DataSource2 (keyValuePairSet) if there was a
-      // match.
-      KeyValuePair kvPair =
-          KeyValuePair.builder()
+      // The corresponding field that would be in DataSource2 if there was a match.
+      Field fieldKey =
+          Field.builder()
               .setKey(multiColumnMatchCondition.getDataSource2Column().getColumnAlias())
               .setValue(hashString(combinedValues))
               .build();
+      if (REDACT == jobParameters.mode()) {
+        int matchesCount = dataSource2Fields.getCountForField(fieldKey);
 
-      int matchesCount = keyValuePairCount.getOrDefault(kvPair, 0);
+        // This variable counts the number of matching attempts that occur and are considered
+        // valid.
+        // An invalid match attempt is one where every column is empty, but it is still possible
+        // to match when only some columns are empty. The combined values variable will be empty
+        // when every column value is empty, so match attempt validity is checked using this. An
+        // attempt is also considered valid if there was a match, which acts as a failsafe to avoid
+        // reporting more matches than attempts.
+        numValidMatchAttempts += matchesCount == 0 && combinedValues.isEmpty() ? 0 : 1;
 
-      // This variable counts the number of matching attempts that occur and are considered valid.
-      // An invalid match attempt is one where every column is empty, but it is still possible to
-      // match when only some columns are empty. The combined values variable will be empty when
-      // every column value is empty, so match attempt validity is checked using it. An attempt is
-      // also considered valid if there was a match, which acts as a failsafe to avoid reporting
-      // more matches than attempts.
-      numValidMatchAttempts += matchesCount == 0 && combinedValues.isEmpty() ? 0 : 1;
-
-      if (matchesCount > 0) {
-        // Found a match.
-        for (Integer columnIndex : columnGroupIndices) {
-          matchedColumns.add(columnIndex);
+        if (matchesCount > 0) {
+          // Found a match.
+          for (Integer columnIndex : columnGroupIndexEntry.getValue()) {
+            matchedFields.add(FieldMatch.newBuilder().setIndex(columnIndex).build());
+          }
+          matchedConditions.merge(conditionName, 1L, Long::sum);
+          if (processedFields.add(fieldKey)) {
+            datasource2ConditionMatches.merge(conditionName, (long) matchesCount, Long::sum);
+          }
         }
-        matchedConditions.merge(conditionName, 1L, Long::sum);
-        if (processedKvPairs.add(kvPair)) {
-          datasource2ConditionMatches.merge(conditionName, (long) matchesCount, Long::sum);
-        }
+      } else {
+        throw new JobProcessorException(
+            "Unknown mode: " + jobParameters.mode(), UNSUPPORTED_MODE_ERROR);
       }
     }
     validConditions.merge(conditionName, numValidMatchAttempts, Long::sum);
-    return matchedColumns.build();
+    return matchedFields.build();
   }
 
   /**

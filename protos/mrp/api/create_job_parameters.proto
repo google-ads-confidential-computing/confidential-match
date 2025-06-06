@@ -54,8 +54,19 @@ message JobParameters {
     HEX = 2;
   }
 
+  // The mode for job to determine data matching operations
+  enum Mode {
+    UNSPECIFIED_MODE = 0;
+    // Default. Data matching only redacts unmatched inputs
+    REDACT = 1;
+    // Data matching redacts unmatched inputs as well as includes
+    // additional values from data source 2
+    JOIN = 2;
+  }
+
   DataOwnerList data_owner_list = 1;
   ApplicationId application_id = 2;
   optional EncryptionMetadata encryption_metadata = 3;
   optional EncodingType encoding_type = 4;
+  optional Mode mode = 5;
 }

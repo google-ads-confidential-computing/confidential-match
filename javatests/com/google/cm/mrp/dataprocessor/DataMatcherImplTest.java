@@ -34,6 +34,8 @@ import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner.Da
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord.KeyValue;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
+import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.ModeConfigs;
+import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.ModeConfigs.RedactModeConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.SuccessConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.SuccessConfig.SuccessMode;
 import com.google.cm.mrp.backend.SchemaProto.Schema;
@@ -521,7 +523,10 @@ public final class DataMatcherImplTest {
             dataRecordTransformerFactory,
             MatchConfig.newBuilder()
                 .mergeFrom(MatchConfigProvider.getMatchConfig("customer_match"))
-                .setRedactUnmatchedWith("")
+                .setModeConfigs(
+                    ModeConfigs.newBuilder()
+                        .setRedactModeConfig(
+                            RedactModeConfig.newBuilder().setRedactUnmatchedWith("")))
                 .build(),
             DEFAULT_PARAMS);
     String[][] testData = {
@@ -563,10 +568,7 @@ public final class DataMatcherImplTest {
     dataMatcher =
         new DataMatcherImpl(
             dataRecordTransformerFactory,
-            MatchConfig.newBuilder()
-                .mergeFrom(MatchConfigProvider.getMatchConfig("customer_match"))
-                .setRedactUnmatchedWith("")
-                .build(),
+            MatchConfigProvider.getMatchConfig("customer_match"),
             DEFAULT_PARAMS);
     String[][] testData = {
       {"email", "email", ""},
@@ -632,10 +634,7 @@ public final class DataMatcherImplTest {
     dataMatcher =
         new DataMatcherImpl(
             dataRecordTransformerFactory,
-            MatchConfig.newBuilder()
-                .mergeFrom(MatchConfigProvider.getMatchConfig("customer_match"))
-                .setRedactUnmatchedWith("")
-                .build(),
+            MatchConfigProvider.getMatchConfig("customer_match"),
             DEFAULT_PARAMS);
     String[][] testData = {
       {"email", "email", "fake.email@google.com"},
@@ -701,10 +700,7 @@ public final class DataMatcherImplTest {
     dataMatcher =
         new DataMatcherImpl(
             dataRecordTransformerFactory,
-            MatchConfig.newBuilder()
-                .mergeFrom(MatchConfigProvider.getMatchConfig("customer_match"))
-                .setRedactUnmatchedWith("")
-                .build(),
+            MatchConfigProvider.getMatchConfig("customer_match"),
             DEFAULT_PARAMS);
     String[][] testData = {
       {"email", "email", "fake.email@google.com"},
@@ -768,10 +764,7 @@ public final class DataMatcherImplTest {
     dataMatcher =
         new DataMatcherImpl(
             dataRecordTransformerFactory,
-            MatchConfig.newBuilder()
-                .mergeFrom(MatchConfigProvider.getMatchConfig("customer_match"))
-                .setRedactUnmatchedWith("REDACT")
-                .build(),
+            MatchConfigProvider.getMatchConfig("customer_match"),
             DEFAULT_PARAMS);
     String[][] testData = {
       {"email", "email", "fake.email@google.com"},

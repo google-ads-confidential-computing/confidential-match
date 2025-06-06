@@ -1,0 +1,63 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package google.confidential_match.mrp.backend;
+
+option java_package = "com.google.cm.mrp.backend";
+option java_outer_classname = "FieldMatchProto";
+
+// Contains data about matches per field, either the index of a match or full MatchedOutputFields
+// which will be joined.
+message FieldMatch {
+  // MatchedOutputFields (field to join with the original dataSource1 field within
+  // the data record)
+  message MatchedOutputField {
+    // Field key
+    string key = 1;
+    // Field value
+    string value = 2;
+  }
+  // MatchedOutputFields which will be joined to single fields, where the
+  // index corresponds to the original dataSource1 field
+  message SingleFieldMatchedOutput {
+    // Index of the original field
+    int32 index = 1;
+    // Fields to join
+    repeated MatchedOutputField matched_output_fields = 2;
+  }
+  // MatchedOutputFields which will be joined to composite fields, where the
+  // column corresponds to the original dataSource1 composite group number
+  message CompositeFieldMatchedOutput {
+    // Column group for the original field
+    int32 column_group = 1;
+    // Fields to join
+    repeated MatchedOutputField matched_output_fields = 2;
+  }
+
+  // Each FieldMatch can only be of one when processing
+  oneof match_info {
+    // For REDACT mode
+    // Simple matching that saves index of original field,
+    // regardless of single or composite.
+    int32 index = 1;
+    // For JOIN mode
+    // MatchedOutputFields to join with single fields
+    SingleFieldMatchedOutput single_field_matched_output = 2;
+    // For JOIN mode
+    // MatchedOutputFields to join with composite fields
+    CompositeFieldMatchedOutput composite_field_matched_output = 3;
+  }
+}

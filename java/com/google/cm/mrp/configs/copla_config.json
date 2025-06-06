@@ -1,7 +1,10 @@
 {
   "application_id": "copla",
-  "mode": "REDACT",
-  "redact_unmatched_with": "UNMATCHED",
+  "mode_configs": {
+    "redact_mode_config": {
+      "redact_unmatched_with": "UNMATCHED"
+    }
+  },
   "success_config": {
     "success_mode": "ALLOW_PARTIAL_SUCCESS",
     "partial_success_attributes": {

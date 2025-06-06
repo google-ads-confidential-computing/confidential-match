@@ -85,6 +85,7 @@ enum JobResultCode {
   AWS_AUTH_FAILED = 127; // Attestation was rejected by AWS KMS
   INVALID_KEK = 128; // KEK cannot decrypt data due to not existing or incorrect (not attestation)
   INVALID_KEK_FORMAT = 129; // KEK was not formatted correctly
+  UNSUPPORTED_MODE_ERROR = 130; // Mode is not supported by application
 
   // Partial errors; 200 <= resultCode < 300
   PARTIAL_SUCCESS = 200;

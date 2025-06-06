@@ -38,6 +38,7 @@ import com.google.cm.mrp.backend.EncodingTypeProto.EncodingType;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
 import com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
+import com.google.cm.mrp.backend.ModeProto.Mode;
 import com.google.cm.mrp.dataprocessor.DataProcessor;
 import com.google.cm.mrp.dataprocessor.converters.EncryptionMetadataConverter;
 import com.google.cm.mrp.dataprocessor.models.MatchStatistics;
@@ -101,6 +102,7 @@ public final class MatchJobProcessor implements JobProcessor {
   private static final String APPLICATION_ID = "application_id";
   private static final String ENCRYPTION_METADATA = "encryption_metadata";
   private static final String ENCODING_TYPE = "encoding_type";
+  private static final String MODE = "mode";
 
   // Format stats to five significant digits after decimal
   private static final DecimalFormat FORMATTER = new DecimalFormat("0.#####");
@@ -219,6 +221,7 @@ public final class MatchJobProcessor implements JobProcessor {
 
       Optional<EncryptionMetadata> encryptionMetadata = validateAndGetEncryptionMetadata(params);
       EncodingType encodingType = validateAndGetEncodingType(params);
+      Mode mode = validateAndGetMode(params);
 
       MatchConfig matchConfig = MatchConfigProvider.getMatchConfig(params.get(APPLICATION_ID));
       Optional<String> dataOwnerIdentity =
@@ -249,6 +252,7 @@ public final class MatchJobProcessor implements JobProcessor {
                                 job.requestInfo().getOutputDataBlobPrefix()))
                         .setEncryptionMetadata(encryptionMetadata)
                         .setEncodingType(encodingType)
+                        .setMode(mode)
                         .build());
               });
 
@@ -355,6 +359,7 @@ public final class MatchJobProcessor implements JobProcessor {
     }
   }
 
+  /* Validates and sets EncryptionMetadata if passed in Job parameters. */
   private static Optional<EncryptionMetadata> validateAndGetEncryptionMetadata(
       Map<String, String> jobParamsMap) {
     if (!jobParamsMap.containsKey(ENCRYPTION_METADATA)) return Optional.empty();
@@ -372,6 +377,8 @@ public final class MatchJobProcessor implements JobProcessor {
         EncryptionMetadataConverter.convertToBackendEncryptionMetadata(apiEncryptionMetadata));
   }
 
+  /* Validates and sets encodingType if passed in Job parameters.
+   * Default encodingType is BASE64 */
   private static EncodingType validateAndGetEncodingType(Map<String, String> jobParamsMap) {
     if (!jobParamsMap.containsKey(ENCODING_TYPE)) return EncodingType.BASE64;
     String apiEncodingType = jobParamsMap.get(ENCODING_TYPE).toUpperCase(Locale.US);
@@ -379,6 +386,20 @@ public final class MatchJobProcessor implements JobProcessor {
       return EncodingType.valueOf(apiEncodingType);
     } catch (IllegalArgumentException e) {
       String message = "Invalid encoding type.";
+      logger.warn(message, e);
+      throw new JobProcessorException(message, e, INVALID_PARAMETERS);
+    }
+  }
+
+  /* Validates and sets mode if in Job parameters.
+   * Default mode is REDACT */
+  private static Mode validateAndGetMode(Map<String, String> jobParamsMap) {
+    if (!jobParamsMap.containsKey(MODE)) return Mode.REDACT;
+    String apiMode = jobParamsMap.get(MODE).toUpperCase(Locale.US);
+    try {
+      return Mode.valueOf(apiMode);
+    } catch (IllegalArgumentException e) {
+      String message = "Invalid mode.";
       logger.warn(message, e);
       throw new JobProcessorException(message, e, INVALID_PARAMETERS);
     }
@@ -524,7 +545,8 @@ public final class MatchJobProcessor implements JobProcessor {
       double conditionMatchPercentage =
           conditionChecks == 0L ? 0.0 : (100.0 * conditionMatches) / conditionChecks;
       double datasource2ConditionMatchPercentage =
-          conditionChecks == 0L ? 0.0 : (100.0 * datasource2Matches) / conditionChecks;
+          Math.min(
+              100.0, conditionChecks == 0L ? 0.0 : (100.0 * datasource2Matches) / conditionChecks);
       writeAndLogMetric("nummatchespercondition", "Count", conditionMatches, typeLabels, result);
       writeAndLogMetric(
           "numdatasource2matchespercondition", "Count", datasource2Matches, typeLabels, result);

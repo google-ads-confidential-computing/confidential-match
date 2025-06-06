@@ -50,6 +50,7 @@ cc_binary(
     deps = [
         ":lookup_server_lib",
         "//cc/external:absl_check",
+        "//cc/external:absl_debugging_failure_signal_handler",
         "//cc/external:absl_log",
         "//cc/external:absl_status",
         "//cc/external:absl_str_format",

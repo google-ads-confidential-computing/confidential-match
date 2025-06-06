@@ -64,6 +64,7 @@ java_test(
         "testdata/invalid_job_params_input_data_paths_and_prefix.json",
         "testdata/invalid_job_params_input_data_paths_without_schema_path.json",
         "testdata/invalid_job_params_invalid_encryption_metadata.json",
+        "testdata/invalid_job_params_invalid_mode.json",
         "testdata/invalid_job_params_lookup_endpoint.json",
         "testdata/invalid_job_params_multiple_data_owners.json",
         "testdata/invalid_job_params_multiple_wrapped_keys.json",

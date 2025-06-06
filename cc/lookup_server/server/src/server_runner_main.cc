@@ -16,9 +16,13 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <csignal>
 #include <list>
 #include <string>
 
+
+#include "absl/debugging/failure_signal_handler.h"
+#include "absl/debugging/symbolize.h"
 #include "absl/log/absl_log.h"
 #include "absl/log/check.h"
 #include "absl/status/status.h"
@@ -89,34 +93,13 @@ absl::Status Run(std::shared_ptr<ServiceInterface> service,
   return absl::OkStatus();
 }
 
-void PrintStackTrace() {
-  void* stack_lines[25];
-  size_t printed_count = backtrace(stack_lines, 25);
-  backtrace_symbols_fd(stack_lines, printed_count, STDERR_FILENO);
-}
-
-void SignalHandler(int signal_code) {
-  std::string error_message =
-      absl::StrFormat("Server crashed with signal: %d\n", signal_code);
-  // Ignore results of the following calls
-  write(STDERR_FILENO, error_message.c_str(), error_message.length());
-  fsync(STDERR_FILENO);
-  PrintStackTrace();
-
-  GlobalLogger::GetGlobalLogger()->Stop();
-  // Resend signal to the process with default signal handler
-  // for core dump to be generated
-  signal(signal_code, SIG_DFL);
-  kill(getpid(), signal_code);
-}
-
 int main(int argc, char** argv) {
-  signal(SIGINT, SignalHandler);
-  signal(SIGTERM, SignalHandler);
-  signal(SIGSEGV, SignalHandler);
-  signal(SIGPIPE, SIG_IGN);
-  signal(SIGCHLD, SIG_IGN);
-  signal(SIGHUP, SIG_IGN);
+  absl::InitializeSymbolizer(argv[0]);
+  absl::InstallFailureSignalHandler(absl::FailureSignalHandlerOptions());
+  std::signal(SIGINT, SIG_DFL);
+  std::signal(SIGPIPE, SIG_IGN);
+  std::signal(SIGCHLD, SIG_IGN);
+  std::signal(SIGHUP, SIG_IGN);
 
   config_provider = std::make_shared<EnvConfigProvider>();
   config_provider->Init();

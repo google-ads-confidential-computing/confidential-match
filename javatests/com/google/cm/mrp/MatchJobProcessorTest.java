@@ -137,6 +137,9 @@ public final class MatchJobProcessorTest {
             mockMetricClient,
             mockFeatureFlagProvider,
             mockStartupConfigProvider);
+
+    when(mockFeatureFlagProvider.getFeatureFlags())
+        .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
   }
 
   @Test
@@ -165,8 +168,6 @@ public final class MatchJobProcessorTest {
             .build();
     when(mockDataProcessor.process(any(), any(), any()))
         .thenReturn(MatchStatistics.emptyInstance());
-    when(mockFeatureFlagProvider.getFeatureFlags())
-        .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
     JobResult jobResult = processor.process(job);
 
@@ -193,8 +194,6 @@ public final class MatchJobProcessorTest {
             .build();
     when(mockDataProcessor.process(any(), any(), any()))
         .thenReturn(MatchStatistics.emptyInstance());
-    when(mockFeatureFlagProvider.getFeatureFlags())
-        .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
     JobResult jobResult = processor.process(job);
 
@@ -205,25 +204,50 @@ public final class MatchJobProcessorTest {
   }
 
   @Test
+  public void process_whenInvalidModeThrowThenReturnsInvalid() throws Exception {
+    Job job = generateFakeJob("testdata/invalid_job_params_invalid_mode.json");
+    JobResult expectedJobResult =
+        JobResult.builder()
+            .setJobKey(job.jobKey())
+            .setResultInfo(
+                ResultInfo.newBuilder()
+                    .setReturnCode(INVALID_PARAMETERS.name())
+                    .setReturnMessage(RESULT_FAILURE_MESSAGE)
+                    .setFinishedAt(ProtoUtil.toProtoTimestamp(FIXED_TIME))
+                    .putAllResultMetadata(DEFAULT_STATS_MAP)
+                    .build())
+            .build();
+
+    JobResult jobResult = processor.process(job);
+
+    assertEquals(expectedJobResult, jobResult);
+    verifyNoMoreInteractions(mockDataProcessor);
+  }
+
+  @Test
   public void process_whenMatchStatisticsCorrectlyFormatted() throws Exception {
     Job job = generateFakeJob("testdata/valid_job_params_hashed.json");
     Map<String, String> resultsMap = new HashMap<>();
     resultsMap.put("jobdurationseconds", "0");
     resultsMap.put("jobattempts", "1");
-    resultsMap.put("matchpercentage", "55.55555");
+    resultsMap.put("matchpercentage", "55.55578");
     resultsMap.put("matchpercentagepercondition email", "55.55555");
+    resultsMap.put("matchpercentagepercondition phone", "100");
     resultsMap.put("numdatarecords", "20000000");
     resultsMap.put("numdatarecordswithmatch", "11111111");
     resultsMap.put("numdatasource2matchespercondition email", "11111111");
+    resultsMap.put("numdatasource2matchespercondition phone", "200");
     resultsMap.put("numfiles", "20");
-    resultsMap.put("nummatches", "11111111");
-    resultsMap.put("numpii", "20000000");
+    resultsMap.put("nummatches", "11111211");
+    resultsMap.put("numpii", "20000100");
     resultsMap.put("nummatchespercondition email", "11111111");
+    resultsMap.put("nummatchespercondition phone", "100");
     resultsMap.put("datasource2matchpercentagepercondition email", "55.55555");
+    resultsMap.put("datasource2matchpercentagepercondition phone", "100");
     resultsMap.put("fileformat", "CSV");
-    ImmutableMap<String, Long> conditionMatchCounts = ImmutableMap.of("email", 11111111L);
-    ImmutableMap<String, Long> validConditionMatches = ImmutableMap.of("email", 20000000L);
-    ImmutableMap<String, Long> dataSource2Matches = ImmutableMap.of("email", 11111111L);
+    ImmutableMap<String, Long> conditionMatchCounts = ImmutableMap.of("email", 11111111L,"phone", 100L);
+    ImmutableMap<String, Long> validConditionMatches = ImmutableMap.of("email", 20000000L,"phone", 100L);
+    ImmutableMap<String, Long> dataSource2Matches = ImmutableMap.of("email", 11111111L,"phone", 200L);
     JobResult expectedJobResult =
         JobResult.builder()
             .setJobKey(job.jobKey())
@@ -246,8 +270,6 @@ public final class MatchJobProcessorTest {
             dataSource2Matches,
             CSV);
     when(mockDataProcessor.process(any(), any(), any())).thenReturn(stats);
-    when(mockFeatureFlagProvider.getFeatureFlags())
-        .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
     JobResult jobResult = processor.process(job);
 
@@ -271,8 +293,6 @@ public final class MatchJobProcessorTest {
                 Map.of(),
                 Map.of("email", 11111111L),
                 CSV));
-    when(mockFeatureFlagProvider.getFeatureFlags())
-        .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
     processor.process(job);
 
@@ -328,8 +348,6 @@ public final class MatchJobProcessorTest {
                 Map.of(DECRYPTION_ERROR.name(), 2L, DEK_DECRYPTION_ERROR.name(), 2L),
                 Map.of(),
                 CSV));
-    when(mockFeatureFlagProvider.getFeatureFlags())
-        .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
     processor.process(job);
 
@@ -379,8 +397,6 @@ public final class MatchJobProcessorTest {
     doThrow(new JobProcessorException("unused", INPUT_FILE_LIST_READ_ERROR))
         .when(mockDataProcessor)
         .process(any(), any(), any());
-    when(mockFeatureFlagProvider.getFeatureFlags())
-        .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
     processor.process(job);
 
@@ -456,8 +472,6 @@ public final class MatchJobProcessorTest {
         MatchStatistics.create(
             0, 20L, 1L, ImmutableMap.of(), ImmutableMap.of(), errorsMap, ImmutableMap.of(), CSV);
     when(mockDataProcessor.process(any(), any(), any())).thenReturn(stats);
-    when(mockFeatureFlagProvider.getFeatureFlags())
-        .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
     JobResult jobResult = processor.process(job);
 
@@ -517,8 +531,6 @@ public final class MatchJobProcessorTest {
         MatchStatistics.create(
             0, 4L, 1L, ImmutableMap.of(), ImmutableMap.of(), errorsMap, ImmutableMap.of());
     when(mockDataProcessor.process(any(), any(), any())).thenReturn(stats);
-    when(mockFeatureFlagProvider.getFeatureFlags())
-        .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
     JobResult jobResult = processor.process(job);
 
@@ -529,7 +541,7 @@ public final class MatchJobProcessorTest {
   }
 
   @Test
-  public void process_whenJobWithMultpleErrorCountEqualsNumRecordsReturnsNewMultipleErrorCode()
+  public void process_whenJobWithMultipleErrorCountEqualsNumRecordsReturnsNewMultipleErrorCode()
       throws Exception {
     Job job = generateFakeJob("testdata/valid_job_params_hashed.json");
     ImmutableMap<String, Long> errorsMap =
@@ -583,8 +595,6 @@ public final class MatchJobProcessorTest {
         MatchStatistics.create(
             0, 4L, 1L, ImmutableMap.of(), ImmutableMap.of(), errorsMap, ImmutableMap.of());
     when(mockDataProcessor.process(any(), any(), any())).thenReturn(stats);
-    when(mockFeatureFlagProvider.getFeatureFlags())
-        .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
     JobResult jobResult = processor.process(job);
 
@@ -608,8 +618,6 @@ public final class MatchJobProcessorTest {
                     .putAllResultMetadata(DEFAULT_STATS_MAP)
                     .build())
             .build();
-    when(mockFeatureFlagProvider.getFeatureFlags())
-        .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
     JobResult jobResult = processor.process(job);
 
@@ -631,8 +639,6 @@ public final class MatchJobProcessorTest {
                     .putAllResultMetadata(DEFAULT_STATS_MAP)
                     .build())
             .build();
-    when(mockFeatureFlagProvider.getFeatureFlags())
-        .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
     JobResult jobResult = processor.process(job);
 
@@ -654,8 +660,6 @@ public final class MatchJobProcessorTest {
                     .putAllResultMetadata(DEFAULT_STATS_MAP)
                     .build())
             .build();
-    when(mockFeatureFlagProvider.getFeatureFlags())
-        .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
     JobResult jobResult = processor.process(job);
 
@@ -677,8 +681,6 @@ public final class MatchJobProcessorTest {
                     .putAllResultMetadata(DEFAULT_STATS_MAP)
                     .build())
             .build();
-    when(mockFeatureFlagProvider.getFeatureFlags())
-        .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
     JobResult jobResult = processor.process(job);
 
@@ -692,8 +694,7 @@ public final class MatchJobProcessorTest {
     doThrow(new JobProcessorException("test", INPUT_FILE_LIST_READ_ERROR))
         .when(mockDataProcessor)
         .process(any(), any(), any());
-    when(mockFeatureFlagProvider.getFeatureFlags())
-        .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
+
     JobResult expected =
         JobResult.builder()
             .setJobKey(job.jobKey())
@@ -730,8 +731,6 @@ public final class MatchJobProcessorTest {
                     .putAllResultMetadata(DEFAULT_STATS_MAP)
                     .build())
             .build();
-    when(mockFeatureFlagProvider.getFeatureFlags())
-        .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
     when(mockDataProcessor.process(any(), any(), any()))
         .thenReturn(MatchStatistics.emptyInstance());
 
@@ -758,8 +757,6 @@ public final class MatchJobProcessorTest {
                     .putAllResultMetadata(DEFAULT_STATS_MAP)
                     .build())
             .build();
-    when(mockFeatureFlagProvider.getFeatureFlags())
-        .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
     when(mockDataProcessor.process(any(), any(), any()))
         .thenReturn(MatchStatistics.emptyInstance());
 
@@ -785,8 +782,6 @@ public final class MatchJobProcessorTest {
                     .putAllResultMetadata(DEFAULT_STATS_MAP)
                     .build())
             .build();
-    when(mockFeatureFlagProvider.getFeatureFlags())
-        .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
     JobResult jobResult = processor.process(job);
 
@@ -809,8 +804,6 @@ public final class MatchJobProcessorTest {
                     .putAllResultMetadata(DEFAULT_STATS_MAP)
                     .build())
             .build();
-    when(mockFeatureFlagProvider.getFeatureFlags())
-        .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
     JobResult jobResult = processor.process(job);
 
@@ -821,8 +814,6 @@ public final class MatchJobProcessorTest {
   @Test
   public void process_whenApplicationIdMicAndMicNotEnabledThrowException() throws Exception {
     Job job = generateFakeJob("testdata/valid_job_params_mic.json");
-    when(mockFeatureFlagProvider.getFeatureFlags())
-        .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
     JobResult result = processor.process(job);
 
@@ -849,8 +840,6 @@ public final class MatchJobProcessorTest {
     lenient()
         .when(mockDataProcessor.process(any(), any(), any()))
         .thenReturn(MatchStatistics.emptyInstance());
-    when(mockFeatureFlagProvider.getFeatureFlags())
-        .thenReturn(FeatureFlags.builder().setEnableMIC(false).build());
 
     processor.process(job);
 

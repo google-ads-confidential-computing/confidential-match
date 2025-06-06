@@ -24,6 +24,7 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.LOOKUP_SERVICE_FAILURE;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.LOOKUP_SERVICE_INVALID_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.MISSING_ENCRYPTION_COLUMN;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.UNSUPPORTED_MODE_ERROR;
 import static com.google.cm.mrp.dataprocessor.models.MatchColumnIndices.Kind.SINGLE_COLUMN_INDICES;
 import static com.google.common.hash.Hashing.sha256;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -34,7 +35,6 @@ import com.google.cm.lookupserver.api.LookupProto.LookupResult.Status;
 import com.google.cm.lookupserver.api.LookupProto.MatchedDataRecord;
 import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.JobProcessorException;
-import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.EncryptionKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.WrappedKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys;
@@ -48,6 +48,7 @@ import com.google.cm.mrp.backend.LookupDataRecordProto.LookupDataRecord;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.SuccessConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.SuccessConfig.SuccessMode;
+import com.google.cm.mrp.backend.ModeProto.Mode;
 import com.google.cm.mrp.backend.SchemaProto.Schema;
 import com.google.cm.mrp.clients.cryptoclient.CryptoClient;
 import com.google.cm.mrp.clients.cryptoclient.CryptoClient.CryptoClientException;
@@ -88,9 +89,8 @@ public final class LookupServerDataSource implements LookupDataSource {
 
   private static final Logger logger = LoggerFactory.getLogger(LookupServerDataSource.class);
 
+  /** Matched dataSource2 fields are categorized as "pii_value" */
   static final String PII_VALUE = "pii_value";
-
-  private final List<String> associatedDataKeys = ImmutableList.of();
 
   private final LookupServiceClient lookupServiceClient;
   private final DataRecordTransformerFactory dataRecordTransformerFactory;
@@ -112,9 +112,9 @@ public final class LookupServerDataSource implements LookupDataSource {
     this.dataRecordTransformerFactory = dataRecordTransformerFactory;
     this.matchConfig = matchConfig;
     this.jobParameters = jobParameters;
+    this.featureFlags = featureFlags;
     this.successConfig = matchConfig.getSuccessConfig();
     this.cryptoClient = Optional.empty();
-    this.featureFlags = featureFlags;
   }
 
   /** Constructor for {@link LookupServerDataSource}. */
@@ -130,9 +130,9 @@ public final class LookupServerDataSource implements LookupDataSource {
     this.dataRecordTransformerFactory = dataRecordTransformerFactory;
     this.jobParameters = jobParameters;
     this.matchConfig = matchConfig;
+    this.featureFlags = featureFlags;
     this.successConfig = matchConfig.getSuccessConfig();
     this.cryptoClient = Optional.of(cryptoClient);
-    this.featureFlags = featureFlags;
   }
 
   /**
@@ -200,7 +200,7 @@ public final class LookupServerDataSource implements LookupDataSource {
       LookupServiceClientRequest lookupRequest =
           LookupServiceClientRequest.builder()
               .setKeyFormat(KEY_FORMAT_HASHED)
-              .setAssociatedDataKeys(associatedDataKeys)
+              .setAssociatedDataKeys(getAssociatedDataKeys())
               .setRecords(piisList)
               .build();
       var lookupResults = lookupServiceClient.lookupRecords(lookupRequest).results();
@@ -300,6 +300,7 @@ public final class LookupServerDataSource implements LookupDataSource {
                     EncryptionMetadataConverter.convertToLookupEncryptionKeyInfo(
                         encryptionKeys, encryptionMetadata))
                 .setRecords(piisMap.values().stream().collect(ImmutableList.toImmutableList()))
+                .setAssociatedDataKeys(getAssociatedDataKeys())
                 .build();
         var lookupServiceClientResults = lookupServiceClient.lookupRecords(lookupRequest).results();
 
@@ -403,6 +404,7 @@ public final class LookupServerDataSource implements LookupDataSource {
                         encryptionKey, encryptionMetadata))
                 .setRecords(piiList.stream().collect(ImmutableList.toImmutableList()))
                 .setCryptoClient(cryptoClient.get())
+                .setAssociatedDataKeys(getAssociatedDataKeys())
                 .build();
         var lookupServiceClientResults = lookupServiceClient.lookupRecords(lookupRequest).results();
         // Group results by status
@@ -429,6 +431,23 @@ public final class LookupServerDataSource implements LookupDataSource {
 
     return constructLookupDataSourceResultWithError(
         lookupResults.build(), erroredDataRecords.build());
+  }
+
+  /* Get associatedData keys to send with every LookupClient request. Only for Join mode */
+  private List<String> getAssociatedDataKeys() {
+    if (jobParameters.mode() != Mode.JOIN) {
+      return ImmutableList.of();
+    } else {
+      if (!matchConfig.getModeConfigs().hasJoinModeConfig()) {
+        String message =
+            String.format(
+                "Application %s does have Join mode configurations",
+                matchConfig.getApplicationId());
+        logger.warn(message);
+        throw new JobProcessorException(message, UNSUPPORTED_MODE_ERROR);
+      }
+      return matchConfig.getModeConfigs().getJoinModeConfig().getJoinFieldsList();
+    }
   }
 
   /*
@@ -483,8 +502,11 @@ public final class LookupServerDataSource implements LookupDataSource {
         Schema.newBuilder()
             .addColumns(
                 Schema.Column.newBuilder().setColumnName(PII_VALUE).setColumnAlias(PII_VALUE));
-    for (String associatedDataKey : associatedDataKeys) {
-      builder.addColumns(Schema.Column.newBuilder().setColumnName(associatedDataKey));
+    for (String associatedDataKey : getAssociatedDataKeys()) {
+      builder.addColumns(
+          Schema.Column.newBuilder()
+              .setColumnName(associatedDataKey)
+              .setColumnAlias(associatedDataKey));
     }
     return builder.build();
   }

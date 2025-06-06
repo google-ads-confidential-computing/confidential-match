@@ -16,6 +16,7 @@ syntax = "proto3";
 
 package google.confidential_match.mrp.backend;
 
+import "protos/mrp/backend/field_match.proto";
 import "protos/mrp/backend/job_result_code.proto";
 
 option java_package = "com.google.cm.mrp.backend";
@@ -50,10 +51,22 @@ message DataRecord {
     ProtoEncryptionLevel protoEncryptionLevel = 1;
   }
 
+  // All output fields to be joined with the values in this data record
+  message FieldMatches {
+    // Mapping of all original single fields to FieldMatches
+    // Key: index of original single field. Value: corresponding FieldMatch to field
+    map<uint32, FieldMatch> single_field_record_matches = 1;
+    // Mapping of all original composite fields to FieldMatches
+    // Key: original composite field group number. Value: corresponding FieldMatch to composite field
+    map<uint32, FieldMatch> composite_field_record_matches = 2;
+  }
+
   repeated KeyValue key_values = 2;
   // Map of the encrypted key's position within the KeyValues field to its
   // corresponding encrypted value.
   map<uint32, string> encrypted_key_values = 3;
   optional JobResultCode error_code = 4;
-  ProcessingMetadata processing_metadata = 5;
+  optional ProcessingMetadata processing_metadata = 5;
+  // Field to be joined for Data Record
+  optional FieldMatches join_fields = 6;
 }

@@ -22,10 +22,29 @@ option java_package = "com.google.cm.mrp.backend";
 option java_outer_classname = "MatchConfigProto";
 
 message MatchConfig {
-  enum Mode {
-    MODE_UNSPECIFIED = 0;
-    REDACT = 1;
-    TRANSFORM = 2;
+  reserved 2, 5; // Replaced by ModeConfigs
+
+  // Configuration options for matching Modes
+  message ModeConfigs {
+
+    // Configs for redact mode
+    message RedactModeConfig {
+      // String to replace input data source for non-matches
+      string redact_unmatched_with = 1;
+    }
+
+    // Configs for Join mode
+    message JoinModeConfig {
+      // String to replace input data source for non-matches
+      string redact_unmatched_with = 1;
+      // Source of data to be added (dataSource1 or dataSource2)
+      string source = 2;
+      // Fields from which added data will be read
+      repeated string join_fields = 3;
+    }
+
+    RedactModeConfig redact_mode_config = 1;
+    JoinModeConfig join_mode_config = 2;
   }
 
   // Toggles partial job successes
@@ -112,11 +131,10 @@ message MatchConfig {
   }
 
   ApplicationId application_id = 1;
-  Mode mode = 2;
   repeated MatchCondition match_conditions = 3;
   repeated OutputColumn output_columns = 4;
-  optional string redact_unmatched_with = 5; // only used if mode is redact
   // Defines optional columns necessary for encryption
   optional EncryptionKeyColumns encryption_key_columns = 6;
   SuccessConfig success_config = 8;
+  ModeConfigs mode_configs = 9;
 }

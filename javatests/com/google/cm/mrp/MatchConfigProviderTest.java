@@ -22,6 +22,7 @@ import static com.google.common.truth.Truth.assertThat;
 
 import com.google.cm.mrp.backend.ApplicationProto.ApplicationId;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
+import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.ModeConfigs;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -58,6 +59,10 @@ public class MatchConfigProviderTest {
       assertThat(config.getApplicationId()).isEqualTo(applicationId);
       assertThat(config.getMatchConditionsList()).isNotEmpty();
       assertThat(config.hasSuccessConfig()).isTrue();
+      if (config.hasModeConfigs()) {
+        ModeConfigs modeConfigs = config.getModeConfigs();
+        assertThat(modeConfigs.hasRedactModeConfig() || modeConfigs.hasJoinModeConfig()).isTrue();
+      }
     }
   }
 }

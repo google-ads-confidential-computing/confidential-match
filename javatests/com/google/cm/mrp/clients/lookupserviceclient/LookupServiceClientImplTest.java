@@ -31,10 +31,10 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
-import com.google.cm.lookupserver.api.LookupProto.LookupRequest;
 import com.google.cm.lookupserver.api.LookupProto.EncryptionKeyInfo;
 import com.google.cm.lookupserver.api.LookupProto.EncryptionKeyInfo.CoordinatorInfo;
 import com.google.cm.lookupserver.api.LookupProto.EncryptionKeyInfo.CoordinatorKeyInfo;
+import com.google.cm.lookupserver.api.LookupProto.LookupRequest;
 import com.google.cm.lookupserver.api.LookupProto.LookupRequest.KeyFormat;
 import com.google.cm.lookupserver.api.LookupProto.LookupResponse;
 import com.google.cm.lookupserver.api.LookupProto.LookupResult;
@@ -52,7 +52,9 @@ import com.google.cm.mrp.clients.orchestratorclient.OrchestratorClient.Orchestra
 import com.google.cm.orchestrator.api.OrchestratorProto.GetCurrentShardingSchemeResponse;
 import com.google.cm.orchestrator.api.OrchestratorProto.GetCurrentShardingSchemeResponse.Shard;
 import com.google.cm.shared.api.model.Code;
+import com.google.common.collect.ImmutableList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletionException;
@@ -85,10 +87,18 @@ public final class LookupServiceClientImplTest {
 
   // Makes requests for tests, and at least one record is required to trigger shard client calls
   private static LookupServiceClientRequest getLookupRequest(int numRecords) {
+    return getLookupRequest(numRecords, /* associatedData= */ ImmutableList.of());
+  }
+
+  private static LookupServiceClientRequest getLookupRequest(
+      int numRecords, List<String> associatedData) {
     var builder = LookupServiceClientRequest.builder().setKeyFormat(KeyFormat.KEY_FORMAT_HASHED);
     for (int i = numRecords; i > 0; --i) {
       builder.addRecord(
           LookupDataRecord.newBuilder().setLookupKey(LookupKey.newBuilder().setKey("" + i)));
+    }
+    if (!associatedData.isEmpty()) {
+      builder.setAssociatedDataKeys(associatedData);
     }
     return builder.build();
   }
@@ -191,14 +201,14 @@ public final class LookupServiceClientImplTest {
 
   @Test
   public void lookupRecords_returnsLookupResponse() throws Exception {
-    var lookupRequest = getLookupRequest(100);
+    var lookupRequest = getLookupRequest(100, ImmutableList.of("encrypted_gaia_id"));
     var firstLookupResponse = getLookupResponse(lookupRequest.records());
     var otherLookupResponse = getLookupResponse(List.of());
     when(orchestratorClient.getCurrentShardingScheme(TEST_CLUSTER_GROUP_ID))
         .thenReturn(getScheme(3));
     // The first call returns all records, since this test doesn't check that records hash to
     // different shards.
-    when(lookupServiceShardClient.lookupRecords(eq(SIMPLE_URL), any()))
+    when(lookupServiceShardClient.lookupRecords(eq(SIMPLE_URL), lookupRequestCaptor.capture()))
         .thenReturn(firstLookupResponse)
         .thenReturn(otherLookupResponse);
 
@@ -208,6 +218,14 @@ public final class LookupServiceClientImplTest {
     // Each shard gets 3 full requests, and 1 partially filled request; 4x3 = 12 total
     verify(lookupServiceShardClient, times(12)).lookupRecords(eq(SIMPLE_URL), any());
     assertThat(result.results().size()).isEqualTo(lookupRequest.records().size());
+    // verify all requests have the same "associatedDataKeys"
+    var associatedDataSet =
+        lookupRequestCaptor.getAllValues().stream()
+            .map(LookupRequest::getAssociatedDataKeysList)
+            .flatMap(Collection::stream)
+            .collect(Collectors.toSet());
+    assertThat(associatedDataSet).hasSize(1);
+    assertThat(associatedDataSet.contains("encrypted_gaia_id")).isTrue();
   }
 
   @Test

@@ -162,7 +162,8 @@ public final class LookupServiceClientImpl implements LookupServiceClient {
         LookupRequest.newBuilder()
             .setShardingScheme(shardingScheme)
             .setKeyFormat(clientRequest.keyFormat())
-            .setHashInfo(HashInfo.newBuilder().setHashType(HASH_TYPE_SHA_256));
+            .setHashInfo(HashInfo.newBuilder().setHashType(HASH_TYPE_SHA_256))
+            .addAllAssociatedDataKeys(clientRequest.associatedDataKeys());
     clientRequest.encryptionKeyInfo().ifPresent(lookupRequestBuilder::setEncryptionKeyInfo);
 
     try {

@@ -1,7 +1,17 @@
 {
   "application_id": "mic_audience",
-  "mode": "REDACT",
-  "redact_unmatched_with": "UNMATCHED",
+  "mode_configs": {
+    "redact_mode_config": {
+      "redact_unmatched_with": "UNMATCHED"
+    },
+    "join_mode_config": {
+      "redact_unmatched_with": "UNMATCHED",
+      "source": "data_source2_column",
+      "join_fields": [
+        "encrypted_gaia_id"
+      ]
+    }
+  },
   "success_config": {
     "success_mode": "ALLOW_PARTIAL_SUCCESS",
     "partial_success_attributes": {

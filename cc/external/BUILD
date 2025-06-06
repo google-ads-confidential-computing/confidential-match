@@ -27,6 +27,11 @@ alias(
 )
 
 alias(
+    name = "absl_debugging_failure_signal_handler",
+    actual = "@com_google_absl//absl/debugging:failure_signal_handler",
+)
+
+alias(
     name = "absl_flat_hash_map",
     actual = "@com_google_absl//absl/container:flat_hash_map",
 )

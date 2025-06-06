@@ -25,6 +25,7 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.LOOKUP_SERVICE_FAILURE;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.LOOKUP_SERVICE_INVALID_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.MISSING_ENCRYPTION_COLUMN;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.UNSUPPORTED_MODE_ERROR;
 import static com.google.cm.mrp.clients.testutils.AeadProviderTestUtil.realKeysetHandleRead;
 import static com.google.cm.mrp.dataprocessor.LookupServerDataSource.PII_VALUE;
 import static com.google.cm.mrp.testutils.AeadKeyGenerator.decryptString;
@@ -73,6 +74,7 @@ import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.Wrap
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.KeyType;
 import com.google.cm.mrp.backend.LookupDataRecordProto.LookupDataRecord;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
+import com.google.cm.mrp.backend.ModeProto.Mode;
 import com.google.cm.mrp.backend.SchemaProto.Schema;
 import com.google.cm.mrp.backend.SchemaProto.Schema.Column;
 import com.google.cm.mrp.clients.cryptoclient.AeadCryptoClient;
@@ -183,6 +185,15 @@ public final class LookupServerDataSourceTest {
           .setDataLocation(DataLocation.getDefaultInstance())
           .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
           .build();
+
+  private static final JobParameters JOIN_MODE_PARAMS =
+      JobParameters.builder()
+          .setJobId("test")
+          .setDataLocation(DataLocation.getDefaultInstance())
+          .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
+          .setMode(Mode.JOIN)
+          .build();
+
   @Mock private AeadProvider mockAeadProvider;
   @Mock private CryptoClient mockCryptoClient;
   @Mock private LookupServiceClient mockLookupServiceClient;
@@ -283,6 +294,9 @@ public final class LookupServerDataSourceTest {
     assertEquals(
         "IEUw/X1oeAwDwxvBs8+aS2bfk781XbfMOyEenBunDSU=",
         result.records().get(2).getKeyValues(0).getStringValue());
+    assertThat(result.schema().getColumnsCount()).isEqualTo(1);
+    assertThat(result.schema().getColumns(0).getColumnName()).isEqualTo(PII_VALUE);
+    assertThat(result.schema().getColumns(0).getColumnAlias()).isEqualTo(PII_VALUE);
     verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
     List<LookupDataRecord> lookupRequestRecords =
         lookupServiceClientRequestCaptor.getValue().records();
@@ -3376,6 +3390,149 @@ public final class LookupServerDataSourceTest {
     assertEquals(
         hashString("fake_first_namefake_last_nameUS99999"),
         dataRecord2.getKeyValues(0).getStringValue());
+  }
+
+  @Test
+  public void create_joinModeNoConfigForApplication_ReturnsErrorCode() throws Exception {
+    LookupServerDataSource testDataSource =
+        new LookupServerDataSource(
+            mockLookupServiceClient,
+            dataRecordTransformerFactory,
+            MatchConfigProvider.getMatchConfig("customer_match"),
+            FeatureFlags.builder().build(),
+            JOIN_MODE_PARAMS);
+    String[][] testData = {
+      {"email", "email", "fake.email@google.com"},
+      {"phone", "phone", "999-999-9999"},
+      {"first_name", "first_name", "fake_first_name"},
+      {"last_name", "last_name", "fake_last_name"},
+      {"zip_code", "zip_code", "99999"},
+      {"country_code", "country_code", "US"},
+      {"encrypted_dek", "encrypted_dek", "test"},
+      {"kek_uri", "kek_uri", "locations/testRegion/testKek"},
+    };
+    DataChunk dataChunk =
+        DataChunk.builder()
+            .setSchema(getSchema(testData))
+            .addRecord(getDataRecord(testData))
+            .build();
+
+    var ex =
+        assertThrows(
+            JobProcessorException.class, () -> testDataSource.lookup(dataChunk, Optional.empty()));
+    assertThat(ex.getMessage())
+        .isEqualTo("Application CUSTOMER_MATCH does have Join mode configurations");
+    assertThat(ex.getErrorCode()).isEqualTo(UNSUPPORTED_MODE_ERROR);
+  }
+
+  @Test
+  public void lookup_joinModeEnabled_setsAssociatedKeys() throws Exception {
+    String associatedData = "encrypted_gaia_id";
+    LookupServerDataSource testDataSource =
+        new LookupServerDataSource(
+            mockLookupServiceClient,
+            dataRecordTransformerFactory,
+            MatchConfigProvider.getMatchConfig("mic"),
+            FeatureFlags.builder().build(),
+            JOIN_MODE_PARAMS);
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+        .thenAnswer(
+            invocation -> {
+              var responseBuilder = LookupServiceClientResponse.builder();
+              LookupServiceClientRequest request = invocation.getArgument(0);
+              String requestAssociatedData =
+                  request.associatedDataKeys().stream().findFirst().get();
+              responseBuilder
+                  .addResult(
+                      LookupProto.LookupResult.newBuilder()
+                          .setStatus(Status.STATUS_SUCCESS)
+                          .addMatchedDataRecords(
+                              LookupProto.MatchedDataRecord.newBuilder()
+                                  .setLookupKey(
+                                      LookupProto.LookupKey.newBuilder()
+                                          .setKey("fake.email@google.com"))
+                                  .addAssociatedData(
+                                      LookupProto.KeyValue.newBuilder()
+                                          .setKey(requestAssociatedData)
+                                          .setBytesValue(ByteString.copyFromUtf8("abcd1234")))))
+                  .addResult(
+                      LookupProto.LookupResult.newBuilder()
+                          .setStatus(Status.STATUS_SUCCESS)
+                          .addMatchedDataRecords(
+                              LookupProto.MatchedDataRecord.newBuilder()
+                                  .setLookupKey(
+                                      LookupProto.LookupKey.newBuilder().setKey("999-999-9999"))
+                                  .addAssociatedData(
+                                      LookupProto.KeyValue.newBuilder()
+                                          .setKey(requestAssociatedData)
+                                          .setBytesValue(ByteString.copyFromUtf8("abcd1234")))))
+                  .addResult(
+                      LookupProto.LookupResult.newBuilder()
+                          .setStatus(Status.STATUS_SUCCESS)
+                          .addMatchedDataRecords(
+                              LookupProto.MatchedDataRecord.newBuilder()
+                                  .setLookupKey(
+                                      LookupProto.LookupKey.newBuilder()
+                                          .setKey(
+                                              hashString("fake_first_namefake_last_nameUS99999")))
+                                  .addAssociatedData(
+                                      LookupProto.KeyValue.newBuilder()
+                                          .setKey(requestAssociatedData)
+                                          .setBytesValue(ByteString.copyFromUtf8("abcd1234")))));
+              return responseBuilder.build();
+            });
+    String[][] testData = {
+      {"email", "email", "fake.email@google.com"},
+      {"phone", "phone", "999-999-9999"},
+      {"first_name", "first_name", "fake_first_name"},
+      {"last_name", "last_name", "fake_last_name"},
+      {"zip_code", "zip_code", "99999"},
+      {"country_code", "country_code", "US"},
+    };
+    DataChunk dataChunk =
+        DataChunk.builder()
+            .setSchema(getSchema(testData))
+            .addRecord(getDataRecord(testData))
+            .build();
+
+    DataChunk result = testDataSource.lookup(dataChunk, Optional.empty()).lookupResults();
+
+    assertEquals(3, result.records().size());
+    // only 2 to return
+    assertEquals(2, result.records().get(0).getKeyValuesCount());
+    assertEquals(PII_VALUE, result.records().get(0).getKeyValues(0).getKey());
+    assertEquals("fake.email@google.com", result.records().get(0).getKeyValues(0).getStringValue());
+    assertEquals(associatedData, result.records().get(0).getKeyValues(1).getKey());
+    assertEquals("abcd1234", result.records().get(0).getKeyValues(1).getStringValue());
+    assertEquals(2, result.records().get(1).getKeyValuesCount());
+    assertEquals(PII_VALUE, result.records().get(1).getKeyValues(0).getKey());
+    assertEquals("999-999-9999", result.records().get(1).getKeyValues(0).getStringValue());
+    assertEquals(associatedData, result.records().get(1).getKeyValues(1).getKey());
+    assertEquals("abcd1234", result.records().get(1).getKeyValues(1).getStringValue());
+    assertEquals(2, result.records().get(2).getKeyValuesCount());
+    assertEquals(PII_VALUE, result.records().get(2).getKeyValues(0).getKey());
+    assertEquals(
+        "IEUw/X1oeAwDwxvBs8+aS2bfk781XbfMOyEenBunDSU=",
+        result.records().get(2).getKeyValues(0).getStringValue());
+    assertEquals(associatedData, result.records().get(2).getKeyValues(1).getKey());
+    assertEquals("abcd1234", result.records().get(2).getKeyValues(1).getStringValue());
+    assertThat(result.schema().getColumnsCount()).isEqualTo(2);
+    assertThat(result.schema().getColumns(0).getColumnName()).isEqualTo(PII_VALUE);
+    assertThat(result.schema().getColumns(0).getColumnAlias()).isEqualTo(PII_VALUE);
+    assertThat(result.schema().getColumns(1).getColumnName()).isEqualTo(associatedData);
+    assertThat(result.schema().getColumns(1).getColumnAlias()).isEqualTo(associatedData);
+    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
+    List<LookupDataRecord> lookupRequestRecords =
+        lookupServiceClientRequestCaptor.getValue().records();
+    assertEquals(3, lookupRequestRecords.size());
+    assertEquals("fake.email@google.com", lookupRequestRecords.get(0).getLookupKey().getKey());
+    assertEquals(0, lookupRequestRecords.get(0).getMetadataCount());
+    assertEquals("999-999-9999", lookupRequestRecords.get(1).getLookupKey().getKey());
+    assertEquals(0, lookupRequestRecords.get(1).getMetadataCount());
+    assertEquals(
+        "IEUw/X1oeAwDwxvBs8+aS2bfk781XbfMOyEenBunDSU=",
+        lookupRequestRecords.get(2).getLookupKey().getKey());
+    assertEquals(0, lookupRequestRecords.get(2).getMetadataCount());
   }
 
   private DataRecordProto.DataRecord getDataRecord(String[][] keyValueQuads) {
