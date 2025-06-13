@@ -86,7 +86,9 @@ import com.google.scp.operator.cpio.blobstorageclient.gcp.GcsBlobStorageClient;
 import com.google.scp.operator.cpio.cryptoclient.HybridEncryptionKeyService;
 import com.google.scp.operator.cpio.jobclient.gcp.GcpJobHandlerConfig;
 import com.google.scp.shared.clients.configclient.ParameterClient;
+import com.google.scp.shared.clients.configclient.gcp.Annotations.GcpInstanceId;
 import com.google.scp.shared.clients.configclient.gcp.Annotations.GcpProjectId;
+import com.google.scp.shared.clients.configclient.gcp.Annotations.GcpZone;
 import com.google.scp.shared.crypto.tink.CloudAeadSelector;
 import com.google.scp.shared.mapper.TimeObjectMapper;
 import java.io.IOException;
@@ -129,6 +131,8 @@ public final class LocalGcpWorkerApplication {
     @Override
     protected void configure() {
       bind(String.class).annotatedWith(GcpProjectId.class).toInstance(PROJECT_ID);
+      bind(String.class).annotatedWith(GcpInstanceId.class).toInstance("");
+      bind(String.class).annotatedWith(GcpZone.class).toInstance("");
       bind(Integer.class)
           .annotatedWith(JobProcessorMaxRetries.class)
           .toInstance(MRP_JOB_PROCESSOR_RETRIES);

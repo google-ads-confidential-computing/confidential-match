@@ -23,6 +23,7 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WRITER_
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WRITER_MISSING_DEK;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WRITER_MISSING_KEK;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WRITER_MISSING_WIP;
+import static com.google.cm.mrp.backend.ModeProto.Mode.JOIN;
 import static com.google.cm.mrp.dataprocessor.common.Constants.ROW_MARKER_COLUMN_NAME;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
@@ -38,12 +39,14 @@ import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.EncryptionKey.GcpW
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.Field;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.KeyValue;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.MatchKey;
+import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.MatchedOutputField;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.CoordinatorKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.EncryptionKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.WrappedKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.WrappedKeyColumnIndices.GcpWrappedKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
+import com.google.cm.mrp.backend.FieldMatchProto.FieldMatch;
 import com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.EncryptionKeyColumns;
@@ -55,6 +58,8 @@ import com.google.cm.mrp.backend.SchemaProto.Schema.Column;
 import com.google.cm.mrp.dataprocessor.common.Annotations.MaxRecordsPerOutputFile;
 import com.google.cm.mrp.dataprocessor.destinations.DataDestination;
 import com.google.cm.mrp.dataprocessor.models.DataChunk;
+import com.google.cm.mrp.models.JobParameters;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.inject.assistedinject.Assisted;
@@ -107,6 +112,7 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
   private final Optional<Integer> recordStatusFieldIndex;
   private final Optional<Integer> rowMarkerIndex;
   private final Optional<DataRecordEncryptionColumns> dataRecordEncryptionColumns;
+  private final JobParameters jobParameters;
   private final DataDestination dataDestination;
   private final int maxRecordsPerOutputFile;
   private final String name;
@@ -118,10 +124,12 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
   @AssistedInject
   public SerializedProtoDataWriter(
       @MaxRecordsPerOutputFile Integer maxRecordsPerOutputFile,
+      @Assisted JobParameters jobParameters,
       @Assisted DataDestination dataDestination,
       @Assisted String name,
       @Assisted Schema schema,
       @Assisted MatchConfig matchConfig) {
+    this.jobParameters = jobParameters;
     this.maxRecordsPerOutputFile = maxRecordsPerOutputFile;
     this.dataDestination = dataDestination;
     this.name = name;
@@ -340,47 +348,87 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
     List<MatchKey> matchKeys =
         matchFieldIndices.stream()
             .filter(index -> isValidIndex(dataRecord.getKeyValuesCount(), index))
-            .map(index -> convertToExternalKeyValue(dataRecord.getKeyValues(index)))
-            .filter(Optional::isPresent)
-            .map(Optional::get)
-            .map(
-                keyValue -> {
-                  var matchKeyBuilder =
-                      MatchKey.newBuilder()
-                          .setField(Field.newBuilder().setKeyValue(keyValue).build());
-                  encryptionKey.ifPresent(matchKeyBuilder::setEncryptionKey);
-                  return matchKeyBuilder.build();
-                })
+            .map(index -> convertSingleField(index, dataRecord, encryptionKey))
+            .flatMap(Optional::stream)
             .collect(Collectors.toList());
     // Builds MatchKeys with CompositeFields
     matchCompositeFieldGroupToIndices.forEach(
         (compositeFieldGroupNumber, indices) -> {
-          var matchKeyBuilder =
-              MatchKey.newBuilder()
-                  .setCompositeField(
-                      CompositeField.newBuilder()
-                          .setKey(groupNumberToGroupAlias.get(compositeFieldGroupNumber))
-                          .addAllChildFields(
-                              indices.stream()
-                                  .filter(
-                                      index -> isValidIndex(dataRecord.getKeyValuesCount(), index))
-                                  .map(
-                                      index ->
-                                          convertToExternalKeyValue(dataRecord.getKeyValues(index)))
-                                  .filter(Optional::isPresent)
-                                  .map(Optional::get)
-                                  .map(
-                                      keyValue ->
-                                          CompositeChildField.newBuilder()
-                                              .setKeyValue(keyValue)
-                                              .build())
-                                  .collect(Collectors.toList())));
+          CompositeField compositeField =
+              convertCompositeField(dataRecord, compositeFieldGroupNumber, indices);
+          var matchKeyBuilder = MatchKey.newBuilder().setCompositeField(compositeField);
           encryptionKey.ifPresent(matchKeyBuilder::setEncryptionKey);
           if (matchKeyBuilder.getCompositeField().getChildFieldsCount() > 0) {
             matchKeys.add(matchKeyBuilder.build());
           }
         });
     return matchKeys;
+  }
+
+  private Optional<MatchKey> convertSingleField(
+      int index, DataRecord dataRecord, Optional<EncryptionKey> encryptionKey) {
+    Optional<KeyValue> apiFieldOptional = convertToApiResponseField(dataRecord.getKeyValues(index));
+    return apiFieldOptional.map(
+        keyValue -> {
+          var matchKeyBuilder = MatchKey.newBuilder();
+          var fieldBuilder = Field.newBuilder().setKeyValue(keyValue);
+          encryptionKey.ifPresent(matchKeyBuilder::setEncryptionKey);
+          if (JOIN == jobParameters.mode()) {
+            Map<Integer, FieldMatch> singleFieldMatches =
+                dataRecord.getJoinFields().getSingleFieldRecordMatchesMap();
+            if (singleFieldMatches.containsKey(index)) {
+              var matchedOutputFieldBuilder = MatchedOutputField.newBuilder();
+              var joinFields =
+                  singleFieldMatches
+                      .get(index)
+                      .getSingleFieldMatchedOutput()
+                      .getMatchedOutputFieldsList();
+              for (FieldMatch.MatchedOutputField match : joinFields) {
+                KeyValue individualField =
+                    KeyValue.newBuilder()
+                        .setKey(match.getKey())
+                        .setStringValue(match.getValue())
+                        .build();
+                matchedOutputFieldBuilder.addKeyValue(individualField);
+              }
+              fieldBuilder.addMatchedOutputFields(matchedOutputFieldBuilder);
+            }
+          }
+          return matchKeyBuilder.setField(fieldBuilder).build();
+        });
+  }
+
+  private CompositeField convertCompositeField(
+      DataRecord dataRecord, int compositeFieldGroupNumber, Set<Integer> fieldIndices) {
+    var compositeFieldBuilder =
+        CompositeField.newBuilder()
+            .setKey(groupNumberToGroupAlias.get(compositeFieldGroupNumber))
+            .addAllChildFields(
+                fieldIndices.stream()
+                    .filter(index -> isValidIndex(dataRecord.getKeyValuesCount(), index))
+                    .map(index -> convertToApiResponseField(dataRecord.getKeyValues(index)))
+                    .flatMap(Optional::stream)
+                    .map(keyValue -> CompositeChildField.newBuilder().setKeyValue(keyValue).build())
+                    .collect(ImmutableList.toImmutableList()));
+    if (JOIN == jobParameters.mode()) {
+      Map<Integer, FieldMatch> compositeFieldMatches =
+          dataRecord.getJoinFields().getCompositeFieldRecordMatchesMap();
+      if (compositeFieldMatches.containsKey(compositeFieldGroupNumber)) {
+        var matchedOutputFieldBuilder = MatchedOutputField.newBuilder();
+        var joinFields =
+            compositeFieldMatches
+                .get(compositeFieldGroupNumber)
+                .getCompositeFieldMatchedOutput()
+                .getMatchedOutputFieldsList();
+        for (FieldMatch.MatchedOutputField match : joinFields) {
+          KeyValue individualField =
+              KeyValue.newBuilder().setKey(match.getKey()).setStringValue(match.getValue()).build();
+          matchedOutputFieldBuilder.addKeyValue(individualField);
+        }
+        compositeFieldBuilder.addMatchedOutputFields(matchedOutputFieldBuilder);
+      }
+    }
+    return compositeFieldBuilder.build();
   }
 
   /** Returns a mapping of column group numbers to their group alias */
@@ -437,9 +485,8 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
     int size = dataRecord.getKeyValuesCount();
     return metadataIndices.stream()
         .filter(index -> isValidIndex(size, index))
-        .map(index -> convertToExternalKeyValue(dataRecord.getKeyValues(index)))
-        .filter(Optional::isPresent)
-        .map(Optional::get)
+        .map(index -> convertToApiResponseField(dataRecord.getKeyValues(index)))
+        .flatMap(Optional::stream)
         .collect(Collectors.toList());
   }
 
@@ -633,22 +680,21 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
         .collect(toImmutableSet());
   }
 
-  /** Converts from a {@link DataRecord.KeyValue} to a {@link KeyValue}. */
-  private Optional<KeyValue> convertToExternalKeyValue(DataRecord.KeyValue internalKeyValue) {
-    var externalKeyValue = KeyValue.newBuilder().setKey(internalKeyValue.getKey());
-    switch (internalKeyValue.getValueCase()) {
+  /** Converts from a {@link DataRecord.KeyValue} to a {@link KeyValue} API response field. */
+  private Optional<KeyValue> convertToApiResponseField(DataRecord.KeyValue backendKeyValue) {
+    var externalKeyValue = KeyValue.newBuilder().setKey(backendKeyValue.getKey());
+    switch (backendKeyValue.getValueCase()) {
       case STRING_VALUE:
-        return !internalKeyValue.getStringValue().isEmpty()
-            ? Optional.of(
-                externalKeyValue.setStringValue(internalKeyValue.getStringValue()).build())
+        return !backendKeyValue.getStringValue().isEmpty()
+            ? Optional.of(externalKeyValue.setStringValue(backendKeyValue.getStringValue()).build())
             : Optional.empty();
       case DOUBLE_VALUE:
         return Optional.of(
-            externalKeyValue.setDoubleValue(internalKeyValue.getDoubleValue()).build());
+            externalKeyValue.setDoubleValue(backendKeyValue.getDoubleValue()).build());
       case BOOL_VALUE:
-        return Optional.of(externalKeyValue.setBoolValue(internalKeyValue.getBoolValue()).build());
+        return Optional.of(externalKeyValue.setBoolValue(backendKeyValue.getBoolValue()).build());
       case INT_VALUE:
-        return Optional.of(externalKeyValue.setIntValue(internalKeyValue.getIntValue()).build());
+        return Optional.of(externalKeyValue.setIntValue(backendKeyValue.getIntValue()).build());
       case VALUE_NOT_SET:
       default:
         return Optional.empty();

@@ -27,16 +27,28 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.google.cm.mrp.MatchConfigProvider;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeChildField;
+import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeField;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.ConfidentialMatchOutputDataRecord;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.Field;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.KeyValue;
+import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.MatchKey;
+import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner.DataLocation;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
+import com.google.cm.mrp.backend.DataRecordProto.DataRecord.FieldMatches;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord.ProcessingMetadata;
+import com.google.cm.mrp.backend.FieldMatchProto.FieldMatch;
+import com.google.cm.mrp.backend.FieldMatchProto.FieldMatch.CompositeFieldMatchedOutput;
+import com.google.cm.mrp.backend.FieldMatchProto.FieldMatch.MatchedOutputField;
+import com.google.cm.mrp.backend.FieldMatchProto.FieldMatch.SingleFieldMatchedOutput;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
+import com.google.cm.mrp.backend.ModeProto.Mode;
 import com.google.cm.mrp.backend.SchemaProto.Schema;
 import com.google.cm.mrp.dataprocessor.destinations.DataDestination;
 import com.google.cm.mrp.dataprocessor.models.DataChunk;
+import com.google.cm.mrp.models.JobParameters;
+import com.google.cm.mrp.models.JobParameters.OutputDataLocation;
 import com.google.cm.util.ProtoUtils;
 import com.google.common.base.Charsets;
 import com.google.common.io.Resources;
@@ -65,16 +77,25 @@ public final class SerializedProtoDataWriterTest {
 
   @Rule public final MockitoRule mockito = MockitoJUnit.rule();
 
+  private static final JobParameters DEFAULT_PARAMS =
+      JobParameters.builder()
+          .setJobId("test")
+          .setDataLocation(DataLocation.getDefaultInstance())
+          .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
+          .build();
+  private static final JobParameters JOIN_MODE_PARAMS =
+      JobParameters.builder()
+          .setMode(Mode.JOIN)
+          .setJobId("test")
+          .setDataLocation(DataLocation.getDefaultInstance())
+          .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
+          .build();
+
   private MatchConfig matchConfig;
 
   @Before
   public void setup() throws Exception {
-    matchConfig =
-        ProtoUtils.getProtoFromJson(
-            Resources.toString(
-                Objects.requireNonNull(getClass().getResource("testdata/proto_match_config.json")),
-                UTF_8),
-            MatchConfig.class);
+    matchConfig = MatchConfigProvider.getMatchConfig("mic");
   }
 
   @Test
@@ -100,7 +121,12 @@ public final class SerializedProtoDataWriterTest {
     // Run the write method
     SerializedProtoDataWriter dataWriter =
         new SerializedProtoDataWriter(
-            1000, testDataDestination, "proto_writer_test.txt", schema, matchConfig);
+            1000,
+            DEFAULT_PARAMS,
+            testDataDestination,
+            "proto_writer_test.txt",
+            schema,
+            matchConfig);
     dataWriter.write(dataChunk);
     dataWriter.close();
 
@@ -154,14 +180,19 @@ public final class SerializedProtoDataWriterTest {
     keyValues.add(Map.entry("email", Optional.of("FAKE.1@google.com")));
     keyValues.add(Map.entry("encrypted_dek", Optional.of("dek")));
     keyValues.add(Map.entry("kek_uri", Optional.of("kek")));
-    keyValues.add(Map.entry("wip_alias", Optional.of("wip")));
+    keyValues.add(Map.entry("wip_provider", Optional.of("wip")));
     DataChunk dataChunk =
         DataChunk.builder().addRecord(getDataRecord(keyValues)).setSchema(schema).build();
 
     // Run the write method
     SerializedProtoDataWriter dataWriter =
         new SerializedProtoDataWriter(
-            1000, testDataDestination, "proto_writer_test.txt", schema, matchConfig);
+            1000,
+            DEFAULT_PARAMS,
+            testDataDestination,
+            "proto_writer_test.txt",
+            schema,
+            matchConfig);
     dataWriter.write(dataChunk);
     dataWriter.close();
 
@@ -195,7 +226,7 @@ public final class SerializedProtoDataWriterTest {
     keyValues.add(Map.entry("email", Optional.of("FAKE.1@google.com")));
     keyValues.add(Map.entry("encrypted_dek", Optional.of("dek")));
     keyValues.add(Map.entry("kek_uri", Optional.of("kek")));
-    keyValues.add(Map.entry("wip_alias", Optional.of("wip")));
+    keyValues.add(Map.entry("wip_provider", Optional.of("wip")));
     DataRecord dataRecord =
         getDataRecord(keyValues)
             .setProcessingMetadata(
@@ -206,7 +237,12 @@ public final class SerializedProtoDataWriterTest {
     // Run the write method
     SerializedProtoDataWriter dataWriter =
         new SerializedProtoDataWriter(
-            1000, testDataDestination, "proto_writer_test.txt", schema, matchConfig);
+            1000,
+            DEFAULT_PARAMS,
+            testDataDestination,
+            "proto_writer_test.txt",
+            schema,
+            matchConfig);
     dataWriter.write(dataChunk);
     dataWriter.close();
 
@@ -235,7 +271,7 @@ public final class SerializedProtoDataWriterTest {
   @Test
   public void write_groupByRowMarker() throws Exception {
     TestDataDestination testDataDestination = new TestDataDestination();
-    Schema schema = getSchema("testdata/proto_schema.json");
+    Schema schema = getSchema("testdata/proto_schema_multiple_column_groups.json");
     List<DataRecord> dataRecords = new ArrayList<>();
     // Uses coordinator key
     String encryptionKey1 = "123";
@@ -329,11 +365,24 @@ public final class SerializedProtoDataWriterTest {
     addressGroupMaps2.add(firstAddressGroupMap2);
     List<Map<String, String>> socialGroupMaps2 = new ArrayList<>();
 
+    MatchConfig testMatchConfig =
+        ProtoUtils.getProtoFromJson(
+            Resources.toString(
+                Objects.requireNonNull(
+                    getClass().getResource("testdata/match_config_multiple_column_groups.json")),
+                UTF_8),
+            MatchConfig.class);
+
     // Run the write method
     DataChunk dataChunk = DataChunk.builder().setRecords(dataRecords).setSchema(schema).build();
     SerializedProtoDataWriter dataWriter =
         new SerializedProtoDataWriter(
-            1000, testDataDestination, "proto_writer_test.txt", schema, matchConfig);
+            1000,
+            DEFAULT_PARAMS,
+            testDataDestination,
+            "proto_writer_test.txt",
+            schema,
+            testMatchConfig);
     dataWriter.write(dataChunk);
     dataWriter.close();
 
@@ -413,6 +462,386 @@ public final class SerializedProtoDataWriterTest {
     assertThat(fieldMap2).isEmpty();
   }
 
+  @Test
+  public void write_joinModeSingleAndMultiple_addsToOutput() throws Exception {
+    TestDataDestination testDataDestination = new TestDataDestination();
+    Schema schema = getSchema("testdata/proto_schema_multiple_column_groups.json");
+    List<DataRecord> dataRecords = new ArrayList<>();
+    String joinFieldName = "encrypted_gaia_id";
+
+    Map<Integer, FieldMatch> singleFieldMatchesMap = new HashMap<>();
+    Map<Integer, FieldMatch> compositeFieldMatchesMap = new HashMap<>();
+    List<Entry<String, Optional<String>>> keyValues = new ArrayList<>();
+    keyValues.add(Map.entry("em", Optional.of("FAKE.1@google.com")));
+    singleFieldMatchesMap.put(0, getSingleFieldMatch(joinFieldName, "1-1"));
+    keyValues.add(Map.entry("ph", Optional.of("999-999-9999")));
+    singleFieldMatchesMap.put(1, getSingleFieldMatch(joinFieldName, "1-2"));
+    keyValues.add(Map.entry("fn", Optional.of("fakeName")));
+    keyValues.add(Map.entry("ln", Optional.of("fakeLastName")));
+    keyValues.add(Map.entry("zc", Optional.of("99999")));
+    keyValues.add(Map.entry("cc", Optional.of("US")));
+    compositeFieldMatchesMap.put(0, getCompositeFieldMatch(joinFieldName, "1-3"));
+    keyValues.add(Map.entry("insta", Optional.of("test")));
+    keyValues.add(Map.entry("tik", Optional.of("@test")));
+    compositeFieldMatchesMap.put(1, getCompositeFieldMatch(joinFieldName, "1-4"));
+    keyValues.add(Map.entry("coord_key_id", Optional.of("testKey")));
+    keyValues.add(Map.entry("metadata", Optional.empty()));
+    keyValues.add(Map.entry("row_status", Optional.of(SUCCESS.toString())));
+    keyValues.add(Map.entry(ROW_MARKER_COLUMN_NAME, Optional.of("1")));
+    dataRecords.add(
+        getDataRecord(keyValues)
+            .setJoinFields(
+                FieldMatches.newBuilder()
+                    .putAllSingleFieldRecordMatches(singleFieldMatchesMap)
+                    .putAllCompositeFieldRecordMatches(compositeFieldMatchesMap))
+            .build());
+    DataChunk dataChunk = DataChunk.builder().setRecords(dataRecords).setSchema(schema).build();
+
+    MatchConfig testMatchConfig =
+        ProtoUtils.getProtoFromJson(
+            Resources.toString(
+                Objects.requireNonNull(
+                    getClass().getResource("testdata/match_config_multiple_column_groups.json")),
+                UTF_8),
+            MatchConfig.class);
+
+    // Run the write method
+    SerializedProtoDataWriter dataWriter =
+        new SerializedProtoDataWriter(
+            1000,
+            JOIN_MODE_PARAMS,
+            testDataDestination,
+            "proto_writer_test.txt",
+            schema,
+            testMatchConfig);
+    dataWriter.write(dataChunk);
+    dataWriter.close();
+
+    // Validate the written out file
+    assertThat(testDataDestination.file.exists()).isFalse(); // the temp file should've been deleted
+    assertThat(testDataDestination.name).isEqualTo("proto_writer_test_1.txt");
+    assertThat(testDataDestination.fileLines).hasSize(1);
+    // Validate the record
+    ConfidentialMatchOutputDataRecord returnedRecord =
+        base64Decode(testDataDestination.fileLines.get(0)).get();
+    assertEquals("SUCCESS", returnedRecord.getStatus());
+    assertThat(returnedRecord.getMatchKeysCount()).isEqualTo(4);
+    // check email
+    var matchKey = returnedRecord.getMatchKeys(0);
+    var field = matchKey.getField();
+    assertThat(field.getKeyValue().getKey()).isEqualTo("em");
+    assertThat(field.getKeyValue().getStringValue()).isEqualTo("FAKE.1@google.com");
+    assertThat(field.getMatchedOutputFieldsCount()).isEqualTo(1);
+    var matchedOutputFields = field.getMatchedOutputFields(0);
+    assertThat(matchedOutputFields.getKeyValueCount()).isEqualTo(1);
+    var keyValue = matchedOutputFields.getKeyValue(0);
+    assertThat(keyValue.getKey()).isEqualTo(joinFieldName);
+    assertThat(keyValue.getStringValue()).isEqualTo("1-1");
+    // check phone
+    matchKey = returnedRecord.getMatchKeys(1);
+    field = matchKey.getField();
+    assertThat(field.getKeyValue().getKey()).isEqualTo("ph");
+    assertThat(field.getKeyValue().getStringValue()).isEqualTo("999-999-9999");
+    assertThat(field.getMatchedOutputFieldsCount()).isEqualTo(1);
+    matchedOutputFields = matchKey.getField().getMatchedOutputFields(0);
+    assertThat(matchedOutputFields.getKeyValueCount()).isEqualTo(1);
+    keyValue = matchedOutputFields.getKeyValue(0);
+    assertThat(keyValue.getKey()).isEqualTo(joinFieldName);
+    assertThat(keyValue.getStringValue()).isEqualTo("1-2");
+    // check address
+    matchKey = returnedRecord.getMatchKeys(2);
+    var compositeField = matchKey.getCompositeField();
+    assertThat(compositeField.getKey()).isEqualTo("address");
+    assertThat(compositeField.getChildFieldsCount()).isEqualTo(4);
+    var childField = compositeField.getChildFields(0);
+    assertThat(childField.getKeyValue().getKey()).isEqualTo("fn");
+    assertThat(childField.getKeyValue().getStringValue()).isEqualTo("fakeName");
+    childField = compositeField.getChildFields(1);
+    assertThat(childField.getKeyValue().getKey()).isEqualTo("ln");
+    assertThat(childField.getKeyValue().getStringValue()).isEqualTo("fakeLastName");
+    childField = compositeField.getChildFields(2);
+    assertThat(childField.getKeyValue().getKey()).isEqualTo("zc");
+    assertThat(childField.getKeyValue().getStringValue()).isEqualTo("99999");
+    childField = compositeField.getChildFields(3);
+    assertThat(childField.getKeyValue().getKey()).isEqualTo("cc");
+    assertThat(childField.getKeyValue().getStringValue()).isEqualTo("US");
+    // check address joinFields
+    assertThat(compositeField.getMatchedOutputFieldsCount()).isEqualTo(1);
+    matchedOutputFields = compositeField.getMatchedOutputFields(0);
+    assertThat(matchedOutputFields.getKeyValueCount()).isEqualTo(1);
+    keyValue = matchedOutputFields.getKeyValue(0);
+    assertThat(keyValue.getKey()).isEqualTo(joinFieldName);
+    assertThat(keyValue.getStringValue()).isEqualTo("1-3");
+    // check socials
+    matchKey = returnedRecord.getMatchKeys(3);
+    compositeField = matchKey.getCompositeField();
+    assertThat(compositeField.getKey()).isEqualTo("socials");
+    assertThat(compositeField.getChildFieldsCount()).isEqualTo(2);
+    childField = compositeField.getChildFields(0);
+    assertThat(childField.getKeyValue().getKey()).isEqualTo("insta");
+    assertThat(childField.getKeyValue().getStringValue()).isEqualTo("test");
+    childField = compositeField.getChildFields(1);
+    assertThat(childField.getKeyValue().getKey()).isEqualTo("tik");
+    assertThat(childField.getKeyValue().getStringValue()).isEqualTo("@test");
+    // check socials joinFields
+    assertThat(compositeField.getMatchedOutputFieldsCount()).isEqualTo(1);
+    matchedOutputFields = compositeField.getMatchedOutputFields(0);
+    assertThat(matchedOutputFields.getKeyValueCount()).isEqualTo(1);
+    keyValue = matchedOutputFields.getKeyValue(0);
+    assertThat(keyValue.getKey()).isEqualTo(joinFieldName);
+    assertThat(keyValue.getStringValue()).isEqualTo("1-4");
+  }
+
+  @Test
+  public void write_joinModeGroupRecords_doesNotMixGroupedRecords() throws Exception {
+    TestDataDestination testDataDestination = new TestDataDestination();
+    Schema schema = getSchema("testdata/proto_schema_hashed.json");
+    List<DataRecord> dataRecords = new ArrayList<>();
+    String joinFieldName = "encrypted_gaia_id";
+
+    Map<Integer, FieldMatch> singleFieldMatchesMap0 = new HashMap<>();
+    Map<Integer, FieldMatch> compositeFieldMatchesMap0 = new HashMap<>();
+    List<Entry<String, Optional<String>>> keyValues0 = new ArrayList<>();
+    keyValues0.add(Map.entry("email", Optional.of("fake0@google.com")));
+    singleFieldMatchesMap0.put(0, getSingleFieldMatch(joinFieldName, "0-0"));
+    keyValues0.add(Map.entry("phone", Optional.of("UNMATCHED")));
+    keyValues0.add(Map.entry("first_name", Optional.of("fakeName0")));
+    keyValues0.add(Map.entry("last_name", Optional.of("fakeLastName0")));
+    keyValues0.add(Map.entry("zip_code", Optional.of("00000")));
+    keyValues0.add(Map.entry("country_code", Optional.of("US")));
+    compositeFieldMatchesMap0.put(0, getCompositeFieldMatch(joinFieldName, "0-2"));
+    keyValues0.add(Map.entry(ROW_MARKER_COLUMN_NAME, Optional.of("0")));
+    dataRecords.add(
+        getDataRecord(keyValues0)
+            .setJoinFields(
+                FieldMatches.newBuilder()
+                    .putAllSingleFieldRecordMatches(singleFieldMatchesMap0)
+                    .putAllCompositeFieldRecordMatches(compositeFieldMatchesMap0))
+            .build());
+    Map<Integer, FieldMatch> singleFieldMatchesMap1 = new HashMap<>();
+    Map<Integer, FieldMatch> compositeFieldMatchesMap1 = new HashMap<>();
+    List<Entry<String, Optional<String>>> keyValues1 = new ArrayList<>();
+    keyValues1.add(Map.entry("email", Optional.of("UNMATCHED")));
+    keyValues1.add(Map.entry("phone", Optional.of("111-111-1111")));
+    singleFieldMatchesMap1.put(1, getSingleFieldMatch(joinFieldName, "1-1"));
+    keyValues1.add(Map.entry("first_name", Optional.of("fakeName1")));
+    keyValues1.add(Map.entry("last_name", Optional.of("fakeLastName1")));
+    keyValues1.add(Map.entry("zip_code", Optional.of("11111")));
+    keyValues1.add(Map.entry("country_code", Optional.of("US")));
+    compositeFieldMatchesMap1.put(0, getCompositeFieldMatch(joinFieldName, "1-2"));
+    keyValues1.add(Map.entry(ROW_MARKER_COLUMN_NAME, Optional.of("0")));
+    dataRecords.add(
+        getDataRecord(keyValues1)
+            .setJoinFields(
+                FieldMatches.newBuilder()
+                    .putAllSingleFieldRecordMatches(singleFieldMatchesMap1)
+                    .putAllCompositeFieldRecordMatches(compositeFieldMatchesMap1))
+            .build());
+    Map<Integer, FieldMatch> singleFieldMatchesMap2 = new HashMap<>();
+    List<Entry<String, Optional<String>>> keyValues2 = new ArrayList<>();
+    keyValues2.add(Map.entry("email", Optional.of("fake2@google.com")));
+    singleFieldMatchesMap2.put(0, getSingleFieldMatch(joinFieldName, "2-0"));
+    keyValues2.add(Map.entry("phone", Optional.of("UNMATCHED")));
+    keyValues2.add(Map.entry("first_name", Optional.of("UNMATCHED")));
+    keyValues2.add(Map.entry("last_name", Optional.of("UNMATCHED")));
+    keyValues2.add(Map.entry("zip_code", Optional.of("UNMATCHED")));
+    keyValues2.add(Map.entry("country_code", Optional.of("UNMATCHED")));
+    keyValues2.add(Map.entry(ROW_MARKER_COLUMN_NAME, Optional.of("1")));
+    dataRecords.add(
+        getDataRecord(keyValues2)
+            .setJoinFields(
+                FieldMatches.newBuilder().putAllSingleFieldRecordMatches(singleFieldMatchesMap2))
+            .build());
+    DataChunk dataChunk = DataChunk.builder().setRecords(dataRecords).setSchema(schema).build();
+
+    MatchConfig testMatchConfig =
+        ProtoUtils.getProtoFromJson(
+            Resources.toString(
+                Objects.requireNonNull(
+                    getClass().getResource("testdata/match_config_multiple_column_groups.json")),
+                UTF_8),
+            MatchConfig.class);
+
+    // Run the write method
+    SerializedProtoDataWriter dataWriter =
+        new SerializedProtoDataWriter(
+            1000,
+            JOIN_MODE_PARAMS,
+            testDataDestination,
+            "proto_writer_test.txt",
+            schema,
+            testMatchConfig);
+    dataWriter.write(dataChunk);
+    dataWriter.close();
+
+    // Validate the written out file
+    assertThat(testDataDestination.file.exists()).isFalse(); // the temp file should've been deleted
+    assertThat(testDataDestination.name).isEqualTo("proto_writer_test_1.txt");
+    assertThat(testDataDestination.fileLines).hasSize(2);
+    // Validate the first record
+    ConfidentialMatchOutputDataRecord returnedRecord =
+        base64Decode(testDataDestination.fileLines.get(0)).get();
+    assertThat(returnedRecord.getMatchKeysCount()).isEqualTo(6);
+    // sort matchKeys for deterministic testing
+    var matchKeys = sortMatchKeys(returnedRecord.getMatchKeysList());
+    // check matched email
+    var matchKey = matchKeys.get(0);
+    var field = matchKey.getField();
+    assertThat(field.getKeyValue().getKey()).isEqualTo("email");
+    assertThat(field.getKeyValue().getStringValue()).isEqualTo("fake0@google.com");
+    assertThat(field.getMatchedOutputFieldsCount()).isEqualTo(1);
+    var matchedOutputFields = field.getMatchedOutputFields(0);
+    assertThat(matchedOutputFields.getKeyValueCount()).isEqualTo(1);
+    var keyValue = matchedOutputFields.getKeyValue(0);
+    assertThat(keyValue.getKey()).isEqualTo(joinFieldName);
+    assertThat(keyValue.getStringValue()).isEqualTo("0-0");
+    // check unmatched email
+    matchKey = matchKeys.get(1);
+    field = matchKey.getField();
+    assertThat(field.getKeyValue().getKey()).isEqualTo("email");
+    assertThat(field.getKeyValue().getStringValue()).isEqualTo("UNMATCHED");
+    assertThat(field.getMatchedOutputFieldsList()).isEmpty();
+    // check matched phone
+    matchKey = matchKeys.get(2);
+    field = matchKey.getField();
+    assertThat(field.getKeyValue().getKey()).isEqualTo("phone");
+    assertThat(field.getKeyValue().getStringValue()).isEqualTo("111-111-1111");
+    assertThat(field.getMatchedOutputFieldsCount()).isEqualTo(1);
+    matchedOutputFields = field.getMatchedOutputFields(0);
+    assertThat(matchedOutputFields.getKeyValueCount()).isEqualTo(1);
+    keyValue = matchedOutputFields.getKeyValue(0);
+    assertThat(keyValue.getKey()).isEqualTo(joinFieldName);
+    assertThat(keyValue.getStringValue()).isEqualTo("1-1");
+    // check unmatched phone
+    matchKey = matchKeys.get(3);
+    field = matchKey.getField();
+    assertThat(field.getKeyValue().getKey()).isEqualTo("phone");
+    assertThat(field.getKeyValue().getStringValue()).isEqualTo("UNMATCHED");
+    assertThat(field.getMatchedOutputFieldsList()).isEmpty(); // no matches
+    // check first address
+    matchKey = matchKeys.get(4);
+    var compositeField = matchKey.getCompositeField();
+    assertThat(compositeField.getKey()).isEqualTo("address");
+    assertThat(compositeField.getChildFieldsCount()).isEqualTo(4);
+    var childField = compositeField.getChildFields(0);
+    assertThat(childField.getKeyValue().getKey()).isEqualTo("first_name");
+    assertThat(childField.getKeyValue().getStringValue()).isEqualTo("fakeName0");
+    childField = compositeField.getChildFields(1);
+    assertThat(childField.getKeyValue().getKey()).isEqualTo("last_name");
+    assertThat(childField.getKeyValue().getStringValue()).isEqualTo("fakeLastName0");
+    childField = compositeField.getChildFields(2);
+    assertThat(childField.getKeyValue().getKey()).isEqualTo("zip_code");
+    assertThat(childField.getKeyValue().getStringValue()).isEqualTo("00000");
+    childField = compositeField.getChildFields(3);
+    assertThat(childField.getKeyValue().getKey()).isEqualTo("country_code");
+    assertThat(childField.getKeyValue().getStringValue()).isEqualTo("US");
+    // check address joinFields
+    assertThat(compositeField.getMatchedOutputFieldsCount()).isEqualTo(1);
+    matchedOutputFields = compositeField.getMatchedOutputFields(0);
+    assertThat(matchedOutputFields.getKeyValueCount()).isEqualTo(1);
+    keyValue = matchedOutputFields.getKeyValue(0);
+    assertThat(keyValue.getKey()).isEqualTo(joinFieldName);
+    assertThat(keyValue.getStringValue()).isEqualTo("0-2");
+    // check second address
+    matchKey = matchKeys.get(5);
+    compositeField = matchKey.getCompositeField();
+    assertThat(compositeField.getKey()).isEqualTo("address");
+    assertThat(compositeField.getChildFieldsCount()).isEqualTo(4);
+    childField = compositeField.getChildFields(0);
+    assertThat(childField.getKeyValue().getKey()).isEqualTo("first_name");
+    assertThat(childField.getKeyValue().getStringValue()).isEqualTo("fakeName1");
+    childField = compositeField.getChildFields(1);
+    assertThat(childField.getKeyValue().getKey()).isEqualTo("last_name");
+    assertThat(childField.getKeyValue().getStringValue()).isEqualTo("fakeLastName1");
+    childField = compositeField.getChildFields(2);
+    assertThat(childField.getKeyValue().getKey()).isEqualTo("zip_code");
+    assertThat(childField.getKeyValue().getStringValue()).isEqualTo("11111");
+    childField = compositeField.getChildFields(3);
+    assertThat(childField.getKeyValue().getKey()).isEqualTo("country_code");
+    assertThat(childField.getKeyValue().getStringValue()).isEqualTo("US");
+    // check address joinFields
+    assertThat(compositeField.getMatchedOutputFieldsCount()).isEqualTo(1);
+    matchedOutputFields = compositeField.getMatchedOutputFields(0);
+    assertThat(matchedOutputFields.getKeyValueCount()).isEqualTo(1);
+    keyValue = matchedOutputFields.getKeyValue(0);
+    assertThat(keyValue.getKey()).isEqualTo(joinFieldName);
+    assertThat(keyValue.getStringValue()).isEqualTo("1-2");
+
+    // Validate the second record
+    returnedRecord = base64Decode(testDataDestination.fileLines.get(1)).get();
+    assertThat(returnedRecord.getMatchKeysCount()).isEqualTo(3);
+    // sort matchKeys for deterministic testing
+    matchKeys = sortMatchKeys(returnedRecord.getMatchKeysList());
+    // check matched email
+    matchKey = matchKeys.get(0);
+    field = matchKey.getField();
+    assertThat(field.getKeyValue().getKey()).isEqualTo("email");
+    assertThat(field.getKeyValue().getStringValue()).isEqualTo("fake2@google.com");
+    assertThat(field.getMatchedOutputFieldsCount()).isEqualTo(1);
+    matchedOutputFields = field.getMatchedOutputFields(0);
+    assertThat(matchedOutputFields.getKeyValueCount()).isEqualTo(1);
+    keyValue = matchedOutputFields.getKeyValue(0);
+    assertThat(keyValue.getKey()).isEqualTo(joinFieldName);
+    assertThat(keyValue.getStringValue()).isEqualTo("2-0");
+    // check unmatched phone
+    matchKey = matchKeys.get(1);
+    field = matchKey.getField();
+    assertThat(field.getKeyValue().getKey()).isEqualTo("phone");
+    assertThat(field.getKeyValue().getStringValue()).isEqualTo("UNMATCHED");
+    assertThat(field.getMatchedOutputFieldsList()).isEmpty(); // no matches
+    // check unmatched address
+    matchKey = matchKeys.get(2);
+    compositeField = matchKey.getCompositeField();
+    assertThat(compositeField.getKey()).isEqualTo("address");
+    assertThat(compositeField.getChildFieldsCount()).isEqualTo(4);
+    childField = compositeField.getChildFields(0);
+    assertThat(childField.getKeyValue().getKey()).isEqualTo("first_name");
+    assertThat(childField.getKeyValue().getStringValue()).isEqualTo("UNMATCHED");
+    childField = compositeField.getChildFields(1);
+    assertThat(childField.getKeyValue().getKey()).isEqualTo("last_name");
+    assertThat(childField.getKeyValue().getStringValue()).isEqualTo("UNMATCHED");
+    childField = compositeField.getChildFields(2);
+    assertThat(childField.getKeyValue().getKey()).isEqualTo("zip_code");
+    assertThat(childField.getKeyValue().getStringValue()).isEqualTo("UNMATCHED");
+    childField = compositeField.getChildFields(3);
+    assertThat(childField.getKeyValue().getKey()).isEqualTo("country_code");
+    assertThat(childField.getKeyValue().getStringValue()).isEqualTo("UNMATCHED");
+    // no matches
+    assertThat(compositeField.getMatchedOutputFieldsList()).isEmpty();
+  }
+
+  private FieldMatch getSingleFieldMatch(String k0, String v0) {
+    return getSingleFieldMatch(k0, v0, /* k1= */ "", /* v1= */ "");
+  }
+
+  private FieldMatch getSingleFieldMatch(String k0, String v0, String k1, String v1) {
+    String[][] keyValueQuads = {{k0, v0}, {k1, v1}};
+    var builder = SingleFieldMatchedOutput.newBuilder();
+    for (String[] keyValue : keyValueQuads) {
+      if (!keyValue[0].isBlank() && !keyValue[1].isBlank()) {
+        builder.addMatchedOutputFields(
+            MatchedOutputField.newBuilder().setKey(keyValue[0]).setValue(keyValue[1]));
+      }
+    }
+    return FieldMatch.newBuilder().setSingleFieldMatchedOutput(builder).build();
+  }
+
+  private FieldMatch getCompositeFieldMatch(String k0, String v0) {
+    return getCompositeFieldMatch(k0, v0, /* k1= */ "", /* v1= */ "");
+  }
+
+  private FieldMatch getCompositeFieldMatch(String k0, String v0, String k1, String v1) {
+    String[][] keyValueQuads = {{k0, v0}, {k1, v1}};
+    var builder = CompositeFieldMatchedOutput.newBuilder();
+    for (String[] keyValue : keyValueQuads) {
+      if (!keyValue[0].isBlank() && !keyValue[1].isBlank()) {
+        builder.addMatchedOutputFields(
+            MatchedOutputField.newBuilder().setKey(keyValue[0]).setValue(keyValue[1]));
+      }
+    }
+    return FieldMatch.newBuilder().setCompositeFieldMatchedOutput(builder).build();
+  }
+
   private void validateField(Field field, Map<String, String> fieldMap) {
     KeyValue keyValue = field.getKeyValue();
     assertThat(fieldMap).containsKey(keyValue.getStringValue());
@@ -452,7 +881,13 @@ public final class SerializedProtoDataWriterTest {
   }
 
   private DataRecord.Builder getDataRecord(List<Entry<String, Optional<String>>> keyValueEntries) {
+    return getDataRecord(keyValueEntries, FieldMatches.newBuilder().build());
+  }
+
+  private DataRecord.Builder getDataRecord(
+      List<Entry<String, Optional<String>>> keyValueEntries, FieldMatches joinFields) {
     return DataRecord.newBuilder()
+        .setJoinFields(joinFields)
         .addAllKeyValues(
             keyValueEntries.stream()
                 .map(
@@ -464,6 +899,65 @@ public final class SerializedProtoDataWriterTest {
                           : keyValue.build();
                     })
                 .collect(Collectors.toList()));
+  }
+
+  /**
+   * Sort match keys, first by single vs composite then by key name, then by first int in the values
+   * of the matches. For this reason, it is recommended that the test values correspond to the
+   * desired order. Eg: email: test1@gmail.com , email-> test2@gmail.com . The `1` and `2` will be
+   * used to sort. `UNMATCHED` will be sorted last
+   */
+  private List<MatchKey> sortMatchKeys(List<MatchKey> inputList) {
+    List<MatchKey> mutableList = new ArrayList<>(inputList);
+    mutableList.sort(
+        (matchKey1, matchKey2) -> {
+          int isComposite =
+              Boolean.compare(matchKey1.hasCompositeField(), matchKey2.hasCompositeField());
+          if (isComposite == 0) {
+            if (matchKey1.hasField()) {
+              // get key from KV and compare them
+              KeyValue kv1 = matchKey1.getField().getKeyValue();
+              KeyValue kv2 = matchKey2.getField().getKeyValue();
+              int keyCompare = kv1.getKey().compareTo(kv2.getKey());
+              // if it's the same key, then compare the actual value by taking
+              // the first int found and comparing it.
+              if (keyCompare == 0) {
+                int numInValue1 = getFirstIntInStringValue(kv1);
+                int numInValue2 = getFirstIntInStringValue(kv2);
+                return Integer.compare(numInValue1, numInValue2);
+              }
+              return keyCompare;
+            } else {
+              // get key from compositeField and compare them
+              CompositeField cf1 = matchKey1.getCompositeField();
+              CompositeField cf2 = matchKey1.getCompositeField();
+              int keyCompare = cf1.getKey().compareTo(cf2.getKey());
+              // if it's the same key, then compare the values of the childFields by taking
+              // the first int found and comparing it.
+              if (keyCompare == 0) {
+                int numInValue1 = getFirstIntegerInChildFields(cf1);
+                int numInValue2 = getFirstIntegerInChildFields(cf2);
+                return Integer.compare(numInValue1, numInValue2);
+              }
+              return keyCompare;
+            }
+          }
+          return isComposite;
+        });
+    return mutableList;
+  }
+
+  private int getFirstIntegerInChildFields(CompositeField compositeField) {
+    String intStr =
+        compositeField.getChildFieldsList().stream()
+            .map(field -> field.getKeyValue().getStringValue().replaceAll("[^0-9]", ""))
+            .collect(Collectors.joining());
+    return intStr.isBlank() ? Integer.MAX_VALUE : intStr.charAt(0);
+  }
+
+  private int getFirstIntInStringValue(KeyValue kv) {
+    String intStr = kv.getStringValue().replaceAll("[^0-9]", "");
+    return intStr.isBlank() ? Integer.MAX_VALUE : intStr.charAt(0);
   }
 
   private static class TestDataDestination implements DataDestination {

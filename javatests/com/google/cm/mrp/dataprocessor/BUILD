@@ -79,6 +79,7 @@ java_test(
         "//java/com/google/cm/mrp/dataprocessor/transformations",
         "//java/com/google/cm/mrp/models",
         "//java/com/google/cm/util",
+        "//java/external:google_truth",
         "//java/external:mockito",
         "//javatests/com/google/cm/mrp/testutils",
         "//protos/mrp/api:java_proto",

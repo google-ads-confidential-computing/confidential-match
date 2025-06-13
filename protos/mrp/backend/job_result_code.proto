@@ -59,6 +59,8 @@ enum JobResultCode {
   WRITER_MISSING_DEK = 29; // Dek absent from DataRecord during write phase
   WRITER_MISSING_KEK = 30; // Kek absent from DataRecord during write phase
   WRITER_MISSING_WIP = 31; // Wip absent from DataRecord during write phase
+  DATA_MATCHER_CONFIG_ERROR = 33; // DataMatcher is not configured properly
+  INVALID_DATA_SOURCE_JOIN = 34; // DataSource cannot use join mode (ex, too many match condition columns)
 
   // Non-retryable (User) errors; 100 <= resultCode < 200
   INVALID_PARAMETERS = 100; // unable to parse job parameters or invalid job parameters
@@ -85,7 +87,7 @@ enum JobResultCode {
   AWS_AUTH_FAILED = 127; // Attestation was rejected by AWS KMS
   INVALID_KEK = 128; // KEK cannot decrypt data due to not existing or incorrect (not attestation)
   INVALID_KEK_FORMAT = 129; // KEK was not formatted correctly
-  UNSUPPORTED_MODE_ERROR = 130; // Mode is not supported by application
+  UNSUPPORTED_MODE_ERROR = 130; // Mode is not supported for operation
 
   // Partial errors; 200 <= resultCode < 300
   PARTIAL_SUCCESS = 200;

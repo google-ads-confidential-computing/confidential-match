@@ -20,6 +20,7 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DECRYPT
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_DECRYPTION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PARTIAL_SUCCESS_CONFIG_ERROR;
 import static com.google.common.hash.Hashing.sha256;
+import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -38,6 +39,7 @@ import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.ModeConfigs;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.ModeConfigs.RedactModeConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.SuccessConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.SuccessConfig.SuccessMode;
+import com.google.cm.mrp.backend.ModeProto.Mode;
 import com.google.cm.mrp.backend.SchemaProto.Schema;
 import com.google.cm.mrp.backend.SchemaProto.Schema.Column;
 import com.google.cm.mrp.backend.SchemaProto.Schema.ColumnType;
@@ -72,8 +74,16 @@ public final class DataMatcherImplTest {
           .setDataLocation(DataLocation.getDefaultInstance())
           .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
           .build();
+  private static final JobParameters JOIN_MODE_PARAMS =
+      JobParameters.builder()
+          .setMode(Mode.JOIN)
+          .setJobId("test")
+          .setDataLocation(DataLocation.getDefaultInstance())
+          .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
+          .build();
   private DataMatcher dataMatcher;
   private DataMatcher dataMatcherWithPartialSuccess;
+  private DataMatcher dataMatcherWithJoinMode;
 
   @Mock DataRecordTransformerFactory dataRecordTransformerFactory;
 
@@ -89,6 +99,11 @@ public final class DataMatcherImplTest {
             dataRecordTransformerFactory,
             MatchConfigProvider.getMatchConfig("copla"),
             DEFAULT_PARAMS);
+    dataMatcherWithJoinMode =
+        new DataMatcherImpl(
+            dataRecordTransformerFactory,
+            MatchConfigProvider.getMatchConfig("mic"),
+            JOIN_MODE_PARAMS);
     when(dataRecordTransformerFactory.create(any(), any(), any()))
         .thenReturn(
             new DataRecordTransformerImpl(
@@ -1775,6 +1790,332 @@ public final class DataMatcherImplTest {
     assertEquals(
         ex.getMessage(),
         "SUCCESS_MODE is ALLOW_PARTIAL_SUCCESS, but partial_success_attributes empty");
+  }
+
+  @Test
+  public void match_joinModeWhenMatchFound_keepsAndReturns() {
+    String[][] testData = {
+      {"email", "email", "fake.email@google.com"},
+      {"phone", "phone", "999-999-9999"},
+      {"first_name", "first_name", "fake_first_name", "1"},
+      {"last_name", "last_name", "fake_last_name", "1"},
+      {"zip_code", "zip_code", "99999", "1"},
+      {"country_code", "country_code", "US", "1"},
+    };
+    DataChunk dataChunk1 =
+        DataChunk.builder()
+            .setSchema(getSchema(testData))
+            .addRecord(getDataRecord(testData))
+            .build();
+    String[][] piiDataEmail = {
+      {"pii_value", "pii_value", "fake.email@google.com"},
+      {"encrypted_gaia_id", "encrypted_gaia_id", "123"}
+    };
+    String[][] piiDataPhone = {
+      {"pii_value", "pii_value", "999-999-9999"}, {"encrypted_gaia_id", "encrypted_gaia_id", "234"}
+    };
+    String[][] piiDataAddress = {
+      {"pii_value", "pii_value", hashString("fake_first_namefake_last_nameUS99999")},
+      {"encrypted_gaia_id", "encrypted_gaia_id", "345"}
+    };
+    DataChunk dataChunk2 =
+        DataChunk.builder()
+            .setSchema(getSchema(piiDataEmail))
+            .addRecord(getDataRecord(piiDataEmail))
+            .addRecord(getDataRecord(piiDataPhone))
+            .addRecord(getDataRecord(piiDataAddress))
+            .build();
+
+    DataMatchResult dataMatchResult = dataMatcherWithJoinMode.match(dataChunk1, dataChunk2);
+    DataChunk result = dataMatchResult.dataChunk();
+    Map<String, Long> conditionMatchCounts = dataMatchResult.matchStatistics().conditionMatches();
+    Map<String, Long> conditionValidCounts =
+        dataMatchResult.matchStatistics().validConditionChecks();
+    Map<String, Long> datasource1Errors = dataMatchResult.matchStatistics().datasource1Errors();
+    Map<String, Long> datasource2ConditionMatchCounts =
+        dataMatchResult.matchStatistics().datasource2ConditionMatches();
+    assertThat(result.records()).hasSize(1);
+    DataRecord dataRecord = result.records().get(0);
+    assertThat(dataRecord.getKeyValuesCount()).isEqualTo(7);
+    assertThat(dataRecord.getKeyValues(0).getKey()).isEqualTo("email");
+    assertThat(dataRecord.getKeyValues(0).getStringValue()).isEqualTo("fake.email@google.com");
+    assertThat(dataRecord.getKeyValues(1).getKey()).isEqualTo("phone");
+    assertThat(dataRecord.getKeyValues(1).getStringValue()).isEqualTo("999-999-9999");
+    assertThat(dataRecord.getKeyValues(2).getKey()).isEqualTo("first_name");
+    assertThat(dataRecord.getKeyValues(2).getStringValue()).isEqualTo("fake_first_name");
+    assertThat(dataRecord.getKeyValues(3).getKey()).isEqualTo("last_name");
+    assertThat(dataRecord.getKeyValues(3).getStringValue()).isEqualTo("fake_last_name");
+    assertThat(dataRecord.getKeyValues(4).getKey()).isEqualTo("zip_code");
+    assertThat(dataRecord.getKeyValues(4).getStringValue()).isEqualTo("99999");
+    assertThat(dataRecord.getKeyValues(5).getKey()).isEqualTo("country_code");
+    assertThat(dataRecord.getKeyValues(5).getStringValue()).isEqualTo("US");
+    assertThat(dataRecord.getKeyValues(6).getKey()).isEqualTo("row_status");
+    assertThat(dataRecord.getKeyValues(6).getStringValue()).isEqualTo("SUCCESS");
+    assertThat(conditionMatchCounts).hasSize(3);
+    assertThat(conditionMatchCounts).containsEntry("address", 1L);
+    assertThat(conditionMatchCounts).containsEntry("phone", 1L);
+    assertThat(conditionMatchCounts).containsEntry("email", 1L);
+    assertThat(conditionValidCounts).hasSize(3);
+    assertThat(conditionValidCounts).containsEntry("address", 1L);
+    assertThat(conditionValidCounts).containsEntry("phone", 1L);
+    assertThat(conditionValidCounts).containsEntry("email", 1L);
+    assertThat(datasource1Errors).isEmpty();
+    assertThat(datasource2ConditionMatchCounts).hasSize(3);
+    assertThat(datasource2ConditionMatchCounts).containsEntry("address", 1L);
+    assertThat(datasource2ConditionMatchCounts).containsEntry("phone", 1L);
+    assertThat(datasource2ConditionMatchCounts).containsEntry("email", 1L);
+    var singleFieldMatches = dataRecord.getJoinFields().getSingleFieldRecordMatchesMap();
+    assertThat(singleFieldMatches).hasSize(2);
+    // check email
+    assertThat(singleFieldMatches).containsKey(0);
+    assertThat(singleFieldMatches.get(0).hasSingleFieldMatchedOutput()).isTrue();
+    var singleFieldOutputs =
+        singleFieldMatches.get(0).getSingleFieldMatchedOutput().getMatchedOutputFieldsList();
+    assertThat(singleFieldOutputs).hasSize(1);
+    assertThat(singleFieldOutputs.get(0).getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(singleFieldOutputs.get(0).getValue()).isEqualTo("123");
+    // check phone
+    assertThat(singleFieldMatches).containsKey(1);
+    assertThat(singleFieldMatches.get(1).hasSingleFieldMatchedOutput()).isTrue();
+    singleFieldOutputs =
+        singleFieldMatches.get(1).getSingleFieldMatchedOutput().getMatchedOutputFieldsList();
+    assertThat(singleFieldOutputs).hasSize(1);
+    assertThat(singleFieldOutputs.get(0).getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(singleFieldOutputs.get(0).getValue()).isEqualTo("234");
+    // check address
+    assertThat(singleFieldMatches).doesNotContainKey(2);
+    assertThat(singleFieldMatches).doesNotContainKey(3);
+    assertThat(singleFieldMatches).doesNotContainKey(4);
+    assertThat(singleFieldMatches).doesNotContainKey(5);
+    var compositeFieldMatches = dataRecord.getJoinFields().getCompositeFieldRecordMatchesMap();
+    assertThat(compositeFieldMatches).containsKey(1);
+    assertThat(compositeFieldMatches.get(1).hasCompositeFieldMatchedOutput()).isTrue();
+    var compositeFieldOutputs =
+        compositeFieldMatches.get(1).getCompositeFieldMatchedOutput().getMatchedOutputFieldsList();
+    assertThat(compositeFieldOutputs).hasSize(1);
+    assertThat(compositeFieldOutputs.get(0).getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(compositeFieldOutputs.get(0).getValue()).isEqualTo("345");
+  }
+
+  @Test
+  public void match_joinModeWhenOnlyEmailMatchFound_keepsAndReturnsForEmailOnly() {
+    String[][] testData = {
+      {"email", "email", "fake.email@google.com"},
+      {"phone", "phone", "999-999-9999"},
+      {"first_name", "first_name", "fake_first_name"},
+      {"last_name", "last_name", "fake_last_name"},
+      {"zip_code", "zip_code", "99999"},
+      {"country_code", "country_code", "US"},
+    };
+    DataChunk dataChunk1 =
+        DataChunk.builder()
+            .setSchema(getSchema(testData))
+            .addRecord(getDataRecord(testData))
+            .build();
+    String[][] piiDataEmail = {
+      {"pii_value", "pii_value", "fake.email@google.com"},
+      {"encrypted_gaia_id", "encrypted_gaia_id", "123"}
+    };
+    String[][] piiDataPhone = {
+      {"pii_value", "pii_value", "000-000-0000"}, {"encrypted_gaia_id", "encrypted_gaia_id", "234"}
+    };
+    String[][] piiDataAddress = {
+      {"pii_value", "pii_value", hashString("fake_first_name0fake_last_name0US0000")},
+      {"encrypted_gaia_id", "encrypted_gaia_id", "345"}
+    };
+    DataChunk dataChunk2 =
+        DataChunk.builder()
+            .setSchema(getSchema(piiDataEmail))
+            .addRecord(getDataRecord(piiDataEmail))
+            .addRecord(getDataRecord(piiDataPhone))
+            .addRecord(getDataRecord(piiDataAddress))
+            .build();
+
+    DataMatchResult dataMatchResult = dataMatcherWithJoinMode.match(dataChunk1, dataChunk2);
+    DataChunk result = dataMatchResult.dataChunk();
+    Map<String, Long> conditionMatchCounts = dataMatchResult.matchStatistics().conditionMatches();
+    Map<String, Long> conditionValidCounts =
+        dataMatchResult.matchStatistics().validConditionChecks();
+    Map<String, Long> datasource1Errors = dataMatchResult.matchStatistics().datasource1Errors();
+    Map<String, Long> datasource2ConditionMatchCounts =
+        dataMatchResult.matchStatistics().datasource2ConditionMatches();
+    assertThat(result.records()).hasSize(1);
+    DataRecord dataRecord = result.records().get(0);
+    assertThat(dataRecord.getKeyValues(0).getKey()).isEqualTo("email");
+    assertThat(dataRecord.getKeyValues(0).getStringValue()).isEqualTo("fake.email@google.com");
+    assertThat(dataRecord.getKeyValues(1).getKey()).isEqualTo("phone");
+    assertThat(dataRecord.getKeyValues(1).getStringValue()).isEqualTo(REDACT_UNMATCHED_WITH);
+    assertThat(dataRecord.getKeyValues(2).getKey()).isEqualTo("first_name");
+    assertThat(dataRecord.getKeyValues(2).getStringValue()).isEqualTo(REDACT_UNMATCHED_WITH);
+    assertThat(dataRecord.getKeyValues(3).getKey()).isEqualTo("last_name");
+    assertThat(dataRecord.getKeyValues(3).getStringValue()).isEqualTo(REDACT_UNMATCHED_WITH);
+    assertThat(dataRecord.getKeyValues(4).getKey()).isEqualTo("zip_code");
+    assertThat(dataRecord.getKeyValues(4).getStringValue()).isEqualTo(REDACT_UNMATCHED_WITH);
+    assertThat(dataRecord.getKeyValues(5).getKey()).isEqualTo("country_code");
+    assertThat(dataRecord.getKeyValues(5).getStringValue()).isEqualTo(REDACT_UNMATCHED_WITH);
+    assertThat(conditionMatchCounts).hasSize(1);
+    assertThat(conditionMatchCounts).containsEntry("email", 1L);
+    assertThat(conditionValidCounts).hasSize(3);
+    assertThat(conditionValidCounts).containsEntry("address", 1L);
+    assertThat(conditionValidCounts).containsEntry("phone", 1L);
+    assertThat(conditionValidCounts).containsEntry("email", 1L);
+    assertThat(datasource1Errors).isEmpty();
+    assertThat(datasource2ConditionMatchCounts).hasSize(1);
+    assertThat(datasource2ConditionMatchCounts).containsEntry("email", 1L);
+    var singleFieldMatches = dataRecord.getJoinFields().getSingleFieldRecordMatchesMap();
+    assertThat(singleFieldMatches).hasSize(1);
+    // check email
+    assertThat(singleFieldMatches).containsKey(0);
+    assertThat(singleFieldMatches.get(0).hasSingleFieldMatchedOutput()).isTrue();
+    var singleFieldOutputs =
+        singleFieldMatches.get(0).getSingleFieldMatchedOutput().getMatchedOutputFieldsList();
+    assertThat(singleFieldOutputs).hasSize(1);
+    assertThat(singleFieldOutputs.get(0).getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(singleFieldOutputs.get(0).getValue()).isEqualTo("123");
+    // No more matches
+    assertThat(singleFieldMatches).doesNotContainKey(1);
+    assertThat(singleFieldMatches).doesNotContainKey(2);
+    assertThat(singleFieldMatches).doesNotContainKey(3);
+    assertThat(singleFieldMatches).doesNotContainKey(4);
+    assertThat(singleFieldMatches).doesNotContainKey(5);
+    var compositeFieldMatches = dataRecord.getJoinFields().getCompositeFieldRecordMatchesMap();
+    assertThat(compositeFieldMatches).isEmpty();
+  }
+
+  @Test
+  public void match_joinModeWhenOnlyAddressMatchFound_keepsAndReturnsForAddressOnly() {
+    String[][] testData = {
+      {"email", "email", "fake.email@google.com"},
+      {"phone", "phone", "999-999-9999"},
+      {"first_name", "first_name", "fake_first_name"},
+      {"last_name", "last_name", "fake_last_name"},
+      {"zip_code", "zip_code", "99999"},
+      {"country_code", "country_code", "US"},
+    };
+    DataChunk dataChunk1 =
+        DataChunk.builder()
+            .setSchema(getSchema(testData))
+            .addRecord(getDataRecord(testData))
+            .build();
+    String[][] piiDataEmail = {
+      {"pii_value", "pii_value", "invalid@google.com"},
+      {"encrypted_gaia_id", "encrypted_gaia_id", "123"}
+    };
+    String[][] piiDataPhone = {
+      {"pii_value", "pii_value", "000-000-0000"}, {"encrypted_gaia_id", "encrypted_gaia_id", "234"}
+    };
+    String[][] piiDataAddress = {
+      {"pii_value", "pii_value", hashString("fake_first_namefake_last_nameUS99999")},
+      {"encrypted_gaia_id", "encrypted_gaia_id", "345"}
+    };
+    DataChunk dataChunk2 =
+        DataChunk.builder()
+            .setSchema(getSchema(piiDataEmail))
+            .addRecord(getDataRecord(piiDataEmail))
+            .addRecord(getDataRecord(piiDataPhone))
+            .addRecord(getDataRecord(piiDataAddress))
+            .build();
+
+    DataMatchResult dataMatchResult = dataMatcherWithJoinMode.match(dataChunk1, dataChunk2);
+
+    DataChunk result = dataMatchResult.dataChunk();
+    Map<String, Long> conditionMatchCounts = dataMatchResult.matchStatistics().conditionMatches();
+    Map<String, Long> conditionValidCounts =
+        dataMatchResult.matchStatistics().validConditionChecks();
+    Map<String, Long> datasource1Errors = dataMatchResult.matchStatistics().datasource1Errors();
+    Map<String, Long> datasource2ConditionMatchCounts =
+        dataMatchResult.matchStatistics().datasource2ConditionMatches();
+
+    assertThat(result.records()).hasSize(1);
+    DataRecord dataRecord = result.records().get(0);
+    assertThat(dataRecord.getKeyValues(0).getKey()).isEqualTo("email");
+    assertThat(dataRecord.getKeyValues(0).getStringValue()).isEqualTo(REDACT_UNMATCHED_WITH);
+    assertThat(dataRecord.getKeyValues(1).getKey()).isEqualTo("phone");
+    assertThat(dataRecord.getKeyValues(1).getStringValue()).isEqualTo(REDACT_UNMATCHED_WITH);
+    assertThat(dataRecord.getKeyValues(2).getKey()).isEqualTo("first_name");
+    assertThat(dataRecord.getKeyValues(2).getStringValue()).isEqualTo("fake_first_name");
+    assertThat(dataRecord.getKeyValues(3).getKey()).isEqualTo("last_name");
+    assertThat(dataRecord.getKeyValues(3).getStringValue()).isEqualTo("fake_last_name");
+    assertThat(dataRecord.getKeyValues(4).getKey()).isEqualTo("zip_code");
+    assertThat(dataRecord.getKeyValues(4).getStringValue()).isEqualTo("99999");
+    assertThat(dataRecord.getKeyValues(5).getKey()).isEqualTo("country_code");
+    assertThat(dataRecord.getKeyValues(5).getStringValue()).isEqualTo("US");
+    assertThat(conditionMatchCounts).hasSize(1);
+    assertThat(conditionMatchCounts).containsEntry("address", 1L);
+    assertThat(conditionValidCounts).hasSize(3);
+    assertThat(conditionValidCounts).containsEntry("address", 1L);
+    assertThat(conditionValidCounts).containsEntry("phone", 1L);
+    assertThat(conditionValidCounts).containsEntry("email", 1L);
+    assertThat(datasource1Errors).isEmpty();
+    assertThat(datasource2ConditionMatchCounts).hasSize(1);
+    assertThat(datasource2ConditionMatchCounts).containsEntry("address", 1L);
+    // check address
+    var compositeFieldMatches = dataRecord.getJoinFields().getCompositeFieldRecordMatchesMap();
+    assertThat(compositeFieldMatches).containsKey(0);
+    assertThat(compositeFieldMatches.get(0).hasCompositeFieldMatchedOutput()).isTrue();
+    var compositeFieldOutputs =
+        compositeFieldMatches.get(0).getCompositeFieldMatchedOutput().getMatchedOutputFieldsList();
+    assertThat(compositeFieldOutputs).hasSize(1);
+    assertThat(compositeFieldOutputs.get(0).getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(compositeFieldOutputs.get(0).getValue()).isEqualTo("345");
+    // No more matches
+    assertThat(dataRecord.getJoinFields().getSingleFieldRecordMatchesMap()).isEmpty();
+  }
+
+  @Test
+  public void match_joinModeWhenMatchNotFound_redactsAllReturnsNone() {
+    String[][] testData = {
+      {"email", "email", "fake.email@google.com"},
+      {"phone", "phone", "999-999-9999"},
+      {"first_name", "first_name", "fake_first_name"},
+      {"last_name", "last_name", "fake_last_name"},
+      {"zip_code", "zip_code", "99999"},
+      {"country_code", "country_code", "US"},
+    };
+    DataChunk dataChunk1 =
+        DataChunk.builder()
+            .setSchema(getSchema(testData))
+            .addRecord(getDataRecord(testData))
+            .build();
+    String[][] piiDataEmail = {
+      {"pii_value", "pii_value", "invalid@google.com"},
+      {"encrypted_gaia_id", "encrypted_gaia_id", "123"}
+    };
+    DataChunk dataChunk2 = DataChunk.builder().setSchema(getSchema(piiDataEmail)).build();
+
+    DataMatchResult dataMatchResult = dataMatcherWithJoinMode.match(dataChunk1, dataChunk2);
+    DataChunk result = dataMatchResult.dataChunk();
+    Map<String, Long> conditionMatchCounts = dataMatchResult.matchStatistics().conditionMatches();
+    Map<String, Long> conditionValidCounts =
+        dataMatchResult.matchStatistics().validConditionChecks();
+    Map<String, Long> datasource1Errors = dataMatchResult.matchStatistics().datasource1Errors();
+    Map<String, Long> datasource2ConditionMatchCounts =
+        dataMatchResult.matchStatistics().datasource2ConditionMatches();
+    assertThat(result.records()).hasSize(1);
+    DataRecord dataRecord = result.records().get(0);
+    assertThat(dataRecord.getKeyValues(0).getKey()).isEqualTo("email");
+    assertThat(dataRecord.getKeyValues(0).getStringValue()).isEqualTo(REDACT_UNMATCHED_WITH);
+    assertThat(dataRecord.getKeyValues(1).getKey()).isEqualTo("phone");
+    assertThat(dataRecord.getKeyValues(1).getStringValue()).isEqualTo(REDACT_UNMATCHED_WITH);
+    assertThat(dataRecord.getKeyValues(2).getKey()).isEqualTo("first_name");
+    assertThat(dataRecord.getKeyValues(2).getStringValue()).isEqualTo(REDACT_UNMATCHED_WITH);
+    assertThat(dataRecord.getKeyValues(3).getKey()).isEqualTo("last_name");
+    assertThat(dataRecord.getKeyValues(3).getStringValue()).isEqualTo(REDACT_UNMATCHED_WITH);
+    assertThat(dataRecord.getKeyValues(4).getKey()).isEqualTo("zip_code");
+    assertThat(dataRecord.getKeyValues(4).getStringValue()).isEqualTo(REDACT_UNMATCHED_WITH);
+    assertThat(dataRecord.getKeyValues(5).getKey()).isEqualTo("country_code");
+    assertThat(dataRecord.getKeyValues(5).getStringValue()).isEqualTo(REDACT_UNMATCHED_WITH);
+    assertThat(conditionValidCounts).hasSize(3);
+    assertThat(conditionValidCounts).containsEntry("address", 1L);
+    assertThat(conditionValidCounts).containsEntry("phone", 1L);
+    assertThat(conditionValidCounts).containsEntry("email", 1L);
+    assertThat(datasource1Errors).isEmpty();
+    assertThat(conditionMatchCounts).isEmpty();
+    assertThat(datasource2ConditionMatchCounts).isEmpty();
+    var singleFieldMatches = dataRecord.getJoinFields().getSingleFieldRecordMatchesMap();
+    assertThat(singleFieldMatches).isEmpty();
+    var compositeFieldMatches = dataRecord.getJoinFields().getCompositeFieldRecordMatchesMap();
+    assertThat(compositeFieldMatches).isEmpty();
   }
 
   private DataChunk buildDataChunk(

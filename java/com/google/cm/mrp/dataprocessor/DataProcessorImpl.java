@@ -153,15 +153,12 @@ public final class DataProcessorImpl implements DataProcessor {
               matchConfig, cryptoClient.get(), featureFlags, jobParameters);
       logger.info("Job {}: Created LookupDataSource", jobRequestId);
       streamDataSource =
-          streamDataSourceFactory.create(
-              matchConfig, featureFlags, jobParameters, cryptoClient.get());
+          streamDataSourceFactory.create(matchConfig, jobParameters, cryptoClient.get());
       logger.info("Job {}: Created StreamDataSource", jobRequestId);
     } else {
       lookupDataSource = lookupDataSourceFactory.create(matchConfig, featureFlags, jobParameters);
       logger.info("Job {}: Created LookupDataSource", jobRequestId);
-      streamDataSource =
-          streamDataSourceFactory.create(
-              jobParameters.dataLocation(), matchConfig, dataOwnerIdentity, featureFlags);
+      streamDataSource = streamDataSourceFactory.create(matchConfig, jobParameters);
       logger.info("Job {}: Created StreamDataSource", jobRequestId);
     }
     ImmutableList.Builder<CompletableFuture<ImmutableList<MatchStatistics>>> completableFutures =
@@ -221,7 +218,7 @@ public final class DataProcessorImpl implements DataProcessor {
                         : getOutputSchema(matchConfig, dataReader.getSchema());
                 final DataWriter dataWriter =
                     getDataWriter(
-                        featureFlags,
+                        jobParameters,
                         outputSchema,
                         dataDestination,
                         dataReader.getName(),
@@ -307,14 +304,14 @@ public final class DataProcessorImpl implements DataProcessor {
   }
 
   private DataWriter getDataWriter(
-      FeatureFlags featureFlags,
+      JobParameters jobParameters,
       Schema schema,
       DataDestination dataDestination,
       String dataReaderName,
       MatchConfig matchConfig) {
     return schema.getDataFormat() == SERIALIZED_PROTO
         ? dataWriterFactory.createSerializedProtoDataWriter(
-            dataDestination, dataReaderName, schema, matchConfig)
+            jobParameters, dataDestination, dataReaderName, schema, matchConfig)
         : dataWriterFactory.createCsvDataWriter(
             dataDestination,
             dataReaderName,

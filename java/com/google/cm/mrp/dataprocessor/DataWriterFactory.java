@@ -22,6 +22,7 @@ import com.google.cm.mrp.dataprocessor.destinations.DataDestination;
 import com.google.cm.mrp.dataprocessor.writers.CsvDataWriter;
 import com.google.cm.mrp.dataprocessor.writers.DataWriter;
 import com.google.cm.mrp.dataprocessor.writers.SerializedProtoDataWriter;
+import com.google.cm.mrp.models.JobParameters;
 import java.util.List;
 import javax.inject.Named;
 
@@ -38,5 +39,9 @@ public interface DataWriterFactory {
   /** Factory method for constructing {@link SerializedProtoDataWriter} objects. */
   @Named("serializedProto")
   DataWriter createSerializedProtoDataWriter(
-      DataDestination dataDestination, String name, Schema schema, MatchConfig matchConfig);
+      JobParameters jobParameters,
+      DataDestination dataDestination,
+      String name,
+      Schema schema,
+      MatchConfig matchConfig);
 }

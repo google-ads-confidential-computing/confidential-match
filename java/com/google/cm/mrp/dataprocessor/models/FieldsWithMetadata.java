@@ -17,6 +17,7 @@
 package com.google.cm.mrp.dataprocessor.models;
 
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
+import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -50,8 +51,29 @@ public class FieldsWithMetadata {
             newResult.incrementCount();
             return newResult;
           } else {
-            // If results exist, then simply increment
+            // If metadata exists, then simply increment
             curMetadata.incrementCount();
+            return curMetadata;
+          }
+        });
+  }
+
+  /**
+   * Inserts or updates a field into the map, along with associatedData. If field is brand-new, a
+   * new mapping is created. If the field already exists, the associatedData is appended.
+   */
+  public void upsertFieldWithAssociatedData(Field fieldKey, Field associatedData) {
+    fieldsMetadataMap.compute(
+        fieldKey,
+        (field, curMetadata) -> {
+          // Create new FieldMetadata if none exists
+          if (curMetadata == null) {
+            var newResult = new FieldMetadata();
+            newResult.addAssociatedData(associatedData);
+            return newResult;
+          } else {
+            // If metadata exists, then append only
+            curMetadata.addAssociatedData(associatedData);
             return curMetadata;
           }
         });
@@ -62,6 +84,13 @@ public class FieldsWithMetadata {
     return !fieldsMetadataMap.containsKey(fieldKey)
         ? 0
         : fieldsMetadataMap.get(fieldKey).getCount();
+  }
+
+  /** Gets all associatedData of a Field, if it exists within the map. Otherwise, returns empty list */
+  public ImmutableList<Field> getAssociatedDataForField(Field fieldKey) {
+    return !fieldsMetadataMap.containsKey(fieldKey)
+        ? ImmutableList.of()
+        : ImmutableList.copyOf(fieldsMetadataMap.get(fieldKey).getAssociatedData());
   }
 
   /**

@@ -16,9 +16,9 @@
       "column_alias": "kek_uri"
     },
     {
-      "column_name": "wip_alias",
+      "column_name": "wip_provider",
       "column_type": "STRING",
-      "column_alias": "wip_alias"
+      "column_alias": "wip_provider"
     }
   ],
   "data_format": "SERIALIZED_PROTO"

@@ -41,7 +41,6 @@ import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 import com.google.api.client.http.HttpHeaders;
 import com.google.api.client.http.HttpResponseException;
 import com.google.cloud.storage.StorageException;
-import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.JobProcessorException;
 import com.google.cm.mrp.MatchConfigProvider;
 import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner;
@@ -53,6 +52,7 @@ import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.Wrap
 import com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.SuccessConfig.SuccessMode;
+import com.google.cm.mrp.backend.ModeProto.Mode;
 import com.google.cm.mrp.backend.SchemaProto.Schema;
 import com.google.cm.mrp.backend.SchemaProto.Schema.DataFormat;
 import com.google.cm.mrp.clients.cryptoclient.AeadCryptoClient;
@@ -112,6 +112,15 @@ public class BlobStoreStreamDataSourceTest {
       DataLocation.ofBlobStoreDataLocation(
           DataLocation.BlobStoreDataLocation.create(
               INPUT_BUCKET, INPUT_PREFIX + FOLDER_DELIMITER + INPUT_FILE));
+  JobParameters DEFAULT_PARAMS =
+      JobParameters.builder()
+          .setJobId("test")
+          .setDataLocation(FAKE_DATA_LOCATION)
+          .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
+          .setEncodingType(EncodingType.BASE64)
+          .setEncryptionMetadata(EncryptionMetadata.getDefaultInstance())
+          .build();
+
   @Rule public final MockitoRule mockito = MockitoJUnit.rule();
   @Mock private BlobStorageClient mockBlobStorageClient;
   @Mock private DataReaderFactory dataReaderFactory;
@@ -185,6 +194,33 @@ public class BlobStoreStreamDataSourceTest {
   }
 
   @Test
+  public void next_whenJoinModeWithCsv_returnsJobError() throws Exception {
+    JobParameters parameters =
+        JobParameters.builder()
+            .setJobId("test")
+            .setDataLocation(FAKE_DATA_LOCATION)
+            .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
+            .setMode(Mode.JOIN)
+            .build();
+    setUp(parameters, /* numFiles= */ 1, DataFormat.CSV);
+    when(dataReaderFactory.createProtoDataReader(
+            eq(mockInputStream),
+            any(Schema.class),
+            startsWith(INPUT_PREFIX + FOLDER_DELIMITER + INPUT_FILE),
+            eq(matchConfig),
+            any(SuccessMode.class)))
+        .thenReturn(fakeSerializedProtoDataReader);
+
+    JobProcessorException e =
+        assertThrows(JobProcessorException.class, () -> blobStoreStreamDataSource.next());
+
+    assertEquals(JobResultCode.UNSUPPORTED_MODE_ERROR, e.getErrorCode());
+    assertFalse(e.isRetriable());
+    assertEquals("Join mode not supported for CSV data.", e.getMessage());
+    verifyNoInteractions(dataReaderFactory);
+  }
+
+  @Test
   public void next_whenLargeCountOfBlobsFoundReturnDifferentBlobs() throws Exception {
     int numFiles = 100_000;
     setUp(FAKE_DATA_LOCATION, numFiles, DataFormat.CSV);
@@ -240,7 +276,7 @@ public class BlobStoreStreamDataSourceTest {
             .setInputSchemaPath(INPUT_PREFIX + FOLDER_DELIMITER + SCHEMA_DEFINITION_FILE)
             .setIsStreamed(true)
             .build();
-    setUp(dataLocation, DataFormat.CSV);
+    setUp(dataLocation, /* numFiles= */ 1, DataFormat.CSV);
     when(dataReaderFactory.createCsvDataReader(
             eq(mockInputStream),
             any(Schema.class),
@@ -265,14 +301,6 @@ public class BlobStoreStreamDataSourceTest {
   @Test
   public void next_whenBlobsFoundWithCryptoClientThenReturnsReaderWithCryptoClient()
       throws Exception {
-    JobParameters parameters =
-        JobParameters.builder()
-            .setJobId("test")
-            .setDataLocation(FAKE_DATA_LOCATION)
-            .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
-            .setEncodingType(EncodingType.BASE64)
-            .setEncryptionMetadata(EncryptionMetadata.getDefaultInstance())
-            .build();
     matchConfig = MatchConfigProvider.getMatchConfig("customer_match");
     when(mockBlobStorageClient.listBlobs(BLOB_STORAGE_DATA_LOCATION, Optional.empty()))
         .thenReturn(
@@ -291,7 +319,7 @@ public class BlobStoreStreamDataSourceTest {
             eq(mockInputStream),
             any(Schema.class),
             eq(INPUT_PREFIX + FOLDER_DELIMITER + INPUT_FILE),
-            eq(parameters),
+            eq(DEFAULT_PARAMS),
             eq(matchConfig.getEncryptionKeyColumns()),
             any(SuccessMode.class),
             eq(aeadCryptoClient)))
@@ -302,8 +330,7 @@ public class BlobStoreStreamDataSourceTest {
             mockMetricClient,
             dataReaderFactory,
             matchConfig,
-            FeatureFlags.builder().build(),
-            parameters,
+            DEFAULT_PARAMS,
             aeadCryptoClient);
 
     DataReader result = blobStoreStreamDataSource.next();
@@ -316,7 +343,7 @@ public class BlobStoreStreamDataSourceTest {
             eq(mockInputStream),
             any(Schema.class),
             eq(INPUT_PREFIX + FOLDER_DELIMITER + INPUT_FILE),
-            eq(parameters),
+            eq(DEFAULT_PARAMS),
             eq(matchConfig.getEncryptionKeyColumns()),
             any(SuccessMode.class),
             eq(aeadCryptoClient));
@@ -337,10 +364,8 @@ public class BlobStoreStreamDataSourceTest {
                     mockBlobStorageClient,
                     mockMetricClient,
                     dataReaderFactory,
-                    FAKE_DATA_LOCATION,
                     matchConfig,
-                    Optional.empty(),
-                    FeatureFlags.builder().build()));
+                    DEFAULT_PARAMS));
 
     assertEquals(JobResultCode.MISSING_SCHEMA_ERROR, e.getErrorCode());
     assertFalse(e.isRetriable());
@@ -372,10 +397,8 @@ public class BlobStoreStreamDataSourceTest {
                     mockBlobStorageClient,
                     mockMetricClient,
                     dataReaderFactory,
-                    FAKE_DATA_LOCATION,
                     matchConfig,
-                    Optional.empty(),
-                    FeatureFlags.builder().build()));
+                    DEFAULT_PARAMS));
 
     assertEquals(JobResultCode.SCHEMA_PERMISSIONS_ERROR, e.getErrorCode());
     assertFalse(e.isRetriable());
@@ -402,10 +425,8 @@ public class BlobStoreStreamDataSourceTest {
                     mockBlobStorageClient,
                     mockMetricClient,
                     dataReaderFactory,
-                    FAKE_DATA_LOCATION,
                     matchConfig,
-                    Optional.empty(),
-                    FeatureFlags.builder().build()));
+                    DEFAULT_PARAMS));
 
     assertEquals(JobResultCode.SCHEMA_FILE_READ_ERROR, e.getErrorCode());
     assertTrue(e.isRetriable());
@@ -533,10 +554,8 @@ public class BlobStoreStreamDataSourceTest {
                     mockBlobStorageClient,
                     mockMetricClient,
                     dataReaderFactory,
-                    FAKE_DATA_LOCATION,
                     matchConfig,
-                    Optional.empty(),
-                    FeatureFlags.builder().build()));
+                    DEFAULT_PARAMS));
 
     assertEquals(JobResultCode.INVALID_SCHEMA_FILE_ERROR, e.getErrorCode());
     assertFalse(e.isRetriable());
@@ -565,14 +584,23 @@ public class BlobStoreStreamDataSourceTest {
   }
 
   private void setUp(DataFormat dataFormat) throws Exception {
-    setUp(FAKE_DATA_LOCATION, dataFormat);
-  }
-
-  private void setUp(DataOwner.DataLocation dataLocation, DataFormat dataFormat) throws Exception {
-    setUp(dataLocation, 1, dataFormat);
+    setUp(FAKE_DATA_LOCATION, /* numFiles= */ 1, dataFormat);
   }
 
   private void setUp(DataOwner.DataLocation dataLocation, int numFiles, DataFormat dataFormat)
+      throws Exception {
+    JobParameters parameters =
+        JobParameters.builder()
+            .setJobId("test")
+            .setDataLocation(dataLocation)
+            .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
+            .setEncodingType(EncodingType.BASE64)
+            .setEncryptionMetadata(EncryptionMetadata.getDefaultInstance())
+            .build();
+    setUp(parameters, numFiles, dataFormat);
+  }
+
+  private void setUp(JobParameters parameters, int numFiles, DataFormat dataFormat)
       throws Exception {
     matchConfig = MatchConfigProvider.getMatchConfig("customer_match");
     String filePrefix = INPUT_PREFIX + FOLDER_DELIMITER + INPUT_FILE;
@@ -597,13 +625,7 @@ public class BlobStoreStreamDataSourceTest {
         .thenReturn(schemaInputStream);
     blobStoreStreamDataSource =
         new BlobStoreStreamDataSource(
-            mockBlobStorageClient,
-            mockMetricClient,
-            dataReaderFactory,
-            dataLocation,
-            matchConfig,
-            Optional.empty(),
-            FeatureFlags.builder().build());
+            mockBlobStorageClient, mockMetricClient, dataReaderFactory, matchConfig, parameters);
   }
 
   private InputStream getSchemaStream(DataFormat dataFormat) {

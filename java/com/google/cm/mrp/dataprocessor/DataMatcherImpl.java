@@ -16,17 +16,25 @@
 
 package com.google.cm.mrp.dataprocessor;
 
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DATA_MATCHER_CONFIG_ERROR;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_DATA_SOURCE_JOIN;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PARTIAL_SUCCESS_CONFIG_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.SUCCESS;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.UNSUPPORTED_MODE_ERROR;
+import static com.google.cm.mrp.backend.ModeProto.Mode.JOIN;
 import static com.google.cm.mrp.backend.ModeProto.Mode.REDACT;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.hash.Hashing.sha256;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.cm.mrp.JobProcessorException;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
+import com.google.cm.mrp.backend.DataRecordProto.DataRecord.FieldMatches;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord.KeyValue;
 import com.google.cm.mrp.backend.FieldMatchProto.FieldMatch;
+import com.google.cm.mrp.backend.FieldMatchProto.FieldMatch.CompositeFieldMatchedOutput;
+import com.google.cm.mrp.backend.FieldMatchProto.FieldMatch.MatchedOutputField;
+import com.google.cm.mrp.backend.FieldMatchProto.FieldMatch.SingleFieldMatchedOutput;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.Column;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.CompositeColumn;
@@ -46,6 +54,7 @@ import com.google.cm.mrp.dataprocessor.transformations.DataRecordTransformer;
 import com.google.cm.mrp.dataprocessor.transformations.DataRecordTransformerFactory;
 import com.google.cm.mrp.models.JobParameters;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.io.BaseEncoding;
 import com.google.inject.Inject;
@@ -59,8 +68,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -130,19 +141,26 @@ public final class DataMatcherImpl implements DataMatcher {
   @SuppressWarnings("UnstableApiUsage")
   public DataMatchResult match(
       DataChunk dataChunkFromDataSource1, DataChunk dataChunkFromDataSource2) {
-    // Collects all fields at once, so they can be matched multiple times for performance.
-    final FieldsWithMetadata dataSource2Fields =
-        buildDataSource2FieldsWithMetadata(dataChunkFromDataSource2);
-
     MatchColumnsList dataSource1MatchColumnsList =
         MatchColumnsList.generateMatchColumnsListForDataSource1(
             dataChunkFromDataSource1.schema(), matchConfig);
-
     DataRecordTransformer transformer =
         dataRecordTransformerFactory.create(
             matchConfig, dataChunkFromDataSource1.schema(), jobParameters);
 
-    // TODO(b/309462161): Add logic to honor output columns as specified in the matchConfig
+    // For JOIN mode. Get the index where to find the associated data in dataSource2
+    SingleColumnIndices dataSource2AssociatedDataIndices =
+        getFieldIndicesForAliases(dataChunkFromDataSource2.schema(), getAssociatedDataFieldNames());
+
+    // Collects all fields from dataSource2 at once, so they can be looked easily
+    // and matched multiple times for performance.
+    final FieldsWithMetadata dataSource2Fields =
+        buildDataSource2FieldsWithMetadata(
+            dataChunkFromDataSource2, dataSource2AssociatedDataIndices);
+
+    // For JOIN mode. Map to lookup the column group of a field by its index
+    ImmutableMap<Integer, Integer> dataSource1IndexToGroupNumberMap =
+        getIndexToGroupNumberMap(dataChunkFromDataSource1.schema(), dataSource1MatchColumnsList);
 
     // Counts the number of records that contain at least one match
     long numDataRecordsWithMatch = 0L;
@@ -199,6 +217,17 @@ public final class DataMatcherImpl implements DataMatcher {
                   /* recordStatus= */ shouldAppendRecordStatus()
                       ? Optional.of(SUCCESS.name())
                       : Optional.empty());
+        } else if (JOIN == jobParameters.mode()) {
+          outputRecord =
+              redactAndJoin(
+                  dataRecord,
+                  matchConfig.getModeConfigs().getJoinModeConfig().getRedactUnmatchedWith(),
+                  dataSource1MatchColumnsList,
+                  dataSource1IndexToGroupNumberMap,
+                  matchedFields,
+                  /* recordStatus= */ shouldAppendRecordStatus()
+                      ? Optional.of(SUCCESS.name())
+                      : Optional.empty());
         } else {
           throw new JobProcessorException(
               "Unknown mode: " + jobParameters.mode(), UNSUPPORTED_MODE_ERROR);
@@ -209,10 +238,6 @@ public final class DataMatcherImpl implements DataMatcher {
         outputRecords.add(outputRecord);
       }
     }
-
-    // TODO: Change the schema in the returned dataChunk for TRANSFORM mode.  The DataSource1 schema
-    // can be used for REDACT mode, but this is not the case for TRANSFORM mode. This will require
-    // changes in the DataWriter since the schema is not read from this DataChunk
     return DataMatchResult.create(
         DataChunk.builder()
             .setSchema(getUpdatedSchema(dataChunkFromDataSource1.schema()))
@@ -230,12 +255,12 @@ public final class DataMatcherImpl implements DataMatcher {
 
   /**
    * Iterates through all the {@link DataRecord}s in DataSource2, extracts each field (or
-   * compositeField) as well its relevant metadata (such as the count of a field within the
+   * compositeField) result as well its relevant metadata (such as the count of a field within the
    * DataSource). Returns a {@link FieldsWithMetadata} mapping each field to its metadata.
    */
   private FieldsWithMetadata buildDataSource2FieldsWithMetadata(
-      DataChunk dataChunkFromDataSource2) {
-    FieldsWithMetadata fields = new FieldsWithMetadata();
+      DataChunk dataChunkFromDataSource2, SingleColumnIndices associatedDataIndices) {
+    FieldsWithMetadata fieldsWithMetadata = new FieldsWithMetadata();
     // HashSet of datasource2 columns (single column match condition) that have already been
     // processed
     HashSet<String> recordedDataSource2ColumnSingle = new HashSet<>();
@@ -249,23 +274,40 @@ public final class DataMatcherImpl implements DataMatcher {
           continue;
         }
         recordedDataSource2ColumnSingle.add(columnAlias);
-        updateFieldsForSingleColumnMatchCondition(matchCondition, fields, dataChunkFromDataSource2);
+        addDataSource2SingleFieldMatchConditionResults(
+            fieldsWithMetadata, matchCondition, dataChunkFromDataSource2, associatedDataIndices);
       } else {
         String columnAlias = matchCondition.getDataSource2Column().getColumnAlias();
         if (recordedDataSource2ColumnMulti.contains(columnAlias)) {
           continue;
         }
         recordedDataSource2ColumnMulti.add(columnAlias);
-        updateFieldsForMultiColumnMatchCondition(matchCondition, fields, dataChunkFromDataSource2);
+        addDataSource2MultiColumnMatchConditionResults(
+            fieldsWithMetadata, matchCondition, dataChunkFromDataSource2, associatedDataIndices);
       }
     }
-    return fields;
+    return fieldsWithMetadata;
   }
 
-  private void updateFieldsForSingleColumnMatchCondition(
+  /**
+   * Extracts all the singleColumnMatchCondition fields from dataSource2 and adds them to
+   * fieldsWithMetadata. SingleColumnMatchCondition (defined at the match config) fields are those
+   * that consist of only 1 dataSource field to find a match. For REDACT mode, simply adds the
+   * key-value pair that makes up the field to the fieldsWithMetadata result. For JOIN mode, adds
+   * this pair as well as any associatedData found in the data record.
+   *
+   * @param fieldsWithMetadata Stores all extracted fields from dataSource2
+   * @param singleColumnMatchCondition MatchCondition definitions from matchConfig that only contain
+   *     singleColumn MatchConditions
+   * @param dataChunkFromDataSource2 DataChunk with all the records from dataSource2
+   * @param associatedDataIndices Indices where to find associatedData for each dataRecord in
+   *     dataSource2
+   */
+  private void addDataSource2SingleFieldMatchConditionResults(
+      FieldsWithMetadata fieldsWithMetadata,
       MatchCondition singleColumnMatchCondition,
-      FieldsWithMetadata fields,
-      DataChunk dataChunkFromDataSource2) {
+      DataChunk dataChunkFromDataSource2,
+      SingleColumnIndices associatedDataIndices) {
     Schema schema = dataChunkFromDataSource2.schema();
     SingleColumnIndices columnIndices =
         MatchColumnsList.getMatchColumnsForSingleColumnMatchCondition(
@@ -273,7 +315,7 @@ public final class DataMatcherImpl implements DataMatcher {
     if (REDACT == jobParameters.mode()) {
       for (DataRecord dataRecord : dataChunkFromDataSource2.records()) {
         for (Integer columnIndex : columnIndices.indicesList()) {
-          fields.upsertField(
+          fieldsWithMetadata.upsertField(
               Field.builder()
                   .setKey(
                       singleColumnMatchCondition
@@ -284,16 +326,65 @@ public final class DataMatcherImpl implements DataMatcher {
                   .build());
         }
       }
+    } else if (JOIN == jobParameters.mode()) {
+      // Validate matchCondition only has 1 column.  The current design does not allow to have
+      // multiple match fields (ie multiple pii) per record, since that makes it ambiguous which
+      // associated
+      // data belongs to which field. If there is only one pii column, then it is simple to say
+      // that all the associatedData in the record map it.
+      if (columnIndices.indicesList().size() != 1) {
+        String msg =
+            "Join mode requires DataSource2 to contain one match condition column per record";
+        throw new JobProcessorException(msg, INVALID_DATA_SOURCE_JOIN);
+      }
+      Integer piiTypeIndex = columnIndices.indicesList().get(0);
+      // Iterate through each dataRecord. Get the matched field first
+      for (DataRecord dataRecord : dataChunkFromDataSource2.records()) {
+        // represents the field that will be used to match (ie the PII type)
+        var fieldKey =
+            Field.builder()
+                .setKey(
+                    singleColumnMatchCondition
+                        .getDataSource2Column()
+                        .getColumns(0)
+                        .getColumnAlias())
+                .setValue(dataRecord.getKeyValues(piiTypeIndex).getStringValue())
+                .build();
+        // Go through all the associatedData and add it to the Fields to be returned
+        for (Integer associatedDataIndex : associatedDataIndices.indicesList()) {
+          fieldsWithMetadata.upsertFieldWithAssociatedData(
+              fieldKey,
+              Field.builder()
+                  .setKey((dataRecord.getKeyValues(associatedDataIndex).getKey()))
+                  .setValue(dataRecord.getKeyValues(associatedDataIndex).getStringValue())
+                  .build());
+        }
+      }
     } else {
       throw new JobProcessorException(
           "Unknown mode: " + jobParameters.mode(), UNSUPPORTED_MODE_ERROR);
     }
   }
 
-  private void updateFieldsForMultiColumnMatchCondition(
+  /**
+   * Extracts all the multiColumnMatchCondition fields from dataSource2 and adds them to
+   * fieldsWithMetadata. MultiColumnMatchCondition (defined at the match config) fields are those
+   * that consist more than 1 dataSource field to find a match. For REDACT mode, concats and hashes
+   * all the field values and adds the result to the fieldsWithMetadata result. For JOIN mode,
+   * performs the same operation and also adds any associatedData found in the data record.
+   *
+   * @param fieldsWithMetadata Stores all extracted fields from dataSource2
+   * @param multiColumnMatchCondition MatchCondition definitions from matchConfig that only contain
+   *     multiColum MatchConditions
+   * @param dataChunkFromDataSource2 DataChunk with all the records from dataSource2
+   * @param associatedDataIndices Indices where to find associatedData for each dataRecord in
+   *     dataSource2
+   */
+  private void addDataSource2MultiColumnMatchConditionResults(
+      FieldsWithMetadata fieldsWithMetadata,
       MatchCondition multiColumnMatchCondition,
-      FieldsWithMetadata fields,
-      DataChunk dataChunkFromDataSource2) {
+      DataChunk dataChunkFromDataSource2,
+      SingleColumnIndices associatedDataIndices) {
     Schema schema = dataChunkFromDataSource2.schema();
     // Create a map whose key is the column group and value is the list of indices of columns
     // (in schema) in that column group.
@@ -309,10 +400,49 @@ public final class DataMatcherImpl implements DataMatcher {
                   .map(dataRecord::getKeyValues)
                   .map(KeyValue::getStringValue)
                   .collect(Collectors.joining());
-          fields.upsertField(
+          fieldsWithMetadata.upsertField(
               Field.builder()
                   .setKey(multiColumnMatchCondition.getDataSource2Column().getColumnAlias())
                   .setValue(hashString(combinedValues))
+                  .build());
+        }
+      }
+    } else if (JOIN == jobParameters.mode()) {
+      if (columnGroups.keySet().size() != 1) {
+        String msg =
+            "Join mode requires DataSource2 to contain only one match condition columnGroup per"
+                + " record";
+        throw new JobProcessorException(msg, INVALID_DATA_SOURCE_JOIN);
+      }
+      Integer columnGroup =
+          columnGroups.keySet().stream()
+              .findAny()
+              .orElseThrow(
+                  () -> {
+                    String msg = "Invalid dataSource2 column group";
+                    logger.error(msg);
+                    throw new JobProcessorException(msg, DATA_MATCHER_CONFIG_ERROR);
+                  });
+      // Iterate through each dataRecord. Get the matched field first
+      for (DataRecord dataRecord : dataChunkFromDataSource2.records()) {
+        String combinedValues =
+            columnGroups.get(columnGroup).stream()
+                .map(dataRecord::getKeyValues)
+                .map(KeyValue::getStringValue)
+                .collect(Collectors.joining());
+        // represents the field that will be used to match (ie the PII type)
+        var fieldKey =
+            Field.builder()
+                .setKey(multiColumnMatchCondition.getDataSource2Column().getColumnAlias())
+                .setValue(hashString(combinedValues))
+                .build();
+        // Go through all the associatedData and add it to the Fields to be returned
+        for (Integer associatedDataIndex : associatedDataIndices.indicesList()) {
+          fieldsWithMetadata.upsertFieldWithAssociatedData(
+              fieldKey,
+              Field.builder()
+                  .setKey((dataRecord.getKeyValues(associatedDataIndex).getKey()))
+                  .setValue(dataRecord.getKeyValues(associatedDataIndex).getStringValue())
                   .build());
         }
       }
@@ -347,7 +477,7 @@ public final class DataMatcherImpl implements DataMatcher {
                   matchedConditions,
                   datasource2ConditionMatches,
                   processedFields)
-              : getMatchedFieldsForMultiColumnMatchCondition(
+              : getMatchedColumnsForMultiColumnMatchCondition(
                   matchCondition,
                   dataRecord,
                   dataSource2fields,
@@ -401,6 +531,34 @@ public final class DataMatcherImpl implements DataMatcher {
             datasource2ConditionMatches.merge(conditionName, (long) matchesCount, Long::sum);
           }
         }
+      } else if (JOIN == jobParameters.mode()) {
+        // Get all associatedData found for the field
+        ImmutableList<Field> associatedData = dataSource2Fields.getAssociatedDataForField(fieldKey);
+        if (!associatedData.isEmpty()) {
+          // Convert to MatchedOutputField
+          ImmutableList<MatchedOutputField> matchedOutputFields =
+              associatedData.stream()
+                  .map(
+                      data ->
+                          MatchedOutputField.newBuilder()
+                              .setKey(data.key())
+                              .setValue(data.value())
+                              .build())
+                  .collect(ImmutableList.toImmutableList());
+          // Save to output list with its index within the data record as the key
+          matchedFields.add(
+              FieldMatch.newBuilder()
+                  .setSingleFieldMatchedOutput(
+                      SingleFieldMatchedOutput.newBuilder()
+                          .setIndex(i)
+                          .addAllMatchedOutputFields(matchedOutputFields))
+                  .build());
+          matchedConditions.merge(conditionName, 1L, Long::sum);
+          if (processedFields.add(fieldKey)) {
+            datasource2ConditionMatches.merge(
+                conditionName, (long) associatedData.size(), Long::sum);
+          }
+        }
       } else {
         throw new JobProcessorException(
             "Unknown mode: " + jobParameters.mode(), UNSUPPORTED_MODE_ERROR);
@@ -411,7 +569,7 @@ public final class DataMatcherImpl implements DataMatcher {
   }
 
   /**
-   * Finds and returns all columns that matched using a multicolumn MatchCondition.
+   * Finds and returns all fields that matched using a multicolumn MatchCondition.
    *
    * @param multiColumnMatchCondition a MatchCondition whose DataSource1Column has multiple columns
    * @param dataRecord the DataRecord to be matched against
@@ -421,7 +579,7 @@ public final class DataMatcherImpl implements DataMatcher {
    *     have the same column group. The columns in each group correspond to the columns in the
    *     DataSource1Column of the multiColumnMatchCondition
    */
-  private ImmutableList<FieldMatch> getMatchedFieldsForMultiColumnMatchCondition(
+  private ImmutableList<FieldMatch> getMatchedColumnsForMultiColumnMatchCondition(
       MatchCondition multiColumnMatchCondition,
       DataRecord dataRecord,
       FieldsWithMetadata dataSource2Fields,
@@ -436,6 +594,8 @@ public final class DataMatcherImpl implements DataMatcher {
     // For every group, append all the values together, hash the result, and look for a match in the
     // dataSource2Fields. Maps returned by ListMultimap.asMap() have List values with insert
     // ordering preserved, although the method signature doesn't explicitly say so.
+    // Entry key is the column group number, entry value are all the indices within that column
+    // group
     for (Entry<Integer, Collection<Integer>> columnGroupIndexEntry :
         dataSource1columnGroups.asMap().entrySet()) {
       // The logic here relies on the fact that the column lists are all already sorted by column
@@ -474,6 +634,37 @@ public final class DataMatcherImpl implements DataMatcher {
             datasource2ConditionMatches.merge(conditionName, (long) matchesCount, Long::sum);
           }
         }
+      } else if (JOIN == jobParameters.mode()) {
+        // get all associatedData found for this field
+        ImmutableList<Field> associatedData = dataSource2Fields.getAssociatedDataForField(fieldKey);
+        numValidMatchAttempts += associatedData.isEmpty() && combinedValues.isEmpty() ? 0 : 1;
+
+        // Found a match.
+        if (!associatedData.isEmpty()) {
+          // Convert associatedData to MatchedOutputField
+          ImmutableList<MatchedOutputField> matchedOutputFields =
+              associatedData.stream()
+                  .map(
+                      data ->
+                          MatchedOutputField.newBuilder()
+                              .setKey(data.key())
+                              .setValue(data.value())
+                              .build())
+                  .collect(ImmutableList.toImmutableList());
+          // Save to output list where key is the colum group number
+          matchedFields.add(
+              FieldMatch.newBuilder()
+                  .setCompositeFieldMatchedOutput(
+                      CompositeFieldMatchedOutput.newBuilder()
+                          .setColumnGroup(columnGroupIndexEntry.getKey())
+                          .addAllMatchedOutputFields(matchedOutputFields))
+                  .build());
+          matchedConditions.merge(conditionName, 1L, Long::sum);
+          if (processedFields.add(fieldKey)) {
+            datasource2ConditionMatches.merge(
+                conditionName, (long) associatedData.size(), Long::sum);
+          }
+        }
       } else {
         throw new JobProcessorException(
             "Unknown mode: " + jobParameters.mode(), UNSUPPORTED_MODE_ERROR);
@@ -484,13 +675,13 @@ public final class DataMatcherImpl implements DataMatcher {
   }
 
   /**
-   * Redacts match columns in a data record that match the predicate.
+   * Redacts match fields in a data record that match the predicate.
    *
    * @param dataRecord the data record to be redacted
    * @param redactWith the string to replace redacted fields
-   * @param redactPredicate accepts column indices and returns true for redacted columns
+   * @param redactPredicate accepts column indices and returns true for redacted fields
    * @param recordStatus an Optional status string to populate the status field
-   * @return a new data record with redacted values in correct columns
+   * @return a new data record with redacted values
    */
   private DataRecord redact(
       DataRecord dataRecord,
@@ -520,6 +711,114 @@ public final class DataMatcherImpl implements DataMatcher {
     if (dataRecord.hasProcessingMetadata()) {
       result.setProcessingMetadata(dataRecord.getProcessingMetadata());
     }
+    return result.build();
+  }
+
+  /**
+   * Redacts match fields and includes matchedOutputFields in a data record
+   *
+   * @param dataRecord the data record to be processed
+   * @param redactWith the string to replace redacted fields
+   * @param dataSource1MatchColumnsList list of match conditions from dataSource1
+   * @param dataSource1CompositeIndexToGroupNumberMap map of composite column groups where the key
+   *     is the index of a compositeField, and the value is the column group number of that field
+   * @param dataSource2MatchedFields fields that were matched from dataSource2
+   * @param recordStatus an Optional status string to populate the status field
+   * @return a new data record with redacted values in correct columns
+   */
+  private DataRecord redactAndJoin(
+      DataRecord dataRecord,
+      String redactWith,
+      MatchColumnsList dataSource1MatchColumnsList,
+      ImmutableMap<Integer, Integer> dataSource1CompositeIndexToGroupNumberMap,
+      List<FieldMatch> dataSource2MatchedFields,
+      Optional<String> recordStatus) {
+    DataRecord.Builder result = DataRecord.newBuilder();
+    // Mapping of dataSource1 field index -> FieldMatch
+    Map<Integer, FieldMatch> matchedSingleFieldMap = new HashMap<>();
+    // Mapping of dataSource1 1 field group number -> FieldMatch
+    Map<Integer, FieldMatch> matchedCompositeFieldMap = new HashMap<>();
+
+    for (int idx = 0; idx < dataRecord.getKeyValuesCount(); idx++) {
+      KeyValue dataSource1Field = dataRecord.getKeyValues(idx);
+      Optional<FieldMatch> match = Optional.empty();
+      // holds value to output
+      String value;
+      // Make idx final so it can be used in lambdas
+      int dataSource1FieldIndex = idx;
+      // Get the groupNumber for this field (if it exists)
+      Optional<Integer> dataSource1GroupNumber =
+          Optional.ofNullable(dataSource1CompositeIndexToGroupNumberMap.get(dataSource1FieldIndex));
+
+      // If blank, value is also blank
+      if (!dataSource1Field.hasStringValue() || dataSource1Field.getStringValue().isBlank()) {
+        value = "";
+        // If it's not a match condition field, then return original value
+      } else if (!dataSource1MatchColumnsList.isMatchColumn(idx)) {
+        value = dataSource1Field.getStringValue();
+      } else {
+        // iterate through all dataSource2 field to look for a match
+        match =
+            dataSource2MatchedFields.stream()
+                .filter(
+                    field -> {
+                      // if field is a single field, then simply check its index matches that of
+                      // dataSource1
+                      if (field.hasSingleFieldMatchedOutput()) {
+                        return field.getSingleFieldMatchedOutput().getIndex()
+                            == dataSource1FieldIndex;
+                      }
+                      // if field is composite, then check if the group number of the potential
+                      // match matches the groupNumber from dataSource1
+                      else if (field.hasCompositeFieldMatchedOutput()) {
+                        int dataSource2GroupNumber =
+                            field.getCompositeFieldMatchedOutput().getColumnGroup();
+                        return dataSource1GroupNumber.isPresent()
+                            && dataSource1GroupNumber.get() == dataSource2GroupNumber;
+                      } else {
+                        String msg = "FieldMatch missing joinMode field during redactAndJoin";
+                        logger.error(msg);
+                        throw new JobProcessorException(msg, DATA_MATCHER_CONFIG_ERROR);
+                      }
+                    })
+                .findAny();
+
+        value = match.isPresent() ? dataSource1Field.getStringValue() : redactWith;
+      }
+
+      result.addKeyValues(KeyValue.newBuilder(dataSource1Field).setStringValue(value));
+      match.ifPresent(
+          matchedField -> {
+            // For single fields, simply add to map using the index of dataSource1 field as the key
+            if (matchedField.hasSingleFieldMatchedOutput()) {
+              matchedSingleFieldMap.put(dataSource1FieldIndex, matchedField);
+            }
+            // For composite fields, add to map using the groupNumber of dataSource1 composite field
+            // as the key
+            else if (matchedField.hasCompositeFieldMatchedOutput()
+                && dataSource1GroupNumber.isPresent()) {
+              matchedCompositeFieldMap.putIfAbsent(dataSource1GroupNumber.get(), matchedField);
+            }
+          });
+    }
+    recordStatus.ifPresent(
+        status ->
+            result.addKeyValues(
+                KeyValue.newBuilder()
+                    .setKey(successConfig.getPartialSuccessAttributes().getRecordStatusFieldName())
+                    .setStringValue(status)));
+    if (dataRecord.hasProcessingMetadata()) {
+      result.setProcessingMetadata(dataRecord.getProcessingMetadata());
+    }
+    // Add fields to be joined, if any
+    var joinFieldsBuilder = FieldMatches.newBuilder();
+    if (!matchedSingleFieldMap.isEmpty()) {
+      joinFieldsBuilder.putAllSingleFieldRecordMatches(matchedSingleFieldMap);
+    }
+    if (!matchedCompositeFieldMap.isEmpty()) {
+      joinFieldsBuilder.putAllCompositeFieldRecordMatches(matchedCompositeFieldMap);
+    }
+    result.setJoinFields(joinFieldsBuilder.build());
     return result.build();
   }
 
@@ -558,5 +857,52 @@ public final class DataMatcherImpl implements DataMatcher {
       return currentSchema.toBuilder().addColumns(recordStatusColumn).build();
     }
     return currentSchema;
+  }
+
+  /* Get associatedData field names to search for in a data source. Only for Join mode */
+  private List<String> getAssociatedDataFieldNames() {
+    if (jobParameters.mode() != JOIN) {
+      return ImmutableList.of();
+    } else {
+      if (!matchConfig.getModeConfigs().hasJoinModeConfig()) {
+        String message =
+            String.format(
+                "Application %s does have Join mode configurations",
+                matchConfig.getApplicationId());
+        logger.warn(message);
+        throw new JobProcessorException(message, UNSUPPORTED_MODE_ERROR);
+      }
+      return matchConfig.getModeConfigs().getJoinModeConfig().getJoinFieldsList();
+    }
+  }
+
+  /*
+   * Returns a SingleColumnIndices with the indices of the fields (in the schema) that match the aliasList parameter
+   */
+  public static SingleColumnIndices getFieldIndicesForAliases(
+      Schema schema, List<String> aliasList) {
+    ImmutableList.Builder<Integer> indices = ImmutableList.builder();
+    for (String alias : aliasList) {
+      for (int i = 0; i < schema.getColumnsCount(); i++) {
+        if (schema.getColumns(i).getColumnAlias().equalsIgnoreCase(alias)) {
+          indices.add(i);
+        }
+      }
+    }
+    return SingleColumnIndices.create(indices.build());
+  }
+
+  /**
+   * Builds a map of column index to column group number for all CompositeColumns found in the
+   * schema. The column index and column groups are taken from the schema while the match config is
+   * used to know if the column is part of CompositeColumns
+   */
+  private ImmutableMap<Integer, Integer> getIndexToGroupNumberMap(
+      Schema schema, MatchColumnsList matchColumnsList) {
+    return IntStream.range(0, schema.getColumnsCount())
+        .boxed()
+        .filter(matchColumnsList::isMultiMatchCondition)
+        .collect(
+            toImmutableMap(Function.identity(), idx -> schema.getColumns(idx).getColumnGroup()));
   }
 }

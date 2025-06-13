@@ -17,7 +17,6 @@
 package com.google.cm.mrp.dataprocessor;
 
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.CRYPTO_CLIENT_CONFIGURATION_ERROR;
-import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DATA_READER_CONFIGURATION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INPUT_FILE_LIST_READ_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INPUT_FILE_READ_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_DATA_FORMAT;
@@ -26,6 +25,7 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.MISSING
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.SCHEMA_FILE_CLOSING_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.SCHEMA_FILE_READ_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.SCHEMA_PERMISSIONS_ERROR;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.UNSUPPORTED_MODE_ERROR;
 import static com.google.cm.mrp.dataprocessor.common.Constants.ROW_MARKER_COLUMN_NAME;
 import static com.google.cm.util.ProtoUtils.getProtoFromJson;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -33,12 +33,12 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 import com.google.cloud.storage.StorageException;
-import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.JobProcessorException;
 import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.SuccessConfig.SuccessMode;
+import com.google.cm.mrp.backend.ModeProto.Mode;
 import com.google.cm.mrp.backend.SchemaProto.Schema;
 import com.google.cm.mrp.backend.SchemaProto.Schema.Column;
 import com.google.cm.mrp.backend.SchemaProto.Schema.DataFormat;
@@ -85,10 +85,8 @@ public final class BlobStoreStreamDataSource implements StreamDataSource {
   private final DataReaderFactory dataReaderFactory;
   private final DataOwner.DataLocation dataLocation;
   private final MatchConfig matchConfig;
-  // TODO(b/406643831): Make not optional
-  private final Optional<JobParameters> jobParameters;
+  private final JobParameters jobParameters;
   private final Optional<String> dataOwnerIdentity;
-  private final FeatureFlags featureFlags;
   private final Optional<EncryptionMetadata> encryptionMetadata;
   private final Optional<CryptoClient> cryptoClient;
   private final Iterator<String> blobIterator;
@@ -101,24 +99,21 @@ public final class BlobStoreStreamDataSource implements StreamDataSource {
       BlobStorageClient blobStorageClient,
       MetricClient metricClient,
       DataReaderFactory dataReaderFactory,
-      @Assisted DataOwner.DataLocation dataLocation,
       @Assisted MatchConfig matchConfig,
-      @Assisted Optional<String> dataOwnerIdentity,
-      @Assisted FeatureFlags featureFlags) {
+      @Assisted JobParameters jobParameters) {
     this.blobStorageClient = blobStorageClient;
     this.metricClient = metricClient;
     this.dataReaderFactory = dataReaderFactory;
-    this.dataLocation = dataLocation;
+    this.dataLocation = jobParameters.dataLocation();
     this.matchConfig = matchConfig;
-    this.dataOwnerIdentity = dataOwnerIdentity;
-    this.featureFlags = featureFlags;
+    this.dataOwnerIdentity = jobParameters.dataOwnerIdentity();
     this.encryptionMetadata = Optional.empty();
     this.cryptoClient = Optional.empty();
     this.schema = getSchema();
     ImmutableList<String> blobList = getBlobList();
     this.size = blobList.size();
     this.blobIterator = blobList.iterator();
-    this.jobParameters = Optional.empty();
+    this.jobParameters = jobParameters;
   }
 
   /** Constructor for {@link BlobStoreStreamDataSource}. */
@@ -128,7 +123,6 @@ public final class BlobStoreStreamDataSource implements StreamDataSource {
       MetricClient metricClient,
       DataReaderFactory dataReaderFactory,
       @Assisted MatchConfig matchConfig,
-      @Assisted FeatureFlags featureFlags,
       @Assisted JobParameters jobParameters,
       @Assisted CryptoClient cryptoClient) {
     this.blobStorageClient = blobStorageClient;
@@ -137,14 +131,13 @@ public final class BlobStoreStreamDataSource implements StreamDataSource {
     this.dataLocation = jobParameters.dataLocation();
     this.matchConfig = matchConfig;
     this.dataOwnerIdentity = jobParameters.dataOwnerIdentity();
-    this.featureFlags = featureFlags;
     this.encryptionMetadata = jobParameters.encryptionMetadata();
     this.cryptoClient = Optional.of(cryptoClient);
     this.schema = getSchema();
     ImmutableList<String> blobList = getBlobList();
     this.size = blobList.size();
     this.blobIterator = blobList.iterator();
-    this.jobParameters = Optional.of(jobParameters);
+    this.jobParameters = jobParameters;
   }
 
   /** {@inheritDoc} */
@@ -543,15 +536,17 @@ public final class BlobStoreStreamDataSource implements StreamDataSource {
 
     switch (schema.getDataFormat()) {
       case CSV:
+        if (Mode.JOIN == jobParameters.mode()) {
+          String msg = "Join mode not supported for CSV data.";
+          logger.warn(msg);
+          throw new JobProcessorException(msg, UNSUPPORTED_MODE_ERROR);
+        }
         if (cryptoClient.isPresent()) {
           return dataReaderFactory.createCsvDataReader(
               gcsBlob,
               schema,
               blob,
-              jobParameters.orElseThrow(
-                  () ->
-                      new JobProcessorException(
-                          "Missing job params", DATA_READER_CONFIGURATION_ERROR)),
+              jobParameters,
               matchConfig.getEncryptionKeyColumns(),
               successMode,
               cryptoClient.get());

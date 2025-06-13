@@ -16,6 +16,7 @@
 
 package com.google.cm.mrp.dataprocessor;
 
+import static com.google.cm.mrp.dataprocessor.models.MatchColumnIndices.Kind.COLUMN_GROUP_INDICES;
 import static com.google.cm.mrp.dataprocessor.models.MatchColumnIndices.Kind.SINGLE_COLUMN_INDICES;
 
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
@@ -56,6 +57,24 @@ public class MatchColumnsList {
           return true;
         }
       } else {
+        if (matchColumns
+            .columnGroupIndices()
+            .columnGroupIndicesMultimap()
+            .values()
+            .contains(columnIndex)) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  /*
+   * Checks if the given index is part of a multi match condition.
+   */
+  public boolean isMultiMatchCondition(int columnIndex) {
+    for (MatchColumnIndices matchColumns : matchColumnsList) {
+      if (matchColumns.getKind().equals(COLUMN_GROUP_INDICES)) {
         if (matchColumns
             .columnGroupIndices()
             .columnGroupIndicesMultimap()

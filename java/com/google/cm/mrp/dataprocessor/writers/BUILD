@@ -25,6 +25,7 @@ java_library(
         "//java/com/google/cm/mrp/dataprocessor/converters",
         "//java/com/google/cm/mrp/dataprocessor/destinations",
         "//java/com/google/cm/mrp/dataprocessor/models",
+        "//java/com/google/cm/mrp/models",
         "//java/external:apache_commons_csv",
         "//java/external:apache_commons_lang",
         "//java/external:guava",

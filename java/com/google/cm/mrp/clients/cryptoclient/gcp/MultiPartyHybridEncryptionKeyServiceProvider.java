@@ -105,6 +105,7 @@ public final class MultiPartyHybridEncryptionKeyServiceProvider
             .setCoordBKeyFetchingService(keyFetchingServiceB)
             .setCoordAAeadService(cloudAeadSelectorA)
             .setCoordBAeadService(cloudAeadSelectorB)
+            .setEnablePrivateKeyDecryptionRetries(true)
             .build();
 
     return MultiPartyHybridEncryptionKeyServiceImpl.newInstance(params);

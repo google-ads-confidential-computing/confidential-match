@@ -51,6 +51,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static com.google.scp.operator.protos.frontend.api.v1.ReturnCodeProto.ReturnCode.RETRIES_EXHAUSTED;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
 import static org.mockserver.model.Format.LOG_ENTRIES;
 import static org.mockserver.model.HttpError.error;
 import static org.mockserver.model.HttpRequest.request;
@@ -77,6 +78,13 @@ import com.google.cm.lookupserver.api.LookupProto.LookupRequest;
 import com.google.cm.lookupserver.api.LookupProto.LookupResponse;
 import com.google.cm.lookupserver.api.LookupProto.LookupResult;
 import com.google.cm.lookupserver.api.LookupProto.MatchedDataRecord;
+import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeChildField;
+import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeField;
+import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.ConfidentialMatchDataRecord;
+import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.ConfidentialMatchOutputDataRecord;
+import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.Field;
+import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.KeyValue;
+import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.MatchKey;
 import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner;
 import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner.DataLocation;
 import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwnerList;
@@ -118,14 +126,18 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Rule;
@@ -177,6 +189,21 @@ public final class MrpGcpIntegrationTest {
           + "{\"columnName\":\"CountryCode1\",\"columnAlias\":\"country_code\","
           + "\"columnType\":\"STRING\",\"columnGroup\":1}"
           + "],\"dataFormat\":\"CSV\",\"skipHeaderRecord\":true}";
+  private static final String PROTO_SCHEMA_JSON =
+      "{\"columns\":["
+          + "{\"columnName\":\"Email1\",\"columnAlias\":\"email\","
+          + "\"columnType\":\"STRING\"},"
+          + "{\"columnName\":\"Phone1\",\"columnAlias\":\"phone\","
+          + "\"columnType\":\"STRING\"},"
+          + "{\"columnName\":\"FirstName1\",\"columnAlias\":\"first_name\","
+          + "\"columnType\":\"STRING\",\"columnGroup\":1},"
+          + "{\"columnName\":\"LastName1\",\"columnAlias\":\"last_name\","
+          + "\"columnType\":\"STRING\",\"columnGroup\":1},"
+          + "{\"columnName\":\"ZipCode1\",\"columnAlias\":\"zip_code\","
+          + "\"columnType\":\"STRING\",\"columnGroup\":1},"
+          + "{\"columnName\":\"CountryCode1\",\"columnAlias\":\"country_code\","
+          + "\"columnType\":\"STRING\",\"columnGroup\":1}"
+          + "],\"dataFormat\":\"SERIALIZED_PROTO\",\"skipHeaderRecord\":true}";
   private static final String GENERIC_DATA_CSV =
       "Email1,Phone1,FirstName1,LastName1,ZipCode1,CountryCode1\n"
           + "pqdztlrf8u1aUn1zsgkvO2aIoyxsNulsLAdO8CltRv0=,"
@@ -572,6 +599,153 @@ public final class MrpGcpIntegrationTest {
     LookupRequest actualLookupRequest =
         getProtoFromJson(actualLookupRequests[0].getBodyAsString(), LookupRequest.class);
     assertThat(actualLookupRequest.hasEncryptionKeyInfo()).isFalse();
+  }
+
+  @Test
+  public void createAndGet_someMatchesJoinMode_success() throws Exception {
+    String gcsFolder = "someMatchesJoinMode";
+    HttpRequest schemeRequest = getMockServerRequest("GET", GET_SCHEME_API_PATH, HTTP_1_1);
+    String schemeResponseJson = getJsonFromProto(createSchemeResponse());
+    mockClient.when(schemeRequest).respond(getMockServerResponse(200, schemeResponseJson));
+    HttpRequest lookupRequest = getMockServerRequest("POST", LOOKUP_API_PATH, HTTP_2);
+
+    List<String> hashMatches =
+        ImmutableList.of(
+            "rqzt/e4h+CZPCKY91MJCwwh+juGpZuTlM6dwHKUWHqo=",
+            "pqdztlrf8u1aUn1zsgkvO2aIoyxsNulsLAdO8CltRv0=",
+            hashString(
+                "5K4fs+ajBGmX+UvZObJclI6kjxNkYs5rs5mA35SYvf8="
+                    + "7LZ+L7e9AZnng+DuIDdBIzlBy1uj78VIurPmGIZ24Is="
+                    + "us"
+                    + "83243"));
+    List<AssociatedData> gaiaMatches =
+        ImmutableList.of(
+            AssociatedData.of("encrypted_gaia_id", "1111"),
+            AssociatedData.of("encrypted_gaia_id", "2222"),
+            AssociatedData.of("encrypted_gaia_id", "3333"));
+    var lookupResponse = createResponseWithMatchedKeysAndAssociatedData(hashMatches, gaiaMatches);
+    String lookupResponseJson = getJsonFromProto(lookupResponse);
+    mockClient.when(lookupRequest).respond(getMockServerResponse(200, lookupResponseJson));
+    createGcsSchemaFile(gcsFolder, PROTO_SCHEMA_JSON);
+    createGcsDataFiles(gcsFolder, ImmutableList.of(setupHashedSerializedProtoData()));
+
+    GetJobResponse response =
+        createAndGet(
+            createCreateJobRequest(
+                gcsFolder,
+                /* application= */ "mic",
+                /* encodingType= */ "BASE64",
+                /* mode= */ "JOIN"));
+
+    mockClient.verify(schemeRequest, atMost(1));
+    mockClient.verify(lookupRequest, atLeast(1));
+    assertThat(response.getResultInfo().getReturnCode()).isEqualTo(SUCCESS.name());
+    assertThat(response.getResultInfo().getErrorSummary().getErrorCountsList()).isEmpty();
+    List<String> outputFiles = getGcsOutputFileContents(gcsFolder);
+    assertThat(outputFiles).hasSize(1);
+    var outputProtos =
+        Arrays.stream(outputFiles.get(0).split("\n"))
+            .map(this::base64DecodeProto)
+            .collect(Collectors.toList());
+    List<MatchKey> nonMatches =
+        outputProtos.stream()
+            .map(cfmProto -> getAllMatchKeys(cfmProto, false))
+            .flatMap(Collection::stream)
+            .collect(Collectors.toList());
+    int expectedNumUnmatched = NUM_GENERIC_DATA_FIELDS - 6; // 2 email/phone + 4 for an address
+    AtomicInteger actualNumUnmatched = new AtomicInteger(); // atomic since lambda requires final
+    nonMatches.forEach(
+        matchKey -> {
+          if (matchKey.hasField()) {
+            assertThat(matchKey.getField().getMatchedOutputFieldsList()).isEmpty();
+            assertThat(matchKey.getField().getKeyValue().getStringValue()).isEqualTo("UNMATCHED");
+            actualNumUnmatched.getAndIncrement();
+          } else {
+            assertThat(matchKey.getCompositeField().getMatchedOutputFieldsList()).isEmpty();
+            matchKey
+                .getCompositeField()
+                .getChildFieldsList()
+                .forEach(
+                    cf -> {
+                      assertThat(cf.getKeyValue().getStringValue()).isEqualTo("UNMATCHED");
+                      actualNumUnmatched.getAndIncrement();
+                    });
+          }
+        });
+    assertThat(actualNumUnmatched.get()).isEqualTo(expectedNumUnmatched);
+    List<MatchKey> matchResults =
+        outputProtos.stream()
+            .map(cfmProto -> getAllMatchKeys(cfmProto, true))
+            .flatMap(Collection::stream)
+            .collect(Collectors.toList());
+    assertThat(matchResults).hasSize(3);
+    Set<String> processed = new HashSet<>(3);
+    matchResults.forEach(
+        match -> {
+          // single field
+          if (match.hasField()) {
+            var field = match.getField();
+            if (field.getKeyValue().getStringValue().equals(hashMatches.get(0))) {
+              assertThat(field.getMatchedOutputFieldsList()).hasSize(1);
+              var joinedField = field.getMatchedOutputFieldsList().get(0);
+              assertThat(joinedField.getKeyValueCount()).isEqualTo(1);
+              var gaiaMatch = gaiaMatches.get(0).values().get(0);
+              assertThat(joinedField.getKeyValue(0).getKey()).isEqualTo(gaiaMatch.getKey());
+              assertThat(joinedField.getKeyValue(0).getStringValue())
+                  .isEqualTo(gaiaMatch.getStringValue());
+              processed.add(field.getKeyValue().getStringValue());
+            } else if (field.getKeyValue().getStringValue().equals(hashMatches.get(1))) {
+              assertThat(field.getMatchedOutputFieldsList()).hasSize(1);
+              var joinedField = field.getMatchedOutputFieldsList().get(0);
+              assertThat(joinedField.getKeyValueCount()).isEqualTo(1);
+              var gaiaMatch = gaiaMatches.get(1).values().get(0);
+              assertThat(joinedField.getKeyValue(0).getKey()).isEqualTo(gaiaMatch.getKey());
+              assertThat(joinedField.getKeyValue(0).getStringValue())
+                  .isEqualTo(gaiaMatch.getStringValue());
+              processed.add(field.getKeyValue().getStringValue());
+            } else {
+              fail("field does not match");
+            }
+          }
+          // composite field
+          else {
+            var field = match.getCompositeField();
+            var addressNames =
+                ImmutableList.of("FirstName1", "LastName1", "ZipCode1", "CountryCode1");
+            assertThat(match.getCompositeField().getChildFieldsList()).hasSize(4);
+            var orderedChildList =
+                field.getChildFieldsList().stream()
+                    .sorted(
+                        Comparator.comparingInt(
+                            cf -> addressNames.indexOf(cf.getKeyValue().getKey())))
+                    .map(cf -> cf.getKeyValue().getStringValue())
+                    .collect(Collectors.toList());
+            assertThat(orderedChildList.get(0))
+                .isEqualTo("5K4fs+ajBGmX+UvZObJclI6kjxNkYs5rs5mA35SYvf8=");
+            assertThat(orderedChildList.get(1))
+                .isEqualTo("7LZ+L7e9AZnng+DuIDdBIzlBy1uj78VIurPmGIZ24Is=");
+            assertThat(orderedChildList.get(2)).isEqualTo("83243");
+            assertThat(orderedChildList.get(3)).isEqualTo("US");
+
+            assertThat(field.getMatchedOutputFieldsList()).hasSize(1);
+            var joinedField = field.getMatchedOutputFieldsList().get(0);
+            assertThat(joinedField.getKeyValueCount()).isEqualTo(1);
+            var gaiaMatch = gaiaMatches.get(2).values().get(0);
+            assertThat(joinedField.getKeyValue(0).getKey()).isEqualTo(gaiaMatch.getKey());
+            assertThat(joinedField.getKeyValue(0).getStringValue())
+                .isEqualTo(gaiaMatch.getStringValue());
+            processed.add(String.join("", orderedChildList));
+          }
+        });
+    assertThat(processed).hasSize(3);
+    // Verify that requests to the lookup service contain the expected encryption info
+    HttpRequest[] actualLookupRequests = mockClient.retrieveRecordedRequests(lookupRequest);
+    assertThat(actualLookupRequests).hasLength(1);
+    LookupRequest actualLookupRequest =
+        getProtoFromJson(actualLookupRequests[0].getBodyAsString(), LookupRequest.class);
+    assertThat(actualLookupRequest.hasEncryptionKeyInfo()).isFalse();
+    assertThat(actualLookupRequest.getAssociatedDataKeysList())
+        .containsExactly("encrypted_gaia_id");
   }
 
   @Test
@@ -1495,7 +1669,7 @@ public final class MrpGcpIntegrationTest {
   }
 
   @Test
-  public void createJob_lookupServerResponseTImeout_retryThenFailure() throws Exception {
+  public void createJob_lookupServerResponseTimeout_retryThenFailure() throws Exception {
     String gcsFolder = "lookupServerResponseTimeout";
     HttpRequest schemeRequest = getMockServerRequest("GET", GET_SCHEME_API_PATH, HTTP_1_1);
     String schemeResponseJson = getJsonFromProto(createSchemeResponse());
@@ -1722,6 +1896,49 @@ public final class MrpGcpIntegrationTest {
     }
   }
 
+  private static String setupHashedSerializedProtoData() {
+    String[] lines = GENERIC_DATA_CSV.split("\n");
+    String[] columnHeaders = lines[0].split(",");
+    List<String> protoLines = new ArrayList<>(lines.length);
+
+    for (int i = 1; i < lines.length; i++) {
+      String line = lines[i];
+      String[] columns = line.split(",");
+      List<MatchKey> matchKeys = new ArrayList<>(columns.length);
+
+      matchKeys.add(buildSingleField(columnHeaders[0], columns[0]));
+      matchKeys.add(buildSingleField(columnHeaders[1], columns[1]));
+      String[][] addressValues = {
+        {columnHeaders[2], columns[2]},
+        {columnHeaders[3], columns[3]},
+        {columnHeaders[4], columns[4]},
+        {columnHeaders[5], columns[5]}
+      };
+      matchKeys.add(buildCompositeField("address", addressValues));
+      var proto = ConfidentialMatchDataRecord.newBuilder().addAllMatchKeys(matchKeys).build();
+      protoLines.add(base64().encode(proto.toByteArray()));
+    }
+    return String.join("\n", protoLines);
+  }
+
+  private static MatchKey buildSingleField(String key, String value) {
+    return MatchKey.newBuilder()
+        .setField(
+            Field.newBuilder().setKeyValue(KeyValue.newBuilder().setKey(key).setStringValue(value)))
+        .build();
+  }
+
+  private static MatchKey buildCompositeField(String key, String[][] keyValueQuads) {
+    var builder = CompositeField.newBuilder();
+    builder.setKey(key);
+    for (String[] keyValue : keyValueQuads) {
+      builder.addChildFields(
+          CompositeChildField.newBuilder()
+              .setKeyValue(KeyValue.newBuilder().setKey(keyValue[0]).setStringValue(keyValue[1])));
+    }
+    return MatchKey.newBuilder().setCompositeField(builder).build();
+  }
+
   private static String setupHexEncryptedData() {
     try {
       // Encrypt base64 for now
@@ -1794,24 +2011,38 @@ public final class MrpGcpIntegrationTest {
   }
 
   private static LookupResponse createResponseWithMatchedKeys(List<String> hashMatches) {
-    return createResponseWithMatchedKeysAndFailures(hashMatches, ImmutableList.of());
+    return createResponse(hashMatches, ImmutableList.of(), ImmutableList.of());
+  }
+
+  private static LookupResponse createResponseWithMatchedKeysAndAssociatedData(
+      List<String> hashMatches, List<AssociatedData> associatedData) {
+    return createResponse(hashMatches, ImmutableList.of(), associatedData);
   }
 
   private static LookupResponse createResponseWithMatchedKeysAndFailures(
       List<String> matches, List<String> failures) {
+    return createResponse(matches, failures, ImmutableList.of());
+  }
+
+  private static LookupResponse createResponse(
+      List<String> matches, List<String> failures, List<AssociatedData> associatedData) {
     List<String> lookupKeys = new ArrayList<>(matches);
     ImmutableList<LookupResult> results =
-        lookupKeys.stream()
-            .map(k -> LookupKey.newBuilder().setKey(k))
+        IntStream.range(0, lookupKeys.size())
+            .boxed()
             .map(
-                lk -> {
+                idx -> {
+                  var lk = LookupKey.newBuilder().setKey(lookupKeys.get(idx));
                   var lsResultBuilder =
                       LookupResult.newBuilder()
                           .setStatus(STATUS_SUCCESS)
                           .setClientDataRecord(DataRecord.newBuilder().setLookupKey(lk));
                   if (matches.contains(lk.getKey())) {
-                    lsResultBuilder.addMatchedDataRecords(
-                        MatchedDataRecord.newBuilder().setLookupKey(lk));
+                    var lookupRecord = MatchedDataRecord.newBuilder().setLookupKey(lk);
+                    if (!associatedData.isEmpty()) {
+                      lookupRecord.addAllAssociatedData(associatedData.get(idx).values());
+                    }
+                    lsResultBuilder.addMatchedDataRecords(lookupRecord);
                   }
                   return lsResultBuilder.build();
                 })
@@ -1854,6 +2085,11 @@ public final class MrpGcpIntegrationTest {
 
   private static CreateJobRequest createCreateJobRequest(
       String prefix, String applicationId, String encodingType) throws Exception {
+    return createCreateJobRequest(prefix, applicationId, encodingType, /* mode= */ "");
+  }
+
+  private static CreateJobRequest createCreateJobRequest(
+      String prefix, String applicationId, String encodingType, String mode) throws Exception {
     String inputFolder = Path.of(INPUT_PREFIX, prefix).toString();
     String outputFolder = Path.of(OUTPUT_PREFIX, prefix).toString();
     var dataOwners =
@@ -1877,6 +2113,9 @@ public final class MrpGcpIntegrationTest {
 
     if (!encodingType.isBlank()) {
       request.putJobParameters("encoding_type", encodingType);
+    }
+    if (!mode.isBlank()) {
+      request.putJobParameters("mode", mode);
     }
     return request.build();
   }
@@ -1967,5 +2206,57 @@ public final class MrpGcpIntegrationTest {
 
   private String hashString(String s) {
     return base64().encode(sha256().hashBytes(s.getBytes(UTF_8)).asBytes());
+  }
+
+  private ConfidentialMatchOutputDataRecord base64DecodeProto(String base64EncodedString) {
+    try {
+      byte[] decodedBytes = Base64.getDecoder().decode(base64EncodedString);
+      return ConfidentialMatchOutputDataRecord.parseFrom(decodedBytes);
+    } catch (Exception e) {
+      fail("Failed to decode ConfidentialMatchOutputDataRecord: " + e.getMessage());
+      throw new RuntimeException(e);
+    }
+  }
+
+  // get all match keys by checking the values to see if it contains "UNMATCHED"
+  private List<MatchKey> getAllMatchKeys(ConfidentialMatchOutputDataRecord proto, boolean matched) {
+    return proto.getMatchKeysList().stream()
+        .filter(
+            matchKey -> {
+              if (matchKey.hasField()) {
+                String value = matchKey.getField().getKeyValue().getStringValue();
+                return matched ^ value.equals("UNMATCHED");
+              } else {
+                // Create a set of all the child fields. if they were unmatched, the set would only
+                // have 1 value
+                // of "UNMATCHED"
+                String value =
+                    String.join(
+                        "",
+                        matchKey.getCompositeField().getChildFieldsList().stream()
+                            .map(childField -> childField.getKeyValue().getStringValue())
+                            .collect(Collectors.toSet()));
+                return matched ^ value.equals("UNMATCHED");
+              }
+            })
+        .collect(Collectors.toList());
+  }
+
+  private static class AssociatedData {
+
+    private static AssociatedData of(String key, String value) {
+      var kv = LookupProto.KeyValue.newBuilder().setKey(key).setStringValue(value).build();
+      return new AssociatedData(ImmutableList.of(kv));
+    }
+
+    private final List<LookupProto.KeyValue> values;
+
+    AssociatedData(List<LookupProto.KeyValue> values) {
+      this.values = values;
+    }
+
+    List<LookupProto.KeyValue> values() {
+      return this.values;
+    }
   }
 }
