@@ -50,6 +50,7 @@ enum JobResultCode {
   ENCRYPTION_METADATA_CONFIG_ERROR = 27; // Error during configuration of encryption metadata
   LOOKUP_SERVICE_INVALID_KEY_TYPE = 19; // invalid keytype to send to lookup service
   LOOKUP_SERVICE_INVALID_ERROR = 20; // invalid error received from lookup service
+  LOOKUP_SERVICE_INVALID_ASSOCIATED_DATA = 35; // invalid/unexpected associated data from lookup service
   TINK_REGISTRATION_FAILED = 21; // Failed to register with the tink registry
   INVALID_PARTIAL_ERROR = 22; // Invalid or missing partial error
   PARTIAL_SUCCESS_CONFIG_ERROR = 23; // Partial success configuration error

@@ -1077,6 +1077,8 @@ public final class LookupServerDataSourceTest {
 
   @Test
   public void lookup_whenAssociatedDataThenReturnsMultipleRecords() throws Exception {
+    String associatedDataKey = "encrypted_gaia_id";
+    ByteString associatedDataValue = ByteString.copyFromUtf8("abcd1234");
     when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
         .thenReturn(
             LookupServiceClientResponse.builder()
@@ -1094,8 +1096,8 @@ public final class LookupServerDataSourceTest {
                                         .setStringValue("email"))
                                 .addAssociatedData(
                                     LookupProto.KeyValue.newBuilder()
-                                        .setKey("encrypted_gaia_id")
-                                        .setBytesValue(ByteString.copyFromUtf8("abcd1234")))))
+                                        .setKey(associatedDataKey)
+                                        .setBytesValue(associatedDataValue))))
                 .addResult(
                     LookupProto.LookupResult.newBuilder()
                         .setStatus(Status.STATUS_SUCCESS)
@@ -1109,8 +1111,8 @@ public final class LookupServerDataSourceTest {
                                         .setStringValue("phone"))
                                 .addAssociatedData(
                                     LookupProto.KeyValue.newBuilder()
-                                        .setKey("encrypted_gaia_id")
-                                        .setBytesValue(ByteString.copyFromUtf8("abcd1234")))))
+                                        .setKey(associatedDataKey)
+                                        .setBytesValue(associatedDataValue))))
                 .addResult(
                     LookupProto.LookupResult.newBuilder()
                         .setStatus(Status.STATUS_SUCCESS)
@@ -1125,8 +1127,8 @@ public final class LookupServerDataSourceTest {
                                         .setStringValue("address"))
                                 .addAssociatedData(
                                     LookupProto.KeyValue.newBuilder()
-                                        .setKey("encrypted_gaia_id")
-                                        .setBytesValue(ByteString.copyFromUtf8("abcd1234")))))
+                                        .setKey(associatedDataKey)
+                                        .setBytesValue(associatedDataValue))))
                 .build());
     String[][] testData = {
       {"email", "email", "fake.email@google.com"},
@@ -1145,29 +1147,31 @@ public final class LookupServerDataSourceTest {
     DataChunk result = lookupServerDataSource.lookup(dataChunk, Optional.empty()).lookupResults();
 
     assertEquals(3, result.records().size());
-    assertEquals(3, result.records().get(0).getKeyValuesCount());
-    assertEquals(PII_VALUE, result.records().get(0).getKeyValues(0).getKey());
-    assertEquals("fake.email@google.com", result.records().get(0).getKeyValues(0).getStringValue());
-    assertEquals("pii_type", result.records().get(0).getKeyValues(1).getKey());
-    assertEquals("email", result.records().get(0).getKeyValues(1).getStringValue());
-    assertEquals("encrypted_gaia_id", result.records().get(0).getKeyValues(2).getKey());
-    assertEquals("abcd1234", result.records().get(0).getKeyValues(2).getStringValue());
-    assertEquals(3, result.records().get(1).getKeyValuesCount());
-    assertEquals(PII_VALUE, result.records().get(1).getKeyValues(0).getKey());
-    assertEquals("999-999-9999", result.records().get(1).getKeyValues(0).getStringValue());
-    assertEquals("pii_type", result.records().get(1).getKeyValues(1).getKey());
-    assertEquals("phone", result.records().get(1).getKeyValues(1).getStringValue());
-    assertEquals("encrypted_gaia_id", result.records().get(1).getKeyValues(2).getKey());
-    assertEquals("abcd1234", result.records().get(1).getKeyValues(2).getStringValue());
-    assertEquals(3, result.records().get(2).getKeyValuesCount());
-    assertEquals(PII_VALUE, result.records().get(2).getKeyValues(0).getKey());
+    var record = result.records().get(0);
+    assertEquals(3, record.getKeyValuesCount());
+    assertEquals(PII_VALUE, record.getKeyValues(0).getKey());
+    assertEquals("fake.email@google.com", record.getKeyValues(0).getStringValue());
+    assertEquals("pii_type", record.getKeyValues(1).getKey());
+    assertEquals("email", record.getKeyValues(1).getStringValue());
+    assertEquals(associatedDataKey, record.getKeyValues(2).getKey());
+    assertEquals(associatedDataValue, fromBase64String(record.getKeyValues(2).getStringValue()));
+    record = result.records().get(1);
+    assertEquals(3, record.getKeyValuesCount());
+    assertEquals(PII_VALUE, record.getKeyValues(0).getKey());
+    assertEquals("999-999-9999", record.getKeyValues(0).getStringValue());
+    assertEquals("pii_type", record.getKeyValues(1).getKey());
+    assertEquals("phone", record.getKeyValues(1).getStringValue());
+    assertEquals(associatedDataKey, record.getKeyValues(2).getKey());
+    assertEquals(associatedDataValue, fromBase64String(record.getKeyValues(2).getStringValue()));
+    record = result.records().get(2);
+    assertEquals(3, record.getKeyValuesCount());
+    assertEquals(PII_VALUE, record.getKeyValues(0).getKey());
     assertEquals(
-        "IEUw/X1oeAwDwxvBs8+aS2bfk781XbfMOyEenBunDSU=",
-        result.records().get(2).getKeyValues(0).getStringValue());
-    assertEquals("pii_type", result.records().get(2).getKeyValues(1).getKey());
-    assertEquals("address", result.records().get(2).getKeyValues(1).getStringValue());
-    assertEquals("encrypted_gaia_id", result.records().get(2).getKeyValues(2).getKey());
-    assertEquals("abcd1234", result.records().get(2).getKeyValues(2).getStringValue());
+        "IEUw/X1oeAwDwxvBs8+aS2bfk781XbfMOyEenBunDSU=", record.getKeyValues(0).getStringValue());
+    assertEquals("pii_type", record.getKeyValues(1).getKey());
+    assertEquals("address", record.getKeyValues(1).getStringValue());
+    assertEquals(associatedDataKey, record.getKeyValues(2).getKey());
+    assertEquals(associatedDataValue, fromBase64String(record.getKeyValues(2).getStringValue()));
     verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
     List<LookupDataRecord> lookupRequestRecords =
         lookupServiceClientRequestCaptor.getValue().records();
@@ -3427,7 +3431,8 @@ public final class LookupServerDataSourceTest {
 
   @Test
   public void lookup_joinModeEnabled_setsAssociatedKeys() throws Exception {
-    String associatedData = "encrypted_gaia_id";
+    String associatedDataKey = "encrypted_gaia_id";
+    ByteString associatedDataValue = ByteString.copyFromUtf8("abcd1234");
     LookupServerDataSource testDataSource =
         new LookupServerDataSource(
             mockLookupServiceClient,
@@ -3454,7 +3459,7 @@ public final class LookupServerDataSourceTest {
                                   .addAssociatedData(
                                       LookupProto.KeyValue.newBuilder()
                                           .setKey(requestAssociatedData)
-                                          .setBytesValue(ByteString.copyFromUtf8("abcd1234")))))
+                                          .setBytesValue(associatedDataValue))))
                   .addResult(
                       LookupProto.LookupResult.newBuilder()
                           .setStatus(Status.STATUS_SUCCESS)
@@ -3465,7 +3470,7 @@ public final class LookupServerDataSourceTest {
                                   .addAssociatedData(
                                       LookupProto.KeyValue.newBuilder()
                                           .setKey(requestAssociatedData)
-                                          .setBytesValue(ByteString.copyFromUtf8("abcd1234")))))
+                                          .setBytesValue(associatedDataValue))))
                   .addResult(
                       LookupProto.LookupResult.newBuilder()
                           .setStatus(Status.STATUS_SUCCESS)
@@ -3478,7 +3483,7 @@ public final class LookupServerDataSourceTest {
                                   .addAssociatedData(
                                       LookupProto.KeyValue.newBuilder()
                                           .setKey(requestAssociatedData)
-                                          .setBytesValue(ByteString.copyFromUtf8("abcd1234")))));
+                                          .setBytesValue(associatedDataValue))));
               return responseBuilder.build();
             });
     String[][] testData = {
@@ -3498,29 +3503,31 @@ public final class LookupServerDataSourceTest {
     DataChunk result = testDataSource.lookup(dataChunk, Optional.empty()).lookupResults();
 
     assertEquals(3, result.records().size());
-    // only 2 to return
-    assertEquals(2, result.records().get(0).getKeyValuesCount());
-    assertEquals(PII_VALUE, result.records().get(0).getKeyValues(0).getKey());
-    assertEquals("fake.email@google.com", result.records().get(0).getKeyValues(0).getStringValue());
-    assertEquals(associatedData, result.records().get(0).getKeyValues(1).getKey());
-    assertEquals("abcd1234", result.records().get(0).getKeyValues(1).getStringValue());
-    assertEquals(2, result.records().get(1).getKeyValuesCount());
-    assertEquals(PII_VALUE, result.records().get(1).getKeyValues(0).getKey());
-    assertEquals("999-999-9999", result.records().get(1).getKeyValues(0).getStringValue());
-    assertEquals(associatedData, result.records().get(1).getKeyValues(1).getKey());
-    assertEquals("abcd1234", result.records().get(1).getKeyValues(1).getStringValue());
-    assertEquals(2, result.records().get(2).getKeyValuesCount());
-    assertEquals(PII_VALUE, result.records().get(2).getKeyValues(0).getKey());
+    var record = result.records().get(0);
+    // only 2 to return per row
+    assertEquals(2, record.getKeyValuesCount());
+    assertEquals(PII_VALUE, record.getKeyValues(0).getKey());
+    assertEquals("fake.email@google.com", record.getKeyValues(0).getStringValue());
+    assertEquals(associatedDataKey, record.getKeyValues(1).getKey());
+    assertEquals(associatedDataValue, fromBase64String(record.getKeyValues(1).getStringValue()));
+    record = result.records().get(1);
+    assertEquals(2, record.getKeyValuesCount());
+    assertEquals(PII_VALUE, record.getKeyValues(0).getKey());
+    assertEquals("999-999-9999", record.getKeyValues(0).getStringValue());
+    assertEquals(associatedDataKey, record.getKeyValues(1).getKey());
+    assertEquals(associatedDataValue, fromBase64String(record.getKeyValues(1).getStringValue()));
+    record = result.records().get(2);
+    assertEquals(2, record.getKeyValuesCount());
+    assertEquals(PII_VALUE, record.getKeyValues(0).getKey());
     assertEquals(
-        "IEUw/X1oeAwDwxvBs8+aS2bfk781XbfMOyEenBunDSU=",
-        result.records().get(2).getKeyValues(0).getStringValue());
-    assertEquals(associatedData, result.records().get(2).getKeyValues(1).getKey());
-    assertEquals("abcd1234", result.records().get(2).getKeyValues(1).getStringValue());
+        "IEUw/X1oeAwDwxvBs8+aS2bfk781XbfMOyEenBunDSU=", record.getKeyValues(0).getStringValue());
+    assertEquals(associatedDataKey, result.records().get(2).getKeyValues(1).getKey());
+    assertEquals(associatedDataValue, fromBase64String(record.getKeyValues(1).getStringValue()));
     assertThat(result.schema().getColumnsCount()).isEqualTo(2);
     assertThat(result.schema().getColumns(0).getColumnName()).isEqualTo(PII_VALUE);
     assertThat(result.schema().getColumns(0).getColumnAlias()).isEqualTo(PII_VALUE);
-    assertThat(result.schema().getColumns(1).getColumnName()).isEqualTo(associatedData);
-    assertThat(result.schema().getColumns(1).getColumnAlias()).isEqualTo(associatedData);
+    assertThat(result.schema().getColumns(1).getColumnName()).isEqualTo(associatedDataKey);
+    assertThat(result.schema().getColumns(1).getColumnAlias()).isEqualTo(associatedDataKey);
     verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
     List<LookupDataRecord> lookupRequestRecords =
         lookupServiceClientRequestCaptor.getValue().records();
@@ -3533,6 +3540,10 @@ public final class LookupServerDataSourceTest {
         "IEUw/X1oeAwDwxvBs8+aS2bfk781XbfMOyEenBunDSU=",
         lookupRequestRecords.get(2).getLookupKey().getKey());
     assertEquals(0, lookupRequestRecords.get(2).getMetadataCount());
+  }
+
+  private ByteString fromBase64String(String encoded) {
+    return ByteString.copyFrom(BaseEncoding.base64().decode(encoded));
   }
 
   private DataRecordProto.DataRecord getDataRecord(String[][] keyValueQuads) {

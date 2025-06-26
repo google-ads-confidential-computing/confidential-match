@@ -78,20 +78,38 @@ message MatchedOutputField {
   repeated KeyValue key_value = 1;
 }
 
+// Holds data to decrypt encrypted workloads
 message EncryptionKey {
-  oneof key {
-    CoordinatorKey coordinator_key = 1;
-    GcpWrappedKey wrapped_key = 2;
-  }
 
+  // Hybrid encryption provided by a coordinator
   message CoordinatorKey {
     string key_id = 1;
   }
 
+  // A data encryption key (DEK) wrapped by a GCP KMS key.
   message GcpWrappedKey {
+    // Base64-encoded encrypted DEK
     string encrypted_dek = 1;
+    // The URI of the GCP KMS key to decrypt the DEK
     string kek_uri = 2;
+    // Fully-qualified Workload Identity Pool Provider ID
     string wip = 3;
+  }
+
+  // A data encryption key wrapped by an AWS KMS key.
+  message AwsWrappedKey {
+    // Base64-encoded encrypted DEK
+    string encrypted_dek = 1;
+    // The URI of the AWS KMS key to decrypt the DEK
+    string kek_uri = 2;
+    // The ARN of the IAM Role to assume for KMS decryption access
+    string role_arn = 3;
+  }
+
+  oneof key {
+    CoordinatorKey coordinator_key = 1;
+    GcpWrappedKey wrapped_key = 2;
+    AwsWrappedKey aws_wrapped_key = 3;
   }
 }
 

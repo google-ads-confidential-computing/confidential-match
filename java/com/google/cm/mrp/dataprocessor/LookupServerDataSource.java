@@ -22,6 +22,7 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.CRYPTO_
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.ENCRYPTION_COLUMNS_PROCESSING_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_ENCRYPTION_COLUMN;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.LOOKUP_SERVICE_FAILURE;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.LOOKUP_SERVICE_INVALID_ASSOCIATED_DATA;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.LOOKUP_SERVICE_INVALID_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.MISSING_ENCRYPTION_COLUMN;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.UNSUPPORTED_MODE_ERROR;
@@ -30,6 +31,7 @@ import static com.google.common.hash.Hashing.sha256;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.stream.Collectors.groupingBy;
 
+import com.google.cm.lookupserver.api.LookupProto;
 import com.google.cm.lookupserver.api.LookupProto.LookupResult;
 import com.google.cm.lookupserver.api.LookupProto.LookupResult.Status;
 import com.google.cm.lookupserver.api.LookupProto.MatchedDataRecord;
@@ -537,17 +539,30 @@ public final class LookupServerDataSource implements LookupDataSource {
         .addKeyValues(DataRecord.KeyValue.newBuilder().setKey(PII_VALUE).setStringValue(value))
         .addAllKeyValues(
             matchedDataRecord.getAssociatedDataList().stream()
-                .map(
-                    keyValue ->
-                        DataRecord.KeyValue.newBuilder()
-                            .setKey(keyValue.getKey())
-                            .setStringValue(
-                                keyValue.hasStringValue()
-                                    ? keyValue.getStringValue()
-                                    : keyValue.getBytesValue().toStringUtf8())
-                            .build())
+                .map(this::toMrpKeyValue)
                 .collect(Collectors.toList()))
         .build();
+  }
+
+  private DataRecord.KeyValue toMrpKeyValue(LookupProto.KeyValue lookupKeyValue) {
+    var builder = DataRecord.KeyValue.newBuilder()
+        .setKey(lookupKeyValue.getKey());
+
+    switch (lookupKeyValue.getValueCase()) {
+      case STRING_VALUE:
+        return builder.setStringValue(lookupKeyValue.getStringValue()).build();
+      case BYTES_VALUE:
+        String encodedValue = BaseEncoding.base64().encode(lookupKeyValue.getBytesValue().toByteArray());
+        return builder.setStringValue(encodedValue).build();
+      case INT_VALUE:
+      case DOUBLE_VALUE:
+      case BOOL_VALUE:
+      case VALUE_NOT_SET:
+      default:
+        String message = "Lookup associated data in an unexpected value type: " + lookupKeyValue.getValueCase().name();
+        logger.error(message);
+        throw new JobProcessorException(message, LOOKUP_SERVICE_INVALID_ASSOCIATED_DATA);
+    }
   }
 
   private String getOriginalPiiValue(
