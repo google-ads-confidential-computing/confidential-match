@@ -266,6 +266,34 @@ public class HybridCryptoClientTest {
   }
 
   @Test
+  public void decrypt_invalidWipMultipleTimes_sameException() throws Exception {
+    KeyFetchException keyFetchException =
+        new KeyFetchException(
+            new GeneralSecurityException(new OAuthException("invalid_target")),
+            ErrorReason.KEY_DECRYPTION_ERROR);
+    when(mockHybridEncryptionKeyService.getDecrypter(any())).thenThrow(keyFetchException);
+    DataRecordEncryptionKeys encryptionKeys =
+        DataRecordEncryptionKeys.newBuilder()
+            .setCoordinatorKey(CoordinatorKey.newBuilder().setKeyId("123").build())
+            .build();
+    String plaintext = "TestString";
+    String encrypted = encryptString(getDefaultHybridEncrypt(), plaintext);
+
+    var ex =
+        assertThrows(
+            CryptoClientException.class,
+            () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
+    assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.INVALID_WIP_PARAMETER);
+    var ex1 =
+        assertThrows(
+            CryptoClientException.class,
+            () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
+    assertThat(ex1.getErrorCode()).isEqualTo(JobResultCode.INVALID_WIP_PARAMETER);
+
+    verify(mockHybridEncryptionKeyService, times(1)).getDecrypter(any());
+  }
+
+  @Test
   public void decrypt_wipConditionFailedException() throws Exception {
     KeyFetchException keyFetchException =
         new KeyFetchException(

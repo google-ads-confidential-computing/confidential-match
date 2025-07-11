@@ -20,7 +20,6 @@
 #include <list>
 #include <string>
 
-
 #include "absl/debugging/failure_signal_handler.h"
 #include "absl/debugging/symbolize.h"
 #include "absl/log/absl_log.h"

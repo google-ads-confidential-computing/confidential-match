@@ -69,46 +69,17 @@ ExecutionResult HealthService::Stop() noexcept {
 
 ExecutionResult HealthService::CheckStartupHealth(
     AsyncContext<HttpRequest, HttpResponse>& http_context) noexcept {
-  ExecutionResult result = SuccessExecutionResult();
-
-  HealthcheckResponse response;
-  response.set_response_id(ToString(Uuid::GenerateUuid()));
-  bool has_checked_storage_service = false;
-  for (const auto& name_and_status_provider : service_status_providers_) {
-    const std::string& service_name = name_and_status_provider.first;
-    ServiceStatus status = name_and_status_provider.second->GetStatus();
-
-    proto_api::Service* lookup_service = response.add_services();
-    lookup_service->set_name(service_name);
-    lookup_service->set_status(ServiceStatus_Name(status));
-
-    if (service_name == kMatchDataStorageServiceName) {
-      has_checked_storage_service = true;
-      if (status != ServiceStatus::OK) {
-        // Returning an error signals to instance group health checks that the
-        // the service is not ready yet during the initial service startup.
-        http_context.result =
-            FailureExecutionResult(HEALTH_SERVICE_STORAGE_SERVICE_ERROR);
-        http_context.Finish();
-        return SuccessExecutionResult();
-      }
-    }
-  }
-
-  if (!has_checked_storage_service) {
-    http_context.result =
-        FailureExecutionResult(HEALTH_SERVICE_MISSING_STORAGE_SERVICE);
+  // For startup, return an error HTTP status code immediately if the storage
+  // is not yet healthy to signal that the service is still initializing.
+  ExecutionResult storage_service_result = CheckStorageServiceHealthy();
+  if (!storage_service_result.Successful()) {
+    http_context.result = storage_service_result;
     http_context.Finish();
     return SuccessExecutionResult();
   }
 
-  if (!ProtoToJsonBytesBuffer(response, &http_context.response->body).ok()) {
-    result = FailureExecutionResult(HEALTH_SERVICE_SERIALIZATION_ERROR);
-  }
-
-  http_context.result = result;
-  http_context.Finish();
-  return SuccessExecutionResult();
+  // Once healthy, return the standard healthcheck JSON information.
+  return CheckHealth(http_context);
 }
 
 ExecutionResult HealthService::CheckHealth(
@@ -131,6 +102,24 @@ ExecutionResult HealthService::CheckHealth(
   http_context.result = result;
   http_context.Finish();
   return SuccessExecutionResult();
+}
+
+ExecutionResult HealthService::CheckStorageServiceHealthy() noexcept {
+  for (const auto& name_and_status_provider : service_status_providers_) {
+    if (name_and_status_provider.first != kMatchDataStorageServiceName) {
+      continue;
+    }
+    if (name_and_status_provider.second->GetStatus() == ServiceStatus::OK) {
+      return SuccessExecutionResult();
+    } else {
+      // Returning this signals to instance group health checks that the
+      // service is not ready yet during the initial service startup.
+      return FailureExecutionResult(HEALTH_SERVICE_STORAGE_SERVICE_ERROR);
+    }
+  }
+
+  // Couldn't find storage service status provider in the map.
+  return FailureExecutionResult(HEALTH_SERVICE_MISSING_STORAGE_SERVICE);
 }
 
 }  // namespace google::confidential_match::lookup_server

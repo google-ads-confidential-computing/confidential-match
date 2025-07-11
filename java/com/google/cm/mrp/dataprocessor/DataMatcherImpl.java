@@ -47,6 +47,8 @@ import com.google.cm.mrp.dataprocessor.models.DataChunk;
 import com.google.cm.mrp.dataprocessor.models.DataMatchResult;
 import com.google.cm.mrp.dataprocessor.models.Field;
 import com.google.cm.mrp.dataprocessor.models.FieldsWithMetadata;
+import com.google.cm.mrp.dataprocessor.models.FieldsWithMetadata.AssociatedDataResult;
+import com.google.cm.mrp.dataprocessor.models.FieldsWithMetadata.GroupedField;
 import com.google.cm.mrp.dataprocessor.models.MatchColumnIndices;
 import com.google.cm.mrp.dataprocessor.models.MatchStatistics;
 import com.google.cm.mrp.dataprocessor.models.SingleColumnIndices;
@@ -55,6 +57,7 @@ import com.google.cm.mrp.dataprocessor.transformations.DataRecordTransformerFact
 import com.google.cm.mrp.models.JobParameters;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ListMultimap;
 import com.google.common.io.BaseEncoding;
 import com.google.inject.Inject;
@@ -351,14 +354,14 @@ public final class DataMatcherImpl implements DataMatcher {
                 .setValue(dataRecord.getKeyValues(piiTypeIndex).getStringValue())
                 .build();
         // Go through all the associatedData and add it to the Fields to be returned
+        var groupedField = GroupedField.builder();
         for (Integer associatedDataIndex : associatedDataIndices.indicesList()) {
-          fieldsWithMetadata.upsertFieldWithAssociatedData(
-              fieldKey,
+          groupedField.addField(
               Field.builder()
                   .setKey((dataRecord.getKeyValues(associatedDataIndex).getKey()))
-                  .setValue(dataRecord.getKeyValues(associatedDataIndex).getStringValue())
-                  .build());
+                  .setValue(dataRecord.getKeyValues(associatedDataIndex).getStringValue()));
         }
+        fieldsWithMetadata.upsertFieldWithAssociatedData(fieldKey, groupedField.build());
       }
     } else {
       throw new JobProcessorException(
@@ -437,14 +440,14 @@ public final class DataMatcherImpl implements DataMatcher {
                 .setValue(hashString(combinedValues))
                 .build();
         // Go through all the associatedData and add it to the Fields to be returned
+        var groupedField = GroupedField.builder();
         for (Integer associatedDataIndex : associatedDataIndices.indicesList()) {
-          fieldsWithMetadata.upsertFieldWithAssociatedData(
-              fieldKey,
+          groupedField.addField(
               Field.builder()
                   .setKey((dataRecord.getKeyValues(associatedDataIndex).getKey()))
-                  .setValue(dataRecord.getKeyValues(associatedDataIndex).getStringValue())
-                  .build());
+                  .setValue(dataRecord.getKeyValues(associatedDataIndex).getStringValue()));
         }
+        fieldsWithMetadata.upsertFieldWithAssociatedData(fieldKey, groupedField.build());
       }
     } else {
       throw new JobProcessorException(
@@ -533,18 +536,11 @@ public final class DataMatcherImpl implements DataMatcher {
         }
       } else if (JOIN == jobParameters.mode()) {
         // Get all associatedData found for the field
-        ImmutableList<Field> associatedData = dataSource2Fields.getAssociatedDataForField(fieldKey);
-        if (!associatedData.isEmpty()) {
+        AssociatedDataResult associatedData = dataSource2Fields.getAssociatedDataForField(fieldKey);
+        if (!associatedData.groupedFields().isEmpty()) {
           // Convert to MatchedOutputField
           ImmutableList<MatchedOutputField> matchedOutputFields =
-              associatedData.stream()
-                  .map(
-                      data ->
-                          MatchedOutputField.newBuilder()
-                              .setKey(data.key())
-                              .setValue(data.value())
-                              .build())
-                  .collect(ImmutableList.toImmutableList());
+              convertAssociatedDataToMatchedOutputField(associatedData.groupedFields());
           // Save to output list with its index within the data record as the key
           matchedFields.add(
               FieldMatch.newBuilder()
@@ -556,7 +552,7 @@ public final class DataMatcherImpl implements DataMatcher {
           matchedConditions.merge(conditionName, 1L, Long::sum);
           if (processedFields.add(fieldKey)) {
             datasource2ConditionMatches.merge(
-                conditionName, (long) associatedData.size(), Long::sum);
+                conditionName, (long) associatedData.count(), Long::sum);
           }
         }
       } else {
@@ -636,21 +632,16 @@ public final class DataMatcherImpl implements DataMatcher {
         }
       } else if (JOIN == jobParameters.mode()) {
         // get all associatedData found for this field
-        ImmutableList<Field> associatedData = dataSource2Fields.getAssociatedDataForField(fieldKey);
-        numValidMatchAttempts += associatedData.isEmpty() && combinedValues.isEmpty() ? 0 : 1;
+        AssociatedDataResult associatedData = dataSource2Fields.getAssociatedDataForField(fieldKey);
+        numValidMatchAttempts +=
+            associatedData.groupedFields().isEmpty() && combinedValues.isEmpty() ? 0 : 1;
 
         // Found a match.
-        if (!associatedData.isEmpty()) {
+        if (!associatedData.groupedFields().isEmpty()) {
           // Convert associatedData to MatchedOutputField
+          // Convert to MatchedOutputField
           ImmutableList<MatchedOutputField> matchedOutputFields =
-              associatedData.stream()
-                  .map(
-                      data ->
-                          MatchedOutputField.newBuilder()
-                              .setKey(data.key())
-                              .setValue(data.value())
-                              .build())
-                  .collect(ImmutableList.toImmutableList());
+              convertAssociatedDataToMatchedOutputField(associatedData.groupedFields());
           // Save to output list where key is the colum group number
           matchedFields.add(
               FieldMatch.newBuilder()
@@ -662,7 +653,7 @@ public final class DataMatcherImpl implements DataMatcher {
           matchedConditions.merge(conditionName, 1L, Long::sum);
           if (processedFields.add(fieldKey)) {
             datasource2ConditionMatches.merge(
-                conditionName, (long) associatedData.size(), Long::sum);
+                conditionName, (long) associatedData.count(), Long::sum);
           }
         }
       } else {
@@ -824,6 +815,26 @@ public final class DataMatcherImpl implements DataMatcher {
 
   private boolean shouldAppendRecordStatus() {
     return successConfig.getSuccessMode() == SuccessMode.ALLOW_PARTIAL_SUCCESS;
+  }
+
+  private ImmutableList<MatchedOutputField> convertAssociatedDataToMatchedOutputField(
+      ImmutableSet<GroupedField> associatedData) {
+    // Convert to MatchedOutputField
+    return associatedData.stream()
+        .map(
+            groupedField -> {
+              var outputBuilder = MatchedOutputField.newBuilder();
+              groupedField
+                  .fields()
+                  .forEach(
+                      data ->
+                          outputBuilder.addIndividualFields(
+                              MatchedOutputField.Field.newBuilder()
+                                  .setKey(data.key())
+                                  .setValue(data.value())));
+              return outputBuilder.build();
+            })
+        .collect(ImmutableList.toImmutableList());
   }
 
   /*

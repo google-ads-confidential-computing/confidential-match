@@ -146,7 +146,11 @@ public final class CsvDataReader extends BaseDataReader {
   /** {@inheritDoc} */
   @Override
   public boolean hasNext() {
-    return csvParser.get().iterator().hasNext();
+    try {
+      return csvParser.get().iterator().hasNext();
+    } catch (UncheckedIOException e) {
+      throw convertToJobException(e);
+    }
   }
 
   /** {@inheritDoc} */
@@ -168,14 +172,7 @@ public final class CsvDataReader extends BaseDataReader {
           .setRecords(records.build())
           .build();
     } catch (UncheckedIOException e) {
-      if (isInputStreamException(e)) {
-        String message = "Could not read CSV file from input stream.";
-        logger.error(message);
-        throw new JobProcessorException(message, e, INPUT_FILE_READ_ERROR);
-      }
-      String message = "Could not read CSV file, make sure input data is correct.";
-      logger.error(message);
-      throw new JobProcessorException(message, e, INVALID_INPUT_FILE_ERROR);
+      throw convertToJobException(e);
     }
   }
 
@@ -197,6 +194,17 @@ public final class CsvDataReader extends BaseDataReader {
         () ->
             new JobProcessorException(
                 "Encoding type invoked for hashed data", DATA_READER_CONFIGURATION_ERROR));
+  }
+
+  private JobProcessorException convertToJobException(Exception e) {
+    if (isInputStreamException(e)) {
+      String message = "Could not read CSV file from input stream.";
+      logger.error(message);
+      throw new JobProcessorException(message, e, INPUT_FILE_READ_ERROR);
+    }
+    String message = "Could not read CSV file, make sure input data is correct.";
+    logger.error(message);
+    throw new JobProcessorException(message, e, INVALID_INPUT_FILE_ERROR);
   }
 
   private CSVParser initCsvParser() {
@@ -280,6 +288,7 @@ public final class CsvDataReader extends BaseDataReader {
 
   /** Inner class for handling decryption. */
   private final class CSVDataDecrypter {
+
     final boolean rowLevelErrorsAllowed;
     final CryptoClient cryptoClient;
     final EncryptionMetadata encryptionMetadata;

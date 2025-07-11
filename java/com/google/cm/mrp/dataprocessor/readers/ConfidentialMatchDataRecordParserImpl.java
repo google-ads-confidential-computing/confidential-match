@@ -17,7 +17,9 @@
 package com.google.cm.mrp.dataprocessor.readers;
 
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.COORDINATOR_KEY_MISSING_IN_RECORD;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DATA_READER_CONFIGURATION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_MISSING_IN_RECORD;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.ENCRYPTION_COLUMNS_CONFIG_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_ENCRYPTION_COLUMN;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_INPUT_FILE_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_PARAMETERS;
@@ -27,8 +29,14 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PROTO_M
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PROTO_MATCH_KEY_MISSING_FIELD;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PROTO_METADATA_CONTAINING_RESTRICTED_ALIAS;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PROTO_MISSING_MATCH_KEYS;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.ROLE_ARN_MISSING_IN_RECORD;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WIP_MISSING_IN_RECORD;
 import static com.google.cm.mrp.dataprocessor.common.Constants.ROW_MARKER_COLUMN_NAME;
+import static com.google.cm.mrp.dataprocessor.readers.ConfidentialMatchDataRecordParserImpl.AliasType.COORDINATOR_KEY;
+import static com.google.cm.mrp.dataprocessor.readers.ConfidentialMatchDataRecordParserImpl.AliasType.ENCRYPTED_DEK;
+import static com.google.cm.mrp.dataprocessor.readers.ConfidentialMatchDataRecordParserImpl.AliasType.KEK_URI;
+import static com.google.cm.mrp.dataprocessor.readers.ConfidentialMatchDataRecordParserImpl.AliasType.ROLE_ARN;
+import static com.google.cm.mrp.dataprocessor.readers.ConfidentialMatchDataRecordParserImpl.AliasType.WIP_PROVIDER;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 
 import com.google.cm.mrp.JobProcessorException;
@@ -43,9 +51,12 @@ import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord.ProcessingMetadata;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord.ProtoEncryptionLevel;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
+import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo;
+import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo;
 import com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.EncryptionKeyColumns;
+import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.EncryptionKeyColumns.WrappedKeyColumns;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.MatchCondition;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.SuccessConfig.SuccessMode;
 import com.google.cm.mrp.backend.SchemaProto.Schema;
@@ -73,6 +84,13 @@ import org.slf4j.LoggerFactory;
 /** Parser to convert proto data format ConfidentialMatchDataRecord to list DataRecord. */
 public final class ConfidentialMatchDataRecordParserImpl
     implements ConfidentialMatchDataRecordParser {
+  enum AliasType {
+    COORDINATOR_KEY,
+    ENCRYPTED_DEK,
+    KEK_URI,
+    WIP_PROVIDER,
+    ROLE_ARN;
+  }
 
   private static final Logger logger =
       LoggerFactory.getLogger(ConfidentialMatchDataRecordParserImpl.class);
@@ -81,14 +99,11 @@ public final class ConfidentialMatchDataRecordParserImpl
   private final ImmutableSet<String> singleMatchAliasSet;
   private final ImmutableMap<String, Integer> columnNameToGroupNumber;
   private final ImmutableMap<String, String> matchAliasToCompositeField;
-  private final ImmutableMap<String, String> encryptionKeyAliasesToType;
+  private final ImmutableMap<String, AliasType> encryptionKeyAliasesToType;
   private final ImmutableMap<String, ColumnType> columnNameToValueTypeMap;
   private final ImmutableSet<String> metadataNameSet;
   private final SuccessMode successMode;
-  private static final String COORDINATOR_KEY = "COORDINATOR_KEY";
-  private static final String ENCRYPTED_DEK = "ENCRYPTED_DEK";
-  private static final String KEK_URI = "KEK_URI";
-  private static final String WIP_PROVIDER = "WIP_PROVIDER";
+  private final Optional<WrappedKeyInfo> requestWrappedKeyInfo;
 
   /**
    * Constructs a ConfidentialMatchDataRecordParser without encryption metadata for parsing {@link
@@ -108,6 +123,7 @@ public final class ConfidentialMatchDataRecordParserImpl
     this.encryptionKeyAliasesToType = ImmutableMap.of();
     this.metadataNameSet = getMetadataNameSet(schema);
     this.successMode = successMode;
+    this.requestWrappedKeyInfo = Optional.empty();
   }
 
   /**
@@ -130,6 +146,10 @@ public final class ConfidentialMatchDataRecordParserImpl
         getEncryptionKeyAliasesToTypeMap(matchConfig.getEncryptionKeyColumns(), encryptionMetadata);
     this.metadataNameSet = getMetadataNameSet(schema);
     this.successMode = successMode;
+    this.requestWrappedKeyInfo =
+        encryptionMetadata.getEncryptionKeyInfo().hasWrappedKeyInfo()
+            ? Optional.of(encryptionMetadata.getEncryptionKeyInfo().getWrappedKeyInfo())
+            : Optional.empty();
   }
 
   /**
@@ -291,8 +311,9 @@ public final class ConfidentialMatchDataRecordParserImpl
                     .build());
           } else if (columnAlias.isPresent()
               && encryptionKeyAliasesToType.containsKey(columnAlias.get())) {
+            AliasType aliasType = encryptionKeyAliasesToType.get(columnAlias.get());
             try {
-              keyValues.add(getEncryptionKeyColumn(columnName, columnAlias.get(), encryptionKey));
+              keyValues.add(getEncryptionKeyColumn(columnName, aliasType, encryptionKey));
             } catch (JobProcessorException e) {
               if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS
                   && isMissingEncryptionKeyColumnError(e.getErrorCode())) {
@@ -416,27 +437,48 @@ public final class ConfidentialMatchDataRecordParserImpl
     return matchAliasToCompositeFieldMap.build();
   }
 
-  private ImmutableMap<String, String> getEncryptionKeyAliasesToTypeMap(
+  private ImmutableMap<String, AliasType> getEncryptionKeyAliasesToTypeMap(
       EncryptionKeyColumns encryptionKeyColumns, EncryptionMetadata encryptionMetadata) {
-    ImmutableMap.Builder<String, String> encryptionKeyAliasesToTypeMap = ImmutableMap.builder();
-    switch (encryptionMetadata.getEncryptionKeyInfo().getKeyInfoCase()) {
+    ImmutableMap.Builder<String, AliasType> encryptionKeyAliasesToTypeMap = ImmutableMap.builder();
+    EncryptionKeyInfo encryptionKeyInfo = encryptionMetadata.getEncryptionKeyInfo();
+    switch (encryptionKeyInfo.getKeyInfoCase()) {
       case COORDINATOR_KEY_INFO:
         encryptionKeyAliasesToTypeMap.put(
             encryptionKeyColumns.getCoordinatorKeyColumn().getCoordinatorKeyColumnAlias(),
             COORDINATOR_KEY);
         break;
       case WRAPPED_KEY_INFO:
+        WrappedKeyColumns wrappedKeyColumns = encryptionKeyColumns.getWrappedKeyColumns();
         encryptionKeyAliasesToTypeMap.put(
-            encryptionKeyColumns.getWrappedKeyColumns().getEncryptedDekColumnAlias(),
-            ENCRYPTED_DEK);
-        encryptionKeyAliasesToTypeMap.put(
-            encryptionKeyColumns.getWrappedKeyColumns().getKekUriColumnAlias(), KEK_URI);
-        encryptionKeyAliasesToTypeMap.put(
-            encryptionKeyColumns
-                .getWrappedKeyColumns()
-                .getGcpWrappedKeyColumns()
-                .getWipProviderAlias(),
-            WIP_PROVIDER);
+            wrappedKeyColumns.getEncryptedDekColumnAlias(), ENCRYPTED_DEK);
+        encryptionKeyAliasesToTypeMap.put(wrappedKeyColumns.getKekUriColumnAlias(), KEK_URI);
+        if (encryptionKeyInfo.getWrappedKeyInfo().hasGcpWrappedKeyInfo()) {
+          // Check WIP alias exists in matchConfig
+          if (!wrappedKeyColumns.hasGcpWrappedKeyColumns()) {
+            String msg = "WIP missing in match config.";
+            logger.error(msg);
+            throw new JobProcessorException(msg, ENCRYPTION_COLUMNS_CONFIG_ERROR);
+          }
+          encryptionKeyAliasesToTypeMap.put(
+              encryptionKeyColumns
+                  .getWrappedKeyColumns()
+                  .getGcpWrappedKeyColumns()
+                  .getWipProviderAlias(),
+              WIP_PROVIDER);
+        } else if (encryptionKeyInfo.getWrappedKeyInfo().hasAwsWrappedKeyInfo()) {
+          // Check Role ARN alias exists in matchConfig
+          if (!wrappedKeyColumns.hasAwsWrappedKeyColumns()) {
+            String msg = "Role ARN missing in match config.";
+            logger.error(msg);
+            throw new JobProcessorException(msg, ENCRYPTION_COLUMNS_CONFIG_ERROR);
+          }
+          encryptionKeyAliasesToTypeMap.put(
+              encryptionKeyColumns
+                  .getWrappedKeyColumns()
+                  .getAwsWrappedKeyColumns()
+                  .getRoleArnAlias(),
+              ROLE_ARN);
+        }
         break;
       default:
         throw new JobProcessorException(
@@ -446,41 +488,69 @@ public final class ConfidentialMatchDataRecordParserImpl
   }
 
   private DataRecord.KeyValue getEncryptionKeyColumn(
-      String columnName, String columnAlias, EncryptionKey encryptionKey) {
-    String encryptionKeyValue;
-    switch (encryptionKeyAliasesToType.get(columnAlias)) {
-      case COORDINATOR_KEY:
-        if (encryptionKey.getCoordinatorKey().getKeyId().isEmpty()) {
-          throw new JobProcessorException(
-              "Encryption key missing coordinator key.", COORDINATOR_KEY_MISSING_IN_RECORD);
-        }
-        encryptionKeyValue = encryptionKey.getCoordinatorKey().getKeyId();
-        break;
-      case ENCRYPTED_DEK:
-        if (encryptionKey.getWrappedKey().getEncryptedDek().isEmpty()) {
-          throw new JobProcessorException(
-              "Encryption key missing encrypted DEK.", DEK_MISSING_IN_RECORD);
-        }
+      String columnName, AliasType aliasType, EncryptionKey encryptionKey) {
+
+    // Handle simplest case
+    if (aliasType == COORDINATOR_KEY) {
+      return getKeyValueOrThrow(
+          columnName,
+          /* encryptionKeyValue= */ encryptionKey.getCoordinatorKey().getKeyId(),
+          /* errorCode= */ COORDINATOR_KEY_MISSING_IN_RECORD);
+    }
+
+    // First check config
+    if (requestWrappedKeyInfo.isEmpty()) {
+      String msg = "WrappedKeyInfo when reading encryptionKey columns from proto.";
+      logger.error(msg);
+      throw new JobProcessorException(msg, DATA_READER_CONFIGURATION_ERROR);
+    }
+
+    WrappedKeyInfo wrappedKeyInfo = requestWrappedKeyInfo.get();
+    if (aliasType == ENCRYPTED_DEK) {
+      String encryptionKeyValue = "";
+      if (wrappedKeyInfo.hasGcpWrappedKeyInfo()) {
         encryptionKeyValue = encryptionKey.getWrappedKey().getEncryptedDek();
-        break;
-      case KEK_URI:
-        if (encryptionKey.getWrappedKey().getKekUri().isEmpty()) {
-          throw new JobProcessorException("Encryption key missing KEK URI.", KEK_MISSING_IN_RECORD);
-        }
+      } else if (wrappedKeyInfo.hasAwsWrappedKeyInfo()) {
+        encryptionKeyValue = encryptionKey.getAwsWrappedKey().getEncryptedDek();
+      }
+      return getKeyValueOrThrow(
+          columnName,
+          /* encryptionKeyValue= */ encryptionKeyValue,
+          /* errorCode= */ DEK_MISSING_IN_RECORD);
+    } else if (aliasType == KEK_URI) {
+      String encryptionKeyValue = ""; //
+      if (wrappedKeyInfo.hasGcpWrappedKeyInfo()) {
         encryptionKeyValue = encryptionKey.getWrappedKey().getKekUri();
-        break;
-      case WIP_PROVIDER:
-        if (encryptionKey.getWrappedKey().getWip().isEmpty()) {
-          throw new JobProcessorException(
-              "Encryption key missing WIP provider.", WIP_MISSING_IN_RECORD);
-        }
-        encryptionKeyValue = encryptionKey.getWrappedKey().getWip();
-        break;
-      default:
-        String message =
-            String.format(
-                "Invalid key column type: %s", encryptionKeyAliasesToType.get(columnAlias));
-        throw new JobProcessorException(message, INVALID_ENCRYPTION_COLUMN);
+      } else if (wrappedKeyInfo.hasAwsWrappedKeyInfo()) {
+        encryptionKeyValue = encryptionKey.getAwsWrappedKey().getKekUri();
+      }
+      return getKeyValueOrThrow(
+          columnName,
+          /* encryptionKeyValue= */ encryptionKeyValue,
+          /* errorCode= */ KEK_MISSING_IN_RECORD);
+    } else if (aliasType == WIP_PROVIDER) {
+      return getKeyValueOrThrow(
+          columnName,
+          /* encryptionKeyValue= */ encryptionKey.getWrappedKey().getWip(),
+          /* errorCode= */ WIP_MISSING_IN_RECORD);
+    } else if (aliasType == ROLE_ARN) {
+      return getKeyValueOrThrow(
+          columnName,
+          /* encryptionKeyValue= */ encryptionKey.getAwsWrappedKey().getRoleArn(),
+          /* errorCode= */ ROLE_ARN_MISSING_IN_RECORD);
+    } else {
+      String message = String.format("Invalid key column type: %s", aliasType);
+      logger.info(message);
+      throw new JobProcessorException(message, INVALID_ENCRYPTION_COLUMN);
+    }
+  }
+
+  private DataRecord.KeyValue getKeyValueOrThrow(
+      String columnName, String encryptionKeyValue, JobResultCode errorCode) {
+    if (encryptionKeyValue.isEmpty()) {
+      String msg = "DataRecord missing encryptionKey: " + columnName;
+      logger.warn(msg);
+      throw new JobProcessorException(msg, errorCode);
     }
     return DataRecord.KeyValue.newBuilder()
         .setKey(columnName)
@@ -529,6 +599,7 @@ public final class ConfidentialMatchDataRecordParserImpl
       case DEK_MISSING_IN_RECORD:
       case KEK_MISSING_IN_RECORD:
       case WIP_MISSING_IN_RECORD:
+      case ROLE_ARN_MISSING_IN_RECORD:
         return true;
       default:
         return false;

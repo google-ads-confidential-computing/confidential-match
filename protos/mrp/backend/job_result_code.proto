@@ -21,7 +21,7 @@ option java_outer_classname = "JobResultCodeProto";
 
 /** Return code within ResultInfo for Match Request Processor (MRP). */
 enum JobResultCode {
-  reserved 15, 104, 105, 108, 113, 119;
+  reserved 15, 104, 105, 108, 113, 117 to 119, 125 to 129;
   reserved "MRP_RETRIABLE_INTERNAL_ERROR", "MRP_INTERNAL_ERROR";
   JOB_RESULT_CODE_UNKNOWN = 0;
 
@@ -45,6 +45,7 @@ enum JobResultCode {
   CRYPTO_CLIENT_ERROR = 16; // coordinator key service error (after multiple retries)
   CRYPTO_CLIENT_CONFIGURATION_ERROR = 17; // crypto client is not configured properly
   DATA_READER_CONFIGURATION_ERROR = 32; // crypto client is not configured properly
+  DATA_WRITER_CONFIGURATION_ERROR = 36; // crypto client is not configured properly
   ENCRYPTION_COLUMNS_PROCESSING_ERROR = 18; // Encryption columns incorrectly processed
   ENCRYPTION_COLUMNS_CONFIG_ERROR = 26; // Config for encryption columns is invalid
   ENCRYPTION_METADATA_CONFIG_ERROR = 27; // Error during configuration of encryption metadata
@@ -57,9 +58,10 @@ enum JobResultCode {
   DATA_OUTPUT_CONDENSER_ERROR = 24; // DataOutputCondenser failed
   TRANSFORMATION_CONFIG_ERROR = 25; // DataOutputCondenser failed
   WRITER_MISSING_COORDINATOR_KEY = 28; // Coordinator Key absent from DataRecord during write phase
-  WRITER_MISSING_DEK = 29; // Dek absent from DataRecord during write phase
-  WRITER_MISSING_KEK = 30; // Kek absent from DataRecord during write phase
-  WRITER_MISSING_WIP = 31; // Wip absent from DataRecord during write phase
+  WRITER_MISSING_DEK = 29; // DEK absent from DataRecord during write phase
+  WRITER_MISSING_KEK = 30; // KEK absent from DataRecord during write phase
+  WRITER_MISSING_WIP = 31; // WIP absent from DataRecord during write phase
+  WRITER_MISSING_ROLE_ARN = 37; // Role ARN absent from DataRecord during write phase
   DATA_MATCHER_CONFIG_ERROR = 33; // DataMatcher is not configured properly
   INVALID_DATA_SOURCE_JOIN = 34; // DataSource cannot use join mode (ex, too many match condition columns)
 
@@ -77,31 +79,34 @@ enum JobResultCode {
   JOB_DECRYPTION_ERROR = 114; // Non-retriable job-level error code for decryption-related failures
   FAILED_WITH_ROW_ERRORS = 115; // Entire job failed with different row-level error codes
   RETRIES_EXHAUSTED = 116; // Job reached max retry limit
-  INVALID_WIP_PARAMETER = 117;  // WIP is formatted incorrectly or WIP does not exist
-  WIP_AUTH_FAILED = 118;  // The WIP could not be used because it was rejected by its attestation condition
   UNSUPPORTED_DEK_KEY_TYPE = 120; // DEK Key type in parameter is not supported
   UNSUPPORTED_ENCRYPTION_TYPE = 121; // Encryption key type (Wrapped or Coordinator) not supported by application_id
   INVALID_DATA_FORMAT = 123; // Unsupported data format
   UNAUTHORIZED_AUDIENCE = 124; // Audience rejected by AWS KMS policy
-  INVALID_ROLE_FORMAT = 125; // AWS does not exist or no permission
-  INVALID_ROLE_PARAMETER = 126; // AWS Role does not exist or no permission
-  AWS_AUTH_FAILED = 127; // Attestation was rejected by AWS KMS
-  INVALID_KEK = 128; // KEK cannot decrypt data due to not existing or incorrect (not attestation)
-  INVALID_KEK_FORMAT = 129; // KEK was not formatted correctly
   UNSUPPORTED_MODE_ERROR = 130; // Mode is not supported for operation
 
   // Partial errors; 200 <= resultCode < 300
   PARTIAL_SUCCESS = 200;
-  DECRYPTION_ERROR = 201;
-  DEK_DECRYPTION_ERROR = 202;
+  DECRYPTION_ERROR = 201; // DEK could not decrypt data record
+  DEK_DECRYPTION_ERROR = 202; // KEK could not decrypt DEK
+  INVALID_WIP_PARAMETER = 224; // WIP is formatted incorrectly or WIP does not exist
+  WIP_AUTH_FAILED = 225;  // The WIP could not be used because it was rejected by its attestation condition
+  INVALID_ROLE_FORMAT = 216; // AWS Role does not exist or no permission
+  INVALID_ROLE_PARAMETER = 217; // AWS Role does not exist or no permission
+  AWS_AUTH_FAILED = 218; // KEK decrypt operation was rejected by AWS KMS due to attestation
+  INVALID_KEK = 219; // KEK cannot decrypt data due to not existing or incorrect (not attestation)
+  INVALID_KEK_FORMAT = 220; // KEK was not formatted correctly
+  INVALID_WIP_FORMAT = 221; // WIP is formatted incorrectly
+  KEK_PERMISSION_DENIED = 222; // Missing permissions to access this KEK
   DECODING_ERROR = 203;
   NESTED_COLUMN_PARSING_ERROR = 204;
   DEK_MISSING_IN_RECORD = 205;
   KEK_MISSING_IN_RECORD = 206;
+  WIP_MISSING_IN_RECORD = 210;
+  ROLE_ARN_MISSING_IN_RECORD = 223;
   COORDINATOR_KEY_MISSING_IN_RECORD = 207;
   COORDINATOR_KEY_ENCRYPTION_ERROR = 208;
   DEK_KEY_TYPE_MISMATCH = 209;
-  WIP_MISSING_IN_RECORD = 210;
   PROTO_METADATA_CONTAINING_RESTRICTED_ALIAS = 211;
   PROTO_MISSING_MATCH_KEYS = 212;
   PROTO_DUPLICATE_METADATA_KEY = 213;

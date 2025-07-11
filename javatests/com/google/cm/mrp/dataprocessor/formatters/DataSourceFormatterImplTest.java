@@ -42,6 +42,7 @@ import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncry
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.CoordinatorKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.EncryptionKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.WrappedKeyColumnIndices;
+import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.WrappedKeyColumnIndices.AwsWrappedKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.WrappedKeyColumnIndices.GcpWrappedKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordProto;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
@@ -50,6 +51,7 @@ import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.Coor
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.CoordinatorKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo;
+import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.AwsWrappedKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.GcpWrappedKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.KeyType;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
@@ -91,6 +93,17 @@ public class DataSourceFormatterImplTest {
                           .setKeyType(KeyType.XCHACHA20_POLY1305)
                           .setGcpWrappedKeyInfo(GcpWrappedKeyInfo.newBuilder().setWipProvider(""))))
           .build();
+
+  private static final EncryptionMetadata NO_ROLE_AWS_WRAPPED_ENCRYPTION_METADATA =
+      EncryptionMetadata.newBuilder()
+          .setEncryptionKeyInfo(
+              EncryptionKeyInfo.newBuilder()
+                  .setWrappedKeyInfo(
+                      WrappedKeyInfo.newBuilder()
+                          .setKeyType(KeyType.XCHACHA20_POLY1305)
+                          .setAwsWrappedKeyInfo(AwsWrappedKeyInfo.newBuilder().setRoleArn(""))))
+          .build();
+
   private static final EncryptionMetadata COORDINATOR_ENCRYPTION_METADATA =
       EncryptionMetadata.newBuilder()
           .setEncryptionKeyInfo(
@@ -400,6 +413,51 @@ public class DataSourceFormatterImplTest {
   }
 
   @Test
+  public void dataSourceFormatter_schemaMissingRoleArnColumn_throws() {
+    var wrappedKeyColumns =
+        encryptionKeyMatchConfig.getEncryptionKeyColumns().getWrappedKeyColumns();
+    var testConfig =
+        encryptionKeyMatchConfig.toBuilder()
+            .setEncryptionKeyColumns(
+                encryptionKeyMatchConfig.getEncryptionKeyColumns().toBuilder()
+                    .setWrappedKeyColumns(
+                        WrappedKeyColumns.newBuilder()
+                            .setEncryptedDekColumnAlias(
+                                wrappedKeyColumns.getEncryptedDekColumnAlias())
+                            .setKekUriColumnAlias(wrappedKeyColumns.getKekUriColumnAlias())));
+    var ex =
+        assertThrows(
+            JobProcessorException.class,
+            () ->
+                new DataSourceFormatterImpl(
+                    testConfig.build(),
+                    wrappedKeySchema,
+                    DEFAULT_FLAGS,
+                    NO_ROLE_AWS_WRAPPED_ENCRYPTION_METADATA,
+                    mockCryptoClient));
+    assertThat(ex.getMessage())
+        .isEqualTo("Role ARN missing in request and no Role ARN alias in match config.");
+    assertThat(ex.getErrorCode()).isEqualTo(ENCRYPTION_COLUMNS_CONFIG_ERROR);
+  }
+
+  @Test
+  public void dataSourceFormatter_matchConfigMissingRoleArnColumn_throws() {
+    var ex =
+        assertThrows(
+            JobProcessorException.class,
+            () ->
+                new DataSourceFormatterImpl(
+                    encryptionKeyMatchConfig,
+                    wrappedKeySchema,
+                    DEFAULT_FLAGS,
+                    NO_ROLE_AWS_WRAPPED_ENCRYPTION_METADATA,
+                    mockCryptoClient));
+    assertThat(ex.getMessage())
+        .isEqualTo("Role ARN missing in request and no Role ARN column in schema.");
+    assertThat(ex.getErrorCode()).isEqualTo(MISSING_ENCRYPTION_COLUMN);
+  }
+
+  @Test
   public void dataSourceFormatter_getDataRecordEncryptionColumnsForCoordinator() {
     DataSourceFormatterImpl formatter =
         new DataSourceFormatterImpl(
@@ -424,7 +482,7 @@ public class DataSourceFormatterImplTest {
   }
 
   @Test
-  public void dataSourceFormatter_getDataRecordEncryptionColumnsForWrappedKeys() {
+  public void dataSourceFormatter_getDataRecordEncryptionColumnsForRowGcpWrappedKeys() {
     var schemaWithWip =
         wrappedKeySchema.toBuilder()
             .addColumns(
@@ -451,6 +509,42 @@ public class DataSourceFormatterImplTest {
                             .setKekUriColumnIndex(8)
                             .setGcpColumnIndices(
                                 GcpWrappedKeyColumnIndices.newBuilder().setWipProviderIndex(9))))
+            .build();
+
+    var dataRecordEncryptionColumns = formatter.getDataRecordEncryptionColumns();
+
+    assertTrue(dataRecordEncryptionColumns.isPresent());
+    assertThat(dataRecordEncryptionColumns.get()).isEqualTo(expectedDataRecordEncryptionColumns);
+  }
+
+  @Test
+  public void dataSourceFormatter_getDataRecordEncryptionColumnsForRowAwsWrappedKeys() {
+    var schemaWithWip =
+        wrappedKeySchema.toBuilder()
+            .addColumns(
+                Column.newBuilder()
+                    .setColumnType(ColumnType.STRING)
+                    .setColumnAlias("role_arn")
+                    .setColumnName("ROLE"));
+    DataSourceFormatterImpl formatter =
+        new DataSourceFormatterImpl(
+            encryptionKeyMatchConfig,
+            schemaWithWip.build(),
+            DEFAULT_FLAGS,
+            NO_ROLE_AWS_WRAPPED_ENCRYPTION_METADATA,
+            mockCryptoClient);
+    var expectedDataRecordEncryptionColumns =
+        DataRecordEncryptionColumns.newBuilder()
+            .addAllEncryptedColumnIndices(List.of(0, 1, 2, 3))
+            .setEncryptionKeyColumnIndices(
+                EncryptionKeyColumnIndices.newBuilder()
+                    .setWrappedKeyColumnIndices(
+                        // wrappedKeySchema has 7 regular columns
+                        WrappedKeyColumnIndices.newBuilder()
+                            .setEncryptedDekColumnIndex(7)
+                            .setKekUriColumnIndex(8)
+                            .setAwsColumnIndices(
+                                AwsWrappedKeyColumnIndices.newBuilder().setRoleArnIndex(9))))
             .build();
 
     var dataRecordEncryptionColumns = formatter.getDataRecordEncryptionColumns();

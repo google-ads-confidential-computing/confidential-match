@@ -72,6 +72,12 @@ class HealthService : public scp::core::ServiceInterface {
       scp::core::AsyncContext<scp::core::HttpRequest, scp::core::HttpResponse>&
           http_context) noexcept;
 
+ private:
+  /**
+   * @brief Returns a result indicating whether the storage service is healthy.
+   */
+  scp::core::ExecutionResult CheckStorageServiceHealthy() noexcept;
+
   // An instance to the http server.
   std::shared_ptr<scp::core::HttpServerInterface> http_server_;
   // Mapping of service_name -> service_status_provider, which provides the

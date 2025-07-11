@@ -16,12 +16,15 @@
 
 package com.google.cm.mrp.dataprocessor.models;
 
+import com.google.auto.value.AutoValue;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
 import com.google.common.collect.ImmutableList;
-import java.util.ArrayList;
+import com.google.common.collect.ImmutableSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Encapsulates a map where the key is a {@link Field} within a {@link DataRecord}. The value of the
@@ -62,7 +65,7 @@ public class FieldsWithMetadata {
    * Inserts or updates a field into the map, along with associatedData. If field is brand-new, a
    * new mapping is created. If the field already exists, the associatedData is appended.
    */
-  public void upsertFieldWithAssociatedData(Field fieldKey, Field associatedData) {
+  public void upsertFieldWithAssociatedData(Field fieldKey, GroupedField associatedData) {
     fieldsMetadataMap.compute(
         fieldKey,
         (field, curMetadata) -> {
@@ -86,11 +89,18 @@ public class FieldsWithMetadata {
         : fieldsMetadataMap.get(fieldKey).getCount();
   }
 
-  /** Gets all associatedData of a Field, if it exists within the map. Otherwise, returns empty list */
-  public ImmutableList<Field> getAssociatedDataForField(Field fieldKey) {
+  /**
+   * If it exists within the map, gets all associatedData of a GroupedField contained in an
+   * AssociatedDataResult object. Otherwise, returns an empty object.
+   */
+  public AssociatedDataResult getAssociatedDataForField(Field fieldKey) {
     return !fieldsMetadataMap.containsKey(fieldKey)
-        ? ImmutableList.of()
-        : ImmutableList.copyOf(fieldsMetadataMap.get(fieldKey).getAssociatedData());
+        ? AssociatedDataResult.builder().build()
+        : AssociatedDataResult.builder()
+            .setGroupedFields(
+                ImmutableSet.copyOf(fieldsMetadataMap.get(fieldKey).getAssociatedData()))
+            .setCount(fieldsMetadataMap.get(fieldKey).getCount())
+            .build();
   }
 
   /**
@@ -107,7 +117,7 @@ public class FieldsWithMetadata {
      * is the actual value. Only populated if {@link com.google.cm.mrp.backend.ModeProto.Mode} of
      * the job is JOIN.
      */
-    private List<Field> associatedData;
+    private Set<GroupedField> associatedData;
 
     /** Creates new instance with a count of 0. */
     public FieldMetadata() {
@@ -115,7 +125,7 @@ public class FieldsWithMetadata {
     }
 
     /** Creates new instance with associatedData. */
-    public FieldMetadata(List<Field> associatedData) {
+    public FieldMetadata(Set<GroupedField> associatedData) {
       this.count = 0;
       this.associatedData = associatedData;
     }
@@ -126,9 +136,9 @@ public class FieldsWithMetadata {
     }
 
     /** Gets current associatedData, creating a new list if none exist. */
-    public List<Field> getAssociatedData() {
+    public Set<GroupedField> getAssociatedData() {
       if (associatedData == null) {
-        associatedData = new ArrayList<>();
+        associatedData = new HashSet<>();
       }
       return associatedData;
     }
@@ -139,12 +149,100 @@ public class FieldsWithMetadata {
     }
 
     /** Adds to current associatedData, creating a new list if none exist. */
-    public void addAssociatedData(Field field) {
+    public void addAssociatedData(GroupedField groupedField) {
       if (associatedData == null) {
-        associatedData = new ArrayList<>();
+        associatedData = new HashSet<>();
       }
       incrementCount();
-      associatedData.add(field);
+      // TODO(b/418070733): For phase 2, make sure that multiple keys in the group
+      // are handled correctly when adding to this set
+      associatedData.add(groupedField);
+    }
+  }
+
+  /**
+   * One group of fields corresponds to one row/record of the LookupServer results. Example of a
+   * group: `gaia`: `123`, `type`: `E`
+   */
+  @AutoValue
+  public abstract static class GroupedField {
+
+    /** All individual Key-Value fields that make up this GroupedField */
+    public abstract ImmutableList<Field> fields();
+
+    /** Returns a new builder. */
+    public static Builder builder() {
+      return new AutoValue_FieldsWithMetadata_GroupedField.Builder();
+    }
+
+    @AutoValue.Builder
+    public abstract static class Builder {
+
+      /** Create a new {@link GroupedField} from the builder. */
+      public abstract GroupedField build();
+
+      /** Set the list of fields. */
+      public abstract Builder setFields(List<Field> fields);
+
+      /** Builder for the list of fields. */
+      protected abstract ImmutableList.Builder<Field> fieldsBuilder();
+
+      /** Add a field. */
+      public Builder addField(Field field) {
+        fieldsBuilder().add(field);
+        return this;
+      }
+
+      /** Add a field. */
+      public Builder addField(Field.Builder field) {
+        return addField(field.build());
+      }
+    }
+  }
+
+  /** Object containing all the GroupedFields for a given key as well as metadata for that key. */
+  @AutoValue
+  public abstract static class AssociatedDataResult {
+
+    /**
+     * Sum of all GroupedFields attempted to be added while building results. Does not necessarily
+     * match the size of groupedFields list since that value does not contain duplicates.
+     */
+    public abstract Integer count();
+
+    /** List of groupedFields results. Does not contain duplicates */
+    public abstract ImmutableSet<GroupedField> groupedFields();
+
+    /** Returns a new builder. */
+    public static Builder builder() {
+      return new AutoValue_FieldsWithMetadata_AssociatedDataResult.Builder().setCount(0);
+    }
+
+    @AutoValue.Builder
+    public abstract static class Builder {
+
+      /** Create a new {@link AssociatedDataResult} from the builder. */
+      public abstract AssociatedDataResult build();
+
+      /** Set the count of groupedFields encountered */
+      public abstract Builder setCount(Integer count);
+
+      /** Set the list of groupedFields. */
+      public abstract Builder setGroupedFields(Set<GroupedField> groupedFields);
+
+      /** Builder for the list of groupedFields. */
+      protected abstract ImmutableSet.Builder<GroupedField> groupedFieldsBuilder();
+
+      /** Add a groupedFields. */
+      public Builder addGroupedField(GroupedField groupedField) {
+        groupedFieldsBuilder().add(groupedField);
+        return this;
+      }
+
+      /** Add a groupedFields. */
+      public Builder addGroupedField(GroupedField.Builder groupedField) {
+        return addGroupedField(groupedField.build());
+      }
     }
   }
 }

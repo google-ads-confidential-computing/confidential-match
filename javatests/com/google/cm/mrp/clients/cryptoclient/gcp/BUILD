@@ -47,10 +47,27 @@ java_test(
     srcs = ["MultiPartyHybridEncryptionKeyServiceProviderTest.java"],
     deps = [
         "//java/com/google/cm/mrp/clients/cryptoclient",
+        "//java/com/google/cm/mrp/clients/cryptoclient/exceptions",
         "//java/com/google/cm/mrp/clients/cryptoclient/gcp",
         "//java/external:google_truth",
         "//java/external:mockito",
         "//java/external:shared_crypto_tink",
+        "//protos/mrp/backend:java_proto",
+    ],
+)
+
+java_test(
+    name = "GcpAeadProviderTest",
+    srcs = ["GcpAeadProviderTest.java"],
+    deps = [
+        "//java/com/google/cm/mrp/clients/cryptoclient",
+        "//java/com/google/cm/mrp/clients/cryptoclient/exceptions",
+        "//java/com/google/cm/mrp/clients/cryptoclient/gcp",
+        "//java/external:google_truth",
+        "//java/external:mockito",
+        "//java/external:protobuf_java",
+        "//java/external:shared_crypto_tink",
+        "//java/external:tink",
         "//protos/mrp/backend:java_proto",
     ],
 )

@@ -48,6 +48,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.hash.Hashing.sha256;
 import static com.google.common.io.BaseEncoding.base64;
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.protobuf.ByteString.copyFromUtf8;
 import static com.google.scp.operator.protos.frontend.api.v1.ReturnCodeProto.ReturnCode.RETRIES_EXHAUSTED;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertTrue;
@@ -85,6 +86,7 @@ import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.ConfidentialMatchO
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.Field;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.KeyValue;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.MatchKey;
+import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.MatchedOutputField;
 import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner;
 import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner.DataLocation;
 import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwnerList;
@@ -110,6 +112,7 @@ import com.google.crypto.tink.Aead;
 import com.google.crypto.tink.HybridDecrypt;
 import com.google.crypto.tink.HybridEncrypt;
 import com.google.inject.Inject;
+import com.google.protobuf.ByteString;
 import com.google.scp.operator.protos.frontend.api.v1.CreateJobRequestProto.CreateJobRequest;
 import com.google.scp.operator.protos.frontend.api.v1.CreateJobResponseProto.CreateJobResponse;
 import com.google.scp.operator.protos.frontend.api.v1.GetJobResponseProto.GetJobResponse;
@@ -620,9 +623,10 @@ public final class MrpGcpIntegrationTest {
                     + "83243"));
     List<AssociatedData> gaiaMatches =
         ImmutableList.of(
-            AssociatedData.of("encrypted_gaia_id", "1111"),
-            AssociatedData.of("encrypted_gaia_id", "2222"),
-            AssociatedData.of("encrypted_gaia_id", "3333"));
+            AssociatedData.of("encrypted_gaia_id", copyFromUtf8("1111")),
+            AssociatedData.of(
+                "encrypted_gaia_id", List.of(copyFromUtf8("2222"), copyFromUtf8("3333"))),
+            AssociatedData.of("encrypted_gaia_id", copyFromUtf8("4444")));
     var lookupResponse = createResponseWithMatchedKeysAndAssociatedData(hashMatches, gaiaMatches);
     String lookupResponseJson = getJsonFromProto(lookupResponse);
     mockClient.when(lookupRequest).respond(getMockServerResponse(200, lookupResponseJson));
@@ -689,19 +693,20 @@ public final class MrpGcpIntegrationTest {
               assertThat(field.getMatchedOutputFieldsList()).hasSize(1);
               var joinedField = field.getMatchedOutputFieldsList().get(0);
               assertThat(joinedField.getKeyValueCount()).isEqualTo(1);
-              var gaiaMatch = gaiaMatches.get(0).values().get(0);
-              assertThat(joinedField.getKeyValue(0).getKey()).isEqualTo(gaiaMatch.getKey());
-              assertThat(joinedField.getKeyValue(0).getStringValue())
-                  .isEqualTo(gaiaMatch.getStringValue());
+              assertThat(joinedField.getKeyValue(0).getKey()).isEqualTo("encrypted_gaia_id");
+              assertThat(fromBase64(joinedField.getKeyValue(0).getStringValue())).isEqualTo("1111");
               processed.add(field.getKeyValue().getStringValue());
             } else if (field.getKeyValue().getStringValue().equals(hashMatches.get(1))) {
-              assertThat(field.getMatchedOutputFieldsList()).hasSize(1);
-              var joinedField = field.getMatchedOutputFieldsList().get(0);
+              assertThat(field.getMatchedOutputFieldsList()).hasSize(2);
+              var sortedMatchedGaias = sortFieldByGaia(field.getMatchedOutputFieldsList());
+              var joinedField = sortedMatchedGaias.get(0);
               assertThat(joinedField.getKeyValueCount()).isEqualTo(1);
-              var gaiaMatch = gaiaMatches.get(1).values().get(0);
-              assertThat(joinedField.getKeyValue(0).getKey()).isEqualTo(gaiaMatch.getKey());
-              assertThat(joinedField.getKeyValue(0).getStringValue())
-                  .isEqualTo(gaiaMatch.getStringValue());
+              assertThat(joinedField.getKeyValue(0).getKey()).isEqualTo("encrypted_gaia_id");
+              assertThat(fromBase64(joinedField.getKeyValue(0).getStringValue())).isEqualTo("2222");
+              joinedField = sortedMatchedGaias.get(1);
+              assertThat(joinedField.getKeyValueCount()).isEqualTo(1);
+              assertThat(joinedField.getKeyValue(0).getKey()).isEqualTo("encrypted_gaia_id");
+              assertThat(fromBase64(joinedField.getKeyValue(0).getStringValue())).isEqualTo("3333");
               processed.add(field.getKeyValue().getStringValue());
             } else {
               fail("field does not match");
@@ -730,10 +735,8 @@ public final class MrpGcpIntegrationTest {
             assertThat(field.getMatchedOutputFieldsList()).hasSize(1);
             var joinedField = field.getMatchedOutputFieldsList().get(0);
             assertThat(joinedField.getKeyValueCount()).isEqualTo(1);
-            var gaiaMatch = gaiaMatches.get(2).values().get(0);
-            assertThat(joinedField.getKeyValue(0).getKey()).isEqualTo(gaiaMatch.getKey());
-            assertThat(joinedField.getKeyValue(0).getStringValue())
-                .isEqualTo(gaiaMatch.getStringValue());
+            assertThat(joinedField.getKeyValue(0).getKey()).isEqualTo("encrypted_gaia_id");
+            assertThat(fromBase64(joinedField.getKeyValue(0).getStringValue())).isEqualTo("4444");
             processed.add(String.join("", orderedChildList));
           }
         });
@@ -2038,11 +2041,20 @@ public final class MrpGcpIntegrationTest {
                           .setStatus(STATUS_SUCCESS)
                           .setClientDataRecord(DataRecord.newBuilder().setLookupKey(lk));
                   if (matches.contains(lk.getKey())) {
-                    var lookupRecord = MatchedDataRecord.newBuilder().setLookupKey(lk);
                     if (!associatedData.isEmpty()) {
-                      lookupRecord.addAllAssociatedData(associatedData.get(idx).values());
+                      associatedData
+                          .get(idx)
+                          .values()
+                          .forEach(
+                              val -> {
+                                var lookupRecord = MatchedDataRecord.newBuilder().setLookupKey(lk);
+                                lookupRecord.addAllAssociatedData(ImmutableList.of(val));
+                                lsResultBuilder.addMatchedDataRecords(lookupRecord);
+                              });
+                    } else {
+                      lsResultBuilder.addMatchedDataRecords(
+                          MatchedDataRecord.newBuilder().setLookupKey(lk));
                     }
-                    lsResultBuilder.addMatchedDataRecords(lookupRecord);
                   }
                   return lsResultBuilder.build();
                 })
@@ -2242,11 +2254,45 @@ public final class MrpGcpIntegrationTest {
         .collect(Collectors.toList());
   }
 
+  /** Sort MatchedOutputField results by the value of the gaia Ids */
+  private List<MatchedOutputField> sortFieldByGaia(List<MatchedOutputField> inputList) {
+    String gaiaKey = "encrypted_gaia_id";
+    List<MatchedOutputField> mutableList = new ArrayList<>(inputList);
+    mutableList.sort(
+        ((matchedOutputField0, matchedOutputField1) -> {
+          var gaia0 =
+              matchedOutputField0.getKeyValueList().stream()
+                  .filter(field -> field.getKey().equals(gaiaKey))
+                  .findFirst();
+          var gaia1 =
+              matchedOutputField1.getKeyValueList().stream()
+                  .filter(field -> field.getKey().equals(gaiaKey))
+                  .findFirst();
+          String val0 = gaia0.map(KeyValue::getStringValue).orElse("yyy");
+          String val1 = gaia1.map(KeyValue::getStringValue).orElse("zzz");
+          return val0.compareTo(val1);
+        }));
+    return mutableList;
+  }
+
+  private String fromBase64(String encoded) {
+    return ByteString.copyFrom(BaseEncoding.base64().decode(encoded)).toStringUtf8();
+  }
+
   private static class AssociatedData {
 
-    private static AssociatedData of(String key, String value) {
-      var kv = LookupProto.KeyValue.newBuilder().setKey(key).setStringValue(value).build();
-      return new AssociatedData(ImmutableList.of(kv));
+    private static AssociatedData of(String key, ByteString value) {
+      return of(key, ImmutableList.of(value));
+    }
+
+    private static AssociatedData of(String key, List<ByteString> values) {
+      List<LookupProto.KeyValue> keyValues = new ArrayList<>();
+      values.forEach(
+          value -> {
+            var kv = LookupProto.KeyValue.newBuilder().setKey(key).setBytesValue(value).build();
+            keyValues.add(kv);
+          });
+      return new AssociatedData(keyValues);
     }
 
     private final List<LookupProto.KeyValue> values;

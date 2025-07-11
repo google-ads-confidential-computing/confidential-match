@@ -20,6 +20,7 @@ java_test(
     deps = [
         "//java/com/google/cm/mrp:exceptions",
         "//java/com/google/cm/mrp/clients/cryptoclient",
+        "//java/com/google/cm/mrp/clients/cryptoclient/exceptions",
         "//java/com/google/cm/util",
         "//java/external:google_truth",
         "//java/external:mockito",

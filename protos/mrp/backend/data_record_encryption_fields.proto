@@ -70,7 +70,12 @@ message DataRecordEncryptionColumns {
     message GcpWrappedKeyColumnIndices {
       uint32 wip_provider_index = 1;
     }
+
+    message AwsWrappedKeyColumnIndices {
+      uint32 role_arn_index = 1;
+    }
     optional GcpWrappedKeyColumnIndices gcp_column_indices = 3;
+    optional AwsWrappedKeyColumnIndices aws_column_indices = 4;
   }
 
   message CoordinatorKeyColumnIndices {

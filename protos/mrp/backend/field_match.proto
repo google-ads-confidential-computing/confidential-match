@@ -22,28 +22,36 @@ option java_outer_classname = "FieldMatchProto";
 // Contains data about matches per field, either the index of a match or full MatchedOutputFields
 // which will be joined.
 message FieldMatch {
-  // MatchedOutputFields (field to join with the original dataSource1 field within
-  // the data record)
+  // MatchedOutputFields (groups of fields to join with the original dataSource1 field inside
+  // a data record)
   message MatchedOutputField {
-    // Field key
-    string key = 1;
-    // Field value
-    string value = 2;
+    // An individual piece of data, with a key and a value
+    message Field {
+      // Field key
+      string key = 1;
+      // Field value
+      string value = 2;
+    }
+
+    // All the fields within this group
+    repeated Field individual_fields = 1;
   }
   // MatchedOutputFields which will be joined to single fields, where the
   // index corresponds to the original dataSource1 field
+  // A single field can map to multiple groups
   message SingleFieldMatchedOutput {
     // Index of the original field
     int32 index = 1;
-    // Fields to join
+    // MatchedOutputField to join
     repeated MatchedOutputField matched_output_fields = 2;
   }
   // MatchedOutputFields which will be joined to composite fields, where the
   // column corresponds to the original dataSource1 composite group number
+  // A composite field can map to multiple groups
   message CompositeFieldMatchedOutput {
     // Column group for the original field
     int32 column_group = 1;
-    // Fields to join
+    // MatchedOutputField to join
     repeated MatchedOutputField matched_output_fields = 2;
   }
 

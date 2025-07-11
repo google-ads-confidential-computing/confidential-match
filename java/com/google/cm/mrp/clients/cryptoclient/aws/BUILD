@@ -21,6 +21,7 @@ java_library(
         "//java/com/google/cm/mrp:exceptions",
         "//java/com/google/cm/mrp/clients/attestation",
         "//java/com/google/cm/mrp/clients/cryptoclient",
+        "//java/com/google/cm/mrp/clients/cryptoclient/exceptions",
         "//java/external:apache_commons_lang",
         "//java/external:apache_httpclient5",
         "//java/external:apache_httpcore5",

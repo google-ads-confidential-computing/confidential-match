@@ -17,11 +17,13 @@
 package com.google.cm.mrp.dataprocessor.writers;
 
 import static com.google.cm.mrp.backend.DataRecordProto.DataRecord.ProtoEncryptionLevel.ROW_LEVEL;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DATA_WRITER_CONFIGURATION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.OUTPUT_FILE_WRITE_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.SUCCESS;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WRITER_MISSING_COORDINATOR_KEY;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WRITER_MISSING_DEK;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WRITER_MISSING_KEK;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WRITER_MISSING_ROLE_ARN;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WRITER_MISSING_WIP;
 import static com.google.cm.mrp.backend.ModeProto.Mode.JOIN;
 import static com.google.cm.mrp.dataprocessor.common.Constants.ROW_MARKER_COLUMN_NAME;
@@ -34,6 +36,7 @@ import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeChildFiel
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeField;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.ConfidentialMatchOutputDataRecord;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.EncryptionKey;
+import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.EncryptionKey.AwsWrappedKey;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.EncryptionKey.CoordinatorKey;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.EncryptionKey.GcpWrappedKey;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.Field;
@@ -44,6 +47,7 @@ import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncry
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.CoordinatorKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.EncryptionKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.WrappedKeyColumnIndices;
+import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.WrappedKeyColumnIndices.AwsWrappedKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.WrappedKeyColumnIndices.GcpWrappedKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
 import com.google.cm.mrp.backend.FieldMatchProto.FieldMatch;
@@ -262,21 +266,34 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
 
   /** Builds out an {@link EncryptionKey} for a provided {@link DataRecord}. */
   private Optional<EncryptionKey> getEncryptionKey(DataRecord dataRecord) {
-    if (dataRecordEncryptionColumns.isPresent()) {
-      var encryptionKeyBuilder = EncryptionKey.newBuilder();
-      EncryptionKeyColumnIndices encryptionKeyColumnIndices =
-          dataRecordEncryptionColumns.get().getEncryptionKeyColumnIndices();
-      if (encryptionKeyColumnIndices.hasWrappedKeyColumnIndices()) {
+    if (dataRecordEncryptionColumns.isEmpty()) {
+      return Optional.empty();
+    }
+    var encryptionKeyBuilder = EncryptionKey.newBuilder();
+    EncryptionKeyColumnIndices encryptionKeyColumnIndices =
+        dataRecordEncryptionColumns.get().getEncryptionKeyColumnIndices();
+    if (encryptionKeyColumnIndices.hasWrappedKeyColumnIndices()) {
+      if (jobParameters.encryptionMetadata().isEmpty()
+          || !jobParameters.encryptionMetadata().get().getEncryptionKeyInfo().hasWrappedKeyInfo()) {
+        String msg = "WrappedKey info not in encryption metadata";
+        logger.error(msg);
+        throw new JobProcessorException(msg, DATA_WRITER_CONFIGURATION_ERROR);
+      }
+      var wrappedKeyInfo =
+          jobParameters.encryptionMetadata().get().getEncryptionKeyInfo().getWrappedKeyInfo();
+      if (wrappedKeyInfo.hasGcpWrappedKeyInfo()) {
         encryptionKeyBuilder.setWrappedKey(
             getGcpWrappedKey(dataRecord, encryptionKeyColumnIndices.getWrappedKeyColumnIndices()));
-      } else if (encryptionKeyColumnIndices.hasCoordinatorKeyColumnIndices()) {
-        encryptionKeyBuilder.setCoordinatorKey(
-            getCoordinatorKey(
-                dataRecord, encryptionKeyColumnIndices.getCoordinatorKeyColumnIndices()));
+      } else if (wrappedKeyInfo.hasAwsWrappedKeyInfo()) {
+        encryptionKeyBuilder.setAwsWrappedKey(
+            getAwsWrappedKey(dataRecord, encryptionKeyColumnIndices.getWrappedKeyColumnIndices()));
       }
-      return Optional.of(encryptionKeyBuilder.build());
+    } else if (encryptionKeyColumnIndices.hasCoordinatorKeyColumnIndices()) {
+      encryptionKeyBuilder.setCoordinatorKey(
+          getCoordinatorKey(
+              dataRecord, encryptionKeyColumnIndices.getCoordinatorKeyColumnIndices()));
     }
-    return Optional.empty();
+    return Optional.of(encryptionKeyBuilder.build());
   }
 
   /** Builds out a {@link GcpWrappedKey} from a provided {@link DataRecord}. */
@@ -284,27 +301,10 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
       DataRecord dataRecord, WrappedKeyColumnIndices wrappedKeyColumnIndices) {
     GcpWrappedKey.Builder gcpWrappedKeyBuilder = GcpWrappedKey.newBuilder();
     int dataRecordSize = dataRecord.getKeyValuesCount();
-
-    // Set the Dek.
-    if (!isValidIndex(dataRecordSize, wrappedKeyColumnIndices.getEncryptedDekColumnIndex())) {
-      String message = "Missing EncryptedDekColumnIndex in DataRecord.";
-      logger.error(message);
-      throw new JobProcessorException(message, WRITER_MISSING_DEK);
-    }
     gcpWrappedKeyBuilder.setEncryptedDek(
-        dataRecord
-            .getKeyValues(wrappedKeyColumnIndices.getEncryptedDekColumnIndex())
-            .getStringValue());
-
-    // Set the Kek.
-    if (!isValidIndex(dataRecordSize, wrappedKeyColumnIndices.getKekUriColumnIndex())) {
-      String message = "Missing KekUriColumnIndex index in DataRecord.";
-      logger.error(message);
-      throw new JobProcessorException(message, WRITER_MISSING_KEK);
-    }
+        validateAndGetDekFromRecord(dataRecord, dataRecordSize, wrappedKeyColumnIndices));
     gcpWrappedKeyBuilder.setKekUri(
-        dataRecord.getKeyValues(wrappedKeyColumnIndices.getKekUriColumnIndex()).getStringValue());
-
+        validateAndGetKekFromRecord(dataRecord, dataRecordSize, wrappedKeyColumnIndices));
     // Set the Wip if it is present.
     if (wrappedKeyColumnIndices.hasGcpColumnIndices()) {
       if (!isValidIndex(
@@ -319,6 +319,54 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
               .getStringValue());
     }
     return gcpWrappedKeyBuilder.build();
+  }
+
+  private AwsWrappedKey getAwsWrappedKey(
+      DataRecord dataRecord, WrappedKeyColumnIndices wrappedKeyColumnIndices) {
+    AwsWrappedKey.Builder builder = AwsWrappedKey.newBuilder();
+    int dataRecordSize = dataRecord.getKeyValuesCount();
+    builder.setEncryptedDek(
+        validateAndGetDekFromRecord(dataRecord, dataRecordSize, wrappedKeyColumnIndices));
+    builder.setKekUri(
+        validateAndGetKekFromRecord(dataRecord, dataRecordSize, wrappedKeyColumnIndices));
+
+    // Set the Role ARN if it is present.
+    if (wrappedKeyColumnIndices.hasAwsColumnIndices()) {
+      if (!isValidIndex(
+          dataRecordSize, wrappedKeyColumnIndices.getAwsColumnIndices().getRoleArnIndex())) {
+        String message = "Missing RoleARN index in DataRecord.";
+        logger.error(message);
+        throw new JobProcessorException(message, WRITER_MISSING_ROLE_ARN);
+      }
+      builder.setRoleArn(
+          dataRecord
+              .getKeyValues(wrappedKeyColumnIndices.getAwsColumnIndices().getRoleArnIndex())
+              .getStringValue());
+    }
+    return builder.build();
+  }
+
+  private String validateAndGetDekFromRecord(
+      DataRecord dataRecord, int dataRecordSize, WrappedKeyColumnIndices wrappedKeyColumnIndices) {
+    if (!isValidIndex(dataRecordSize, wrappedKeyColumnIndices.getEncryptedDekColumnIndex())) {
+      String message = "Missing EncryptedDekColumnIndex in DataRecord.";
+      logger.error(message);
+      throw new JobProcessorException(message, WRITER_MISSING_DEK);
+    }
+    return dataRecord
+        .getKeyValues(wrappedKeyColumnIndices.getEncryptedDekColumnIndex())
+        .getStringValue();
+  }
+
+  private String validateAndGetKekFromRecord(
+      DataRecord dataRecord, int dataRecordSize, WrappedKeyColumnIndices wrappedKeyColumnIndices) {
+    // Set the Kek.
+    if (!isValidIndex(dataRecordSize, wrappedKeyColumnIndices.getKekUriColumnIndex())) {
+      String message = "Missing KekUriColumnIndex index in DataRecord.";
+      logger.error(message);
+      throw new JobProcessorException(message, WRITER_MISSING_KEK);
+    }
+    return dataRecord.getKeyValues(wrappedKeyColumnIndices.getKekUriColumnIndex()).getStringValue();
   }
 
   /** Builds out a {@link CoordinatorKey} from a provided {@link DataRecord}. */
@@ -377,21 +425,12 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
             Map<Integer, FieldMatch> singleFieldMatches =
                 dataRecord.getJoinFields().getSingleFieldRecordMatchesMap();
             if (singleFieldMatches.containsKey(index)) {
-              var matchedOutputFieldBuilder = MatchedOutputField.newBuilder();
               var joinFields =
                   singleFieldMatches
                       .get(index)
                       .getSingleFieldMatchedOutput()
                       .getMatchedOutputFieldsList();
-              for (FieldMatch.MatchedOutputField match : joinFields) {
-                KeyValue individualField =
-                    KeyValue.newBuilder()
-                        .setKey(match.getKey())
-                        .setStringValue(match.getValue())
-                        .build();
-                matchedOutputFieldBuilder.addKeyValue(individualField);
-              }
-              fieldBuilder.addMatchedOutputFields(matchedOutputFieldBuilder);
+              fieldBuilder.addAllMatchedOutputFields(convertToApiMatchedOutputFields(joinFields));
             }
           }
           return matchKeyBuilder.setField(fieldBuilder).build();
@@ -414,21 +453,42 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
       Map<Integer, FieldMatch> compositeFieldMatches =
           dataRecord.getJoinFields().getCompositeFieldRecordMatchesMap();
       if (compositeFieldMatches.containsKey(compositeFieldGroupNumber)) {
-        var matchedOutputFieldBuilder = MatchedOutputField.newBuilder();
         var joinFields =
             compositeFieldMatches
                 .get(compositeFieldGroupNumber)
                 .getCompositeFieldMatchedOutput()
                 .getMatchedOutputFieldsList();
-        for (FieldMatch.MatchedOutputField match : joinFields) {
-          KeyValue individualField =
-              KeyValue.newBuilder().setKey(match.getKey()).setStringValue(match.getValue()).build();
-          matchedOutputFieldBuilder.addKeyValue(individualField);
-        }
-        compositeFieldBuilder.addMatchedOutputFields(matchedOutputFieldBuilder);
+        compositeFieldBuilder.addAllMatchedOutputFields(
+            convertToApiMatchedOutputFields(joinFields));
       }
     }
     return compositeFieldBuilder.build();
+  }
+
+  /**
+   * Takes a list of joinFields, backend MatchedOutputFields, and converts each item to its API
+   * counterpart. MatchedOutputField is a grouping of fields (KeyValue pairs) that contains
+   * additional data to output.
+   */
+  private ImmutableList<MatchedOutputField> convertToApiMatchedOutputFields(
+      List<FieldMatch.MatchedOutputField> joinFields) {
+    return joinFields.stream()
+        .map(
+            // Each item in the outer list is a group of fields
+            group ->
+                MatchedOutputField.newBuilder() // API proto
+                    .addAllKeyValue(
+                        group.getIndividualFieldsList().stream()
+                            .map(
+                                // Converts each field within the group
+                                field ->
+                                    KeyValue.newBuilder()
+                                        .setKey(field.getKey())
+                                        .setStringValue(field.getValue())
+                                        .build())
+                            .collect(ImmutableList.toImmutableList()))
+                    .build())
+        .collect(ImmutableList.toImmutableList());
   }
 
   /** Returns a mapping of column group numbers to their group alias */
@@ -612,6 +672,14 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
                 .setWipProviderIndex(
                     aliasToIndexMap.get(
                         wrappedKeyColumns.getGcpWrappedKeyColumns().getWipProviderAlias())));
+      } else if (wrappedKeyColumns.hasAwsWrappedKeyColumns()
+          && aliasToIndexMap.containsKey(
+              wrappedKeyColumns.getAwsWrappedKeyColumns().getRoleArnAlias())) {
+        wrappedKeyIndicesBuilder.setAwsColumnIndices(
+            AwsWrappedKeyColumnIndices.newBuilder()
+                .setRoleArnIndex(
+                    aliasToIndexMap.get(
+                        wrappedKeyColumns.getAwsWrappedKeyColumns().getRoleArnAlias())));
       }
       encryptionKeyColumnIndicesBuilder.setWrappedKeyColumnIndices(wrappedKeyIndicesBuilder);
     } else if (encryptionKeyColumns.hasCoordinatorKeyColumn()
@@ -666,6 +734,8 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
             if (wrappedKeyColumnIndices.hasGcpColumnIndices()) {
               excludedIndices.add(
                   wrappedKeyColumnIndices.getGcpColumnIndices().getWipProviderIndex());
+            } else if (wrappedKeyColumnIndices.hasAwsColumnIndices()) {
+              excludedIndices.add(wrappedKeyColumnIndices.getAwsColumnIndices().getRoleArnIndex());
             }
           } else if (encryptionKeyColumnIndices.hasCoordinatorKeyColumnIndices()) {
             excludedIndices.add(

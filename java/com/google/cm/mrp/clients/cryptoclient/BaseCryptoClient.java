@@ -17,8 +17,6 @@
 package com.google.cm.mrp.clients.cryptoclient;
 
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DECODING_ERROR;
-import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_WIP_PARAMETER;
-import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WIP_AUTH_FAILED;
 import static com.google.common.io.BaseEncoding.base16;
 import static com.google.common.io.BaseEncoding.base64;
 import static com.google.common.io.BaseEncoding.base64Url;
@@ -26,9 +24,8 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys;
 import com.google.cm.mrp.backend.EncodingTypeProto.EncodingType;
-import java.util.Arrays;
+import com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode;
 import java.util.concurrent.ConcurrentHashMap;
-import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.slf4j.Logger;
 
 /** Abstract class for shared methods between CryptoClients */
@@ -37,12 +34,7 @@ public abstract class BaseCryptoClient implements CryptoClient {
   protected static final int CONCURRENCY_LEVEL = Runtime.getRuntime().availableProcessors();
 
   // If KEK or CoordKey has issues decrypting, do not try again for the rest of the job.
-  protected ConcurrentHashMap.KeySetView<String, Boolean> invalidDecrypters =
-      ConcurrentHashMap.newKeySet();
-
-  private static final String EXPECTED_EXCEPTION = "OAuthException";
-  private static final String[] INVALID_WIP_CODES = {"invalid_target", "invalid_request"};
-  private static final String WIP_CONDITION_FAILED_CODE = "unauthorized_client";
+  protected ConcurrentHashMap<String, JobResultCode> invalidDecrypters = new ConcurrentHashMap<>();
 
   /** {@inheritDoc} */
   @Override
@@ -94,20 +86,4 @@ public abstract class BaseCryptoClient implements CryptoClient {
 
   /** Get child class logger */
   protected abstract Logger getLogger();
-
-  /** Check exception for wrapped WIP (Workload Identity Pool) failures */
-  protected void throwIfWipFailure(Exception e) throws CryptoClientException {
-    var rootEx = ExceptionUtils.getRootCause(e);
-    // OAuthException is package private so we cannot explicitly check against it.
-    // Checking name as next-best solution
-    if (rootEx.getClass().getSimpleName().equals(EXPECTED_EXCEPTION)) {
-      if (Arrays.stream(INVALID_WIP_CODES).anyMatch(code -> rootEx.getMessage().contains(code))) {
-        getLogger().warn("WIP parameter invalid", rootEx);
-        throw new CryptoClientException(rootEx, INVALID_WIP_PARAMETER);
-      } else if (rootEx.getMessage().contains(WIP_CONDITION_FAILED_CODE)) {
-        getLogger().warn("WIP conditions failed", rootEx);
-        throw new CryptoClientException(rootEx, WIP_AUTH_FAILED);
-      }
-    }
-  }
 }

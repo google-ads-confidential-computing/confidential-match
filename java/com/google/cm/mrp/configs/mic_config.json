@@ -138,6 +138,9 @@
       "kek_uri_column_alias": "kek_uri",
       "gcp_wrapped_key_columns": {
         "wip_provider_alias": "wip_provider"
+      },
+      "aws_wrapped_key_columns": {
+        "role_arn_alias": "role_arn"
       }
     }
   }

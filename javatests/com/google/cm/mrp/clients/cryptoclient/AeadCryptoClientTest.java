@@ -31,20 +31,21 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.times;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys;
+import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.WrappedEncryptionKeys.AwsWrappedKeys;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.WrappedEncryptionKeys.GcpWrappedKeys;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo;
+import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.AwsWrappedKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.GcpWrappedKeyInfo;
 import com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode;
-import com.google.cm.mrp.clients.cryptoclient.AeadProvider.AeadProviderException;
 import com.google.cm.mrp.clients.cryptoclient.CryptoClient.CryptoClientException;
+import com.google.cm.mrp.clients.cryptoclient.exceptions.AeadProviderException;
 import com.google.cm.mrp.clients.cryptoclient.models.AeadProviderParameters;
+import com.google.cm.mrp.clients.cryptoclient.models.AeadProviderParameters.AwsParameters;
 import com.google.cm.mrp.testutils.fakes.OAuthException;
 import com.google.crypto.tink.Aead;
 import com.google.scp.shared.crypto.tink.CloudAeadSelector;
@@ -177,7 +178,7 @@ public class AeadCryptoClientTest {
   }
 
   @Test
-  public void decrypt_whenDefaultWipMissing_useDataRecordEncryptionWip() throws Exception {
+  public void decrypt_whenJobLevelWipMissing_useDataRecordEncryptionWip() throws Exception {
     String rowLevelWip = "rowWip";
     var encryptionKeyInfo =
         EncryptionKeyInfo.newBuilder()
@@ -192,7 +193,35 @@ public class AeadCryptoClientTest {
     String testKek = generateAeadUri();
     var keyset = generateXChaChaKeyset();
     var encryptedDek = encryptDek(keyset);
-    var encryptionKeys = getDataRecordEncryptionKeys(testKek, encryptedDek, rowLevelWip);
+    var encryptionKeys = getDataRecordEncryptionKeysWithWip(testKek, encryptedDek, rowLevelWip);
+    var cryptoClient = new AeadCryptoClient(mockAeadProvider, encryptionKeyInfo);
+    String plaintext = "TestString";
+    String encrypted = encryptString(encryptedDek, plaintext);
+
+    assertThat(cryptoClient.decrypt(encryptionKeys, encrypted, BASE64)).isEqualTo(plaintext);
+  }
+
+  @Test
+  public void decrypt_whenJobLevelRoleArnMissing_useDataRecordEncryptionRoleArn() throws Exception {
+    String rowLevelRole = "rowRole";
+    var encryptionKeyInfo =
+        EncryptionKeyInfo.newBuilder()
+            .setWrappedKeyInfo(
+                WrappedKeyInfo.newBuilder()
+                    .setKeyType(XCHACHA20_POLY1305)
+                    .setAwsWrappedKeyInfo(AwsWrappedKeyInfo.getDefaultInstance()))
+            .build();
+    var expectedParams =
+        AeadProviderParameters.builder()
+            .setAwsParameters(
+                AwsParameters.builder().setRoleArn(rowLevelRole).setAudience("").build())
+            .build();
+    when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
+    when(mockAeadProvider.getAeadSelector(eq(expectedParams))).thenReturn(getDefaultAeadSelector());
+    String testKek = generateAeadUri();
+    var keyset = generateXChaChaKeyset();
+    var encryptedDek = encryptDek(keyset);
+    var encryptionKeys = getDataRecordEncryptionKeysWithRole(testKek, encryptedDek, rowLevelRole);
     var cryptoClient = new AeadCryptoClient(mockAeadProvider, encryptionKeyInfo);
     String plaintext = "TestString";
     String encrypted = encryptString(encryptedDek, plaintext);
@@ -330,10 +359,15 @@ public class AeadCryptoClientTest {
   }
 
   @Test
-  public void decryptDek_failureForSameKek_ThrowsException() throws Exception {
-    when(mockAead.decrypt(any(), any())).thenThrow(GeneralSecurityException.class);
-    when(mockAeadSelector.getAead(any())).thenReturn(mockAead);
-    when(mockAeadProvider.getAeadSelector(eq(TEST_PARAMETERS))).thenReturn(mockAeadSelector);
+  public void decryptDek_failureForSameKek_ThrowsSameException() throws Exception {
+    when(mockAeadProvider.getAeadSelector(eq(TEST_PARAMETERS)))
+        .thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any()))
+        .thenThrow(
+            new AeadProviderException(
+                "failedWip",
+                new GeneralSecurityException(new OAuthException("invalid_target")),
+                JobResultCode.INVALID_WIP_PARAMETER));
     String testKek = generateAeadUri();
     var keyset = generateXChaChaKeyset();
     var encryptedDek = encryptDek(keyset);
@@ -346,21 +380,24 @@ public class AeadCryptoClientTest {
         assertThrows(
             CryptoClientException.class,
             () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
-    assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.DEK_DECRYPTION_ERROR);
-    assertThrows(
-        CryptoClientException.class, () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
-    assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.DEK_DECRYPTION_ERROR);
-    verify(mockAeadSelector, times(1)).getAead(any());
+    assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.INVALID_WIP_PARAMETER);
+    ex =
+        assertThrows(
+            CryptoClientException.class,
+            () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
+    assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.INVALID_WIP_PARAMETER);
   }
 
   @Test
-  public void decryptDek_InvalidWipThrowsException() throws Exception {
+  public void decryptDek_InvalidWipFormatThrowsException() throws Exception {
     when(mockAeadProvider.getAeadSelector(eq(TEST_PARAMETERS)))
         .thenReturn(getDefaultAeadSelector());
     when(mockAeadProvider.readKeysetHandle(any(), any()))
         .thenThrow(
             new AeadProviderException(
-                new GeneralSecurityException(new OAuthException("invalid_target"))));
+                "failedWip",
+                new GeneralSecurityException(new OAuthException("invalid_target")),
+                JobResultCode.INVALID_WIP_PARAMETER));
     String testKek = generateAeadUri();
     var keyset = generateXChaChaKeyset();
     var encryptedDek = encryptDek(keyset);
@@ -383,7 +420,9 @@ public class AeadCryptoClientTest {
     when(mockAeadProvider.readKeysetHandle(any(), any()))
         .thenThrow(
             new AeadProviderException(
-                new GeneralSecurityException(new OAuthException("unauthorized_client"))));
+                "failedWip",
+                new GeneralSecurityException(new OAuthException("unauthorized_client")),
+                JobResultCode.WIP_AUTH_FAILED));
     String testKek = generateAeadUri();
     var keyset = generateXChaChaKeyset();
     var encryptedDek = encryptDek(keyset);
@@ -436,16 +475,31 @@ public class AeadCryptoClientTest {
   }
 
   private DataRecordEncryptionKeys getDataRecordEncryptionKeys(String kek, String dek) {
-    return getDataRecordEncryptionKeys(kek, dek, /* wip= */ "");
+    return getDataRecordEncryptionKeysWithWip(kek, dek, /* wip= */ "");
   }
 
-  private DataRecordEncryptionKeys getDataRecordEncryptionKeys(String kek, String dek, String wip) {
+  private DataRecordEncryptionKeys getDataRecordEncryptionKeysWithWip(
+      String kek, String dek, String wip) {
     var wrappedKeysBuilder =
         DataRecordEncryptionKeys.WrappedEncryptionKeys.newBuilder()
             .setKekUri(kek)
             .setEncryptedDek(dek);
     if (!wip.isBlank()) {
       wrappedKeysBuilder.setGcpWrappedKeys(GcpWrappedKeys.newBuilder().setWipProvider(wip));
+    }
+    return DataRecordEncryptionKeys.newBuilder()
+        .setWrappedEncryptionKeys(wrappedKeysBuilder.build())
+        .build();
+  }
+
+  private DataRecordEncryptionKeys getDataRecordEncryptionKeysWithRole(
+      String kek, String dek, String role) {
+    var wrappedKeysBuilder =
+        DataRecordEncryptionKeys.WrappedEncryptionKeys.newBuilder()
+            .setKekUri(kek)
+            .setEncryptedDek(dek);
+    if (!role.isBlank()) {
+      wrappedKeysBuilder.setAwsWrappedKeys(AwsWrappedKeys.newBuilder().setRoleArn(role));
     }
     return DataRecordEncryptionKeys.newBuilder()
         .setWrappedEncryptionKeys(wrappedKeysBuilder.build())

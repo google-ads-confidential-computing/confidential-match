@@ -27,6 +27,8 @@ import static java.nio.file.StandardOpenOption.TRUNCATE_EXISTING;
 import com.google.cm.mrp.clients.attestation.AttestationTokenService;
 import com.google.cm.mrp.clients.attestation.AttestationTokenServiceExceptions.AttestationTokenServiceException;
 import com.google.cm.mrp.clients.cryptoclient.AeadProvider;
+import com.google.cm.mrp.clients.cryptoclient.exceptions.AeadProviderException;
+import com.google.cm.mrp.clients.cryptoclient.exceptions.UncheckedAeadProviderException;
 import com.google.cm.mrp.clients.cryptoclient.models.AeadProviderParameters;
 import com.google.cm.mrp.clients.cryptoclient.models.AeadProviderParameters.AwsParameters;
 import com.google.crypto.tink.Aead;
@@ -108,29 +110,29 @@ public final class AwsAeadProvider implements AeadProvider {
       if (rootEx instanceof InvalidIdentityTokenException
           && rootEx.getMessage().contains(INVALID_AUDIENCE_MSG)) {
         String msg = "Invalid audience passed to AWS KMS.";
-        logger.warn(msg);
+        logger.warn(msg, rootEx);
         throw new AeadProviderException(msg, rootEx, UNAUTHORIZED_AUDIENCE);
       } else if (rootEx instanceof IncorrectKeyException
           && rootEx.getMessage().contains(WRONG_KEK_MSG)) {
         String msg =
             "KEK cannot decrypt DEK, either because it doesn't exist or does not have permission.";
-        logger.info(msg);
+        logger.info(msg, rootEx);
         throw new AeadProviderException(msg, rootEx, INVALID_KEK);
 
       } else if (rootEx instanceof StsException) {
         String errorMessage = rootEx.getMessage();
         if (Arrays.stream(INVALID_ROLE_MSGS).anyMatch(errorMessage::contains)) {
           String msg = "Invalid role ARN (bad format) passed.";
-          logger.warn(msg);
+          logger.warn(msg, rootEx);
           throw new AeadProviderException(msg, rootEx, INVALID_ROLE_FORMAT);
         } else if (errorMessage.contains(ATTESTATION_MSG)) {
           String msg = "Attestation failed, either due to KMS trust conditions or role is invalid.";
-          logger.info(msg);
+          logger.info(msg, rootEx);
           throw new AeadProviderException(msg, rootEx, AWS_AUTH_FAILED);
         }
       }
       String msg = "KeysetHandle read failed for unknown reason.";
-      logger.warn(msg);
+      logger.warn(msg, rootEx);
       throw new AeadProviderException(msg, rootEx, DEK_DECRYPTION_ERROR);
     }
   }
@@ -172,7 +174,7 @@ public final class AwsAeadProvider implements AeadProvider {
         return kmsV2Client.getAead(kekUri);
       } catch (IllegalArgumentException | IndexOutOfBoundsException e) {
         String msg = "Invalid format for KEK";
-        logger.info(msg);
+        logger.info(msg, e);
         throw new UncheckedAeadProviderException(msg, e, INVALID_KEK_FORMAT);
       }
     };

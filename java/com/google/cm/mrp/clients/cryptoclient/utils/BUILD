@@ -14,24 +14,17 @@
 
 package(default_visibility = ["//visibility:public"])
 
-java_test(
-    name = "AwsAeadProviderTest",
-    srcs = ["AwsAeadProviderTest.java"],
+java_library(
+    name = "utils",
+    srcs = glob(["*.java"]),
     deps = [
-        "//java/com/google/cm/mrp/clients/attestation",
-        "//java/com/google/cm/mrp/clients/cryptoclient",
-        "//java/com/google/cm/mrp/clients/cryptoclient/aws",
         "//java/com/google/cm/mrp/clients/cryptoclient/exceptions",
-        "//java/external:apache_httpclient5",
-        "//java/external:apache_httpcore5",
-        "//java/external:aws_kms",
-        "//java/external:aws_sts",
-        "//java/external:google_truth",
-        "//java/external:mockito",
+        "//java/external:apache_commons_lang",
+        "//java/external:google_api_client",
+        "//java/external:google_auth_library_oauth2_http",
+        "//java/external:guava",
         "//java/external:protobuf_java",
-        "//java/external:shared_crypto_tink",
-        "//java/external:tink",
-        "//javatests/com/google/cm/mrp/clients/testutils",
+        "//java/external:slf4j",
         "//protos/mrp/backend:java_proto",
     ],
 )

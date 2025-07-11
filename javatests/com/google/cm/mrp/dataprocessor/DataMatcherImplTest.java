@@ -34,6 +34,8 @@ import com.google.cm.mrp.MatchConfigProvider;
 import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner.DataLocation;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord.KeyValue;
+import com.google.cm.mrp.backend.FieldMatchProto.FieldMatch.MatchedOutputField;
+import com.google.cm.mrp.backend.FieldMatchProto.FieldMatch.MatchedOutputField.Field;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.ModeConfigs;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.ModeConfigs.RedactModeConfig;
@@ -50,8 +52,11 @@ import com.google.cm.mrp.dataprocessor.transformations.DataRecordTransformerImpl
 import com.google.cm.mrp.models.JobParameters;
 import com.google.cm.mrp.models.JobParameters.OutputDataLocation;
 import com.google.cm.util.ProtoUtils;
+import com.google.common.collect.ImmutableList;
 import com.google.common.io.BaseEncoding;
 import com.google.common.io.Resources;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import org.junit.Before;
@@ -68,6 +73,10 @@ public final class DataMatcherImplTest {
   @Rule public final MockitoRule mockito = MockitoJUnit.rule();
 
   private static final String REDACT_UNMATCHED_WITH = "UNMATCHED";
+  private static final List<String> DEFAULT_FIELDS =
+      ImmutableList.of("email", "phone", "first_name", "last_name", "zip_code", "country_code");
+  private static final FieldParser DEFAULT_FIELD_PARSER = new FieldParser(DEFAULT_FIELDS);
+  private static final Schema DEFAULT_SCHEMA = getDefaultSchemaFromDefaultFields();
   private static final JobParameters DEFAULT_PARAMS =
       JobParameters.builder()
           .setJobId("test")
@@ -1872,16 +1881,20 @@ public final class DataMatcherImplTest {
     var singleFieldOutputs =
         singleFieldMatches.get(0).getSingleFieldMatchedOutput().getMatchedOutputFieldsList();
     assertThat(singleFieldOutputs).hasSize(1);
-    assertThat(singleFieldOutputs.get(0).getKey()).isEqualTo("encrypted_gaia_id");
-    assertThat(singleFieldOutputs.get(0).getValue()).isEqualTo("123");
+    assertThat(singleFieldOutputs.get(0).getIndividualFieldsCount()).isEqualTo(1);
+    var field = singleFieldOutputs.get(0).getIndividualFields(0);
+    assertThat(field.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(field.getValue()).isEqualTo("123");
     // check phone
     assertThat(singleFieldMatches).containsKey(1);
     assertThat(singleFieldMatches.get(1).hasSingleFieldMatchedOutput()).isTrue();
     singleFieldOutputs =
         singleFieldMatches.get(1).getSingleFieldMatchedOutput().getMatchedOutputFieldsList();
     assertThat(singleFieldOutputs).hasSize(1);
-    assertThat(singleFieldOutputs.get(0).getKey()).isEqualTo("encrypted_gaia_id");
-    assertThat(singleFieldOutputs.get(0).getValue()).isEqualTo("234");
+    assertThat(singleFieldOutputs.get(0).getIndividualFieldsCount()).isEqualTo(1);
+    field = singleFieldOutputs.get(0).getIndividualFields(0);
+    assertThat(field.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(field.getValue()).isEqualTo("234");
     // check address
     assertThat(singleFieldMatches).doesNotContainKey(2);
     assertThat(singleFieldMatches).doesNotContainKey(3);
@@ -1893,8 +1906,10 @@ public final class DataMatcherImplTest {
     var compositeFieldOutputs =
         compositeFieldMatches.get(1).getCompositeFieldMatchedOutput().getMatchedOutputFieldsList();
     assertThat(compositeFieldOutputs).hasSize(1);
-    assertThat(compositeFieldOutputs.get(0).getKey()).isEqualTo("encrypted_gaia_id");
-    assertThat(compositeFieldOutputs.get(0).getValue()).isEqualTo("345");
+    assertThat(compositeFieldOutputs.get(0).getIndividualFieldsCount()).isEqualTo(1);
+    field = compositeFieldOutputs.get(0).getIndividualFields(0);
+    assertThat(field.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(field.getValue()).isEqualTo("345");
   }
 
   @Test
@@ -1970,8 +1985,10 @@ public final class DataMatcherImplTest {
     var singleFieldOutputs =
         singleFieldMatches.get(0).getSingleFieldMatchedOutput().getMatchedOutputFieldsList();
     assertThat(singleFieldOutputs).hasSize(1);
-    assertThat(singleFieldOutputs.get(0).getKey()).isEqualTo("encrypted_gaia_id");
-    assertThat(singleFieldOutputs.get(0).getValue()).isEqualTo("123");
+    assertThat(singleFieldOutputs.get(0).getIndividualFieldsCount()).isEqualTo(1);
+    var field = singleFieldOutputs.get(0).getIndividualFields(0);
+    assertThat(field.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(field.getValue()).isEqualTo("123");
     // No more matches
     assertThat(singleFieldMatches).doesNotContainKey(1);
     assertThat(singleFieldMatches).doesNotContainKey(2);
@@ -2056,8 +2073,10 @@ public final class DataMatcherImplTest {
     var compositeFieldOutputs =
         compositeFieldMatches.get(0).getCompositeFieldMatchedOutput().getMatchedOutputFieldsList();
     assertThat(compositeFieldOutputs).hasSize(1);
-    assertThat(compositeFieldOutputs.get(0).getKey()).isEqualTo("encrypted_gaia_id");
-    assertThat(compositeFieldOutputs.get(0).getValue()).isEqualTo("345");
+    assertThat(compositeFieldOutputs.get(0).getIndividualFieldsCount()).isEqualTo(1);
+    var field = compositeFieldOutputs.get(0).getIndividualFields(0);
+    assertThat(field.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(field.getValue()).isEqualTo("345");
     // No more matches
     assertThat(dataRecord.getJoinFields().getSingleFieldRecordMatchesMap()).isEmpty();
   }
@@ -2118,6 +2137,896 @@ public final class DataMatcherImplTest {
     assertThat(compositeFieldMatches).isEmpty();
   }
 
+  @Test
+  public void match_joinModeAndMultipleGaiaResults_validConditionCounts() {
+    List<String> testData =
+        ImmutableList.of(
+            /*email*/ "fake.email@google.com",
+            /*phone*/ "999-999-9999",
+            /*first_name*/ "fake_first_name",
+            /*last_name*/ "fake_last_name",
+            /*zip_code*/ "99999",
+            /*country_code*/ "US");
+    var dataSource1Record = DEFAULT_FIELD_PARSER.getDataRecord(testData);
+    DataChunk dataChunk1 =
+        DataChunk.builder().setSchema(DEFAULT_SCHEMA).addRecord(dataSource1Record).build();
+    List<String> dataSource2Fields = ImmutableList.of("pii_value", "pii_type", "encrypted_gaia_id");
+    FieldParser dataSource2FieldParser = new FieldParser(dataSource2Fields);
+    var dataSource2Records =
+        ImmutableList.of(
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "fake.email@google.com",
+                /*pii_type*/ "E",
+                /*encrypted_gaia_id*/ "e_0"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "fake.email@google.com",
+                /*pii_type*/ "E",
+                /*encrypted_gaia_id*/ "e_1"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "fake.email@google.com",
+                /*pii_type*/ "E",
+                /*encrypted_gaia_id*/ "e_2"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "999-999-9999", /*pii_type*/ "P", /*encrypted_gaia_id*/ "p_0"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "999-999-9999", /*pii_type*/ "P", /*encrypted_gaia_id*/ "p_1"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ hashString("fake_first_namefake_last_nameUS99999"),
+                /*pii_type*/ "A",
+                /*encrypted_gaia_id*/ "a_0"));
+    DataChunk dataChunk2 =
+        DataChunk.builder()
+            .setSchema(getSchemaFromFields(dataSource2Fields))
+            .setRecords(dataSource2Records)
+            .build();
+    DataMatcherImpl testDataMatcher = getDataMatcherWithPiiType();
+
+    DataMatchResult dataMatchResult = testDataMatcher.match(dataChunk1, dataChunk2);
+
+    Map<String, Long> conditionMatchCounts = dataMatchResult.matchStatistics().conditionMatches();
+    assertThat(conditionMatchCounts).hasSize(3);
+    assertThat(conditionMatchCounts).containsEntry("address", 1L);
+    assertThat(conditionMatchCounts).containsEntry("phone", 1L);
+    assertThat(conditionMatchCounts).containsEntry("email", 1L);
+    Map<String, Long> conditionValidCounts =
+        dataMatchResult.matchStatistics().validConditionChecks();
+    assertThat(conditionValidCounts).hasSize(3);
+    assertThat(conditionValidCounts).containsEntry("address", 1L);
+    assertThat(conditionValidCounts).containsEntry("phone", 1L);
+    assertThat(conditionValidCounts).containsEntry("email", 1L);
+    Map<String, Long> datasource1Errors = dataMatchResult.matchStatistics().datasource1Errors();
+    assertThat(datasource1Errors).isEmpty();
+    Map<String, Long> datasource2ConditionMatchCounts =
+        dataMatchResult.matchStatistics().datasource2ConditionMatches();
+    assertThat(datasource2ConditionMatchCounts).hasSize(3);
+    assertThat(datasource2ConditionMatchCounts).containsEntry("address", 1L);
+    assertThat(datasource2ConditionMatchCounts).containsEntry("phone", 2L);
+    assertThat(datasource2ConditionMatchCounts).containsEntry("email", 3L);
+  }
+
+  @Test
+  public void match_joinModeAndMultipleGaiaResults_validDataMatchResultValues() {
+    List<String> testData =
+        ImmutableList.of(
+            /*email*/ "fake.email@google.com",
+            /*phone*/ "999-999-9999",
+            /*first_name*/ "fake_first_name",
+            /*last_name*/ "fake_last_name",
+            /*zip_code*/ "99999",
+            /*country_code*/ "US");
+    var dataSource1Record = DEFAULT_FIELD_PARSER.getDataRecord(testData);
+    DataChunk dataChunk1 =
+        DataChunk.builder().setSchema(DEFAULT_SCHEMA).addRecord(dataSource1Record).build();
+    List<String> dataSource2Fields = ImmutableList.of("pii_value", "pii_type", "encrypted_gaia_id");
+    FieldParser dataSource2FieldParser = new FieldParser(dataSource2Fields);
+    var dataSource2Records =
+        ImmutableList.of(
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "fake.email@google.com",
+                /*pii_type*/ "E",
+                /*encrypted_gaia_id*/ "e_0"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "fake.email@google.com",
+                /*pii_type*/ "E",
+                /*encrypted_gaia_id*/ "e_1"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "fake.email@google.com",
+                /*pii_type*/ "E",
+                /*encrypted_gaia_id*/ "e_2"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "999-999-9999", /*pii_type*/ "P", /*encrypted_gaia_id*/ "p_0"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "999-999-9999", /*pii_type*/ "P", /*encrypted_gaia_id*/ "p_1"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ hashString("fake_first_namefake_last_nameUS99999"),
+                /*pii_type*/ "A",
+                /*encrypted_gaia_id*/ "a_0"));
+    DataChunk dataChunk2 =
+        DataChunk.builder()
+            .setSchema(getSchemaFromFields(dataSource2Fields))
+            .setRecords(dataSource2Records)
+            .build();
+    DataMatcherImpl testDataMatcher = getDataMatcherWithPiiType();
+
+    DataMatchResult dataMatchResult = testDataMatcher.match(dataChunk1, dataChunk2);
+
+    assertThat(dataMatchResult.dataChunk().records()).hasSize(1);
+    DataRecord dataRecord = dataMatchResult.dataChunk().records().get(0);
+    assertThat(dataRecord.getKeyValues(0).getKey()).isEqualTo("email");
+    assertThat(dataRecord.getKeyValues(0).getStringValue()).isEqualTo("fake.email@google.com");
+    assertThat(dataRecord.getKeyValues(1).getKey()).isEqualTo("phone");
+    assertThat(dataRecord.getKeyValues(1).getStringValue()).isEqualTo("999-999-9999");
+    assertThat(dataRecord.getKeyValues(2).getKey()).isEqualTo("first_name");
+    assertThat(dataRecord.getKeyValues(2).getStringValue()).isEqualTo("fake_first_name");
+    assertThat(dataRecord.getKeyValues(3).getKey()).isEqualTo("last_name");
+    assertThat(dataRecord.getKeyValues(3).getStringValue()).isEqualTo("fake_last_name");
+    assertThat(dataRecord.getKeyValues(4).getKey()).isEqualTo("zip_code");
+    assertThat(dataRecord.getKeyValues(4).getStringValue()).isEqualTo("99999");
+    assertThat(dataRecord.getKeyValues(5).getKey()).isEqualTo("country_code");
+    assertThat(dataRecord.getKeyValues(5).getStringValue()).isEqualTo("US");
+  }
+
+  @Test
+  public void match_joinModeAndMultipleGaiaResults_validEmailJoinedField() {
+    List<String> testData =
+        ImmutableList.of(
+            /*email*/ "fake.email@google.com",
+            /*phone*/ "999-999-9999",
+            /*first_name*/ "fake_first_name",
+            /*last_name*/ "fake_last_name",
+            /*zip_code*/ "99999",
+            /*country_code*/ "US");
+    var dataSource1Record = DEFAULT_FIELD_PARSER.getDataRecord(testData);
+    DataChunk dataChunk1 =
+        DataChunk.builder().setSchema(DEFAULT_SCHEMA).addRecord(dataSource1Record).build();
+    List<String> dataSource2Fields = ImmutableList.of("pii_value", "pii_type", "encrypted_gaia_id");
+    FieldParser dataSource2FieldParser = new FieldParser(dataSource2Fields);
+    var dataSource2Records =
+        ImmutableList.of(
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "fake.email@google.com",
+                /*pii_type*/ "E",
+                /*encrypted_gaia_id*/ "e_0"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "fake.email@google.com",
+                /*pii_type*/ "E",
+                /*encrypted_gaia_id*/ "e_1"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "fake.email@google.com",
+                /*pii_type*/ "E",
+                /*encrypted_gaia_id*/ "e_2"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "999-999-9999", /*pii_type*/ "P", /*encrypted_gaia_id*/ "p_0"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "999-999-9999", /*pii_type*/ "P", /*encrypted_gaia_id*/ "p_1"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ hashString("fake_first_namefake_last_nameUS99999"),
+                /*pii_type*/ "A",
+                /*encrypted_gaia_id*/ "a_0"));
+    DataChunk dataChunk2 =
+        DataChunk.builder()
+            .setSchema(getSchemaFromFields(dataSource2Fields))
+            .setRecords(dataSource2Records)
+            .build();
+    DataMatcherImpl testDataMatcher = getDataMatcherWithPiiType();
+
+    DataMatchResult dataMatchResult = testDataMatcher.match(dataChunk1, dataChunk2);
+
+    DataRecord dataRecord = dataMatchResult.dataChunk().records().get(0);
+    var singleFieldMatches = dataRecord.getJoinFields().getSingleFieldRecordMatchesMap();
+    assertThat(singleFieldMatches).hasSize(2);
+    assertThat(singleFieldMatches.keySet()).containsExactlyElementsIn(List.of(0, 1));
+    assertThat(singleFieldMatches.get(0).hasSingleFieldMatchedOutput()).isTrue();
+    var singleFieldOutputs =
+        sortFieldByGaia(
+            singleFieldMatches.get(0).getSingleFieldMatchedOutput().getMatchedOutputFieldsList());
+    assertThat(singleFieldOutputs).hasSize(3);
+    assertThat(singleFieldOutputs.get(0).getIndividualFieldsCount()).isEqualTo(2);
+    var gaia = singleFieldOutputs.get(0).getIndividualFields(0);
+    assertThat(gaia.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(gaia.getValue()).isEqualTo("e_0");
+    var piiType = singleFieldOutputs.get(0).getIndividualFields(1);
+    assertThat(piiType.getKey()).isEqualTo("pii_type");
+    assertThat(piiType.getValue()).isEqualTo("E");
+    assertThat(singleFieldOutputs.get(1).getIndividualFieldsCount()).isEqualTo(2);
+    gaia = singleFieldOutputs.get(1).getIndividualFields(0);
+    assertThat(gaia.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(gaia.getValue()).isEqualTo("e_1");
+    piiType = singleFieldOutputs.get(1).getIndividualFields(1);
+    assertThat(piiType.getKey()).isEqualTo("pii_type");
+    assertThat(piiType.getValue()).isEqualTo("E");
+    assertThat(singleFieldOutputs.get(2).getIndividualFieldsCount()).isEqualTo(2);
+    gaia = singleFieldOutputs.get(2).getIndividualFields(0);
+    assertThat(gaia.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(gaia.getValue()).isEqualTo("e_2");
+    piiType = singleFieldOutputs.get(2).getIndividualFields(1);
+    assertThat(piiType.getKey()).isEqualTo("pii_type");
+    assertThat(piiType.getValue()).isEqualTo("E");
+  }
+
+  @Test
+  public void match_joinModeAndMultipleGaiaResults_validPhoneJoinedField() {
+    List<String> testData =
+        ImmutableList.of(
+            /*email*/ "fake.email@google.com",
+            /*phone*/ "999-999-9999",
+            /*first_name*/ "fake_first_name",
+            /*last_name*/ "fake_last_name",
+            /*zip_code*/ "99999",
+            /*country_code*/ "US");
+    var dataSource1Record = DEFAULT_FIELD_PARSER.getDataRecord(testData);
+    DataChunk dataChunk1 =
+        DataChunk.builder().setSchema(DEFAULT_SCHEMA).addRecord(dataSource1Record).build();
+    List<String> dataSource2Fields = ImmutableList.of("pii_value", "pii_type", "encrypted_gaia_id");
+    FieldParser dataSource2FieldParser = new FieldParser(dataSource2Fields);
+    var dataSource2Records =
+        ImmutableList.of(
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "fake.email@google.com",
+                /*pii_type*/ "E",
+                /*encrypted_gaia_id*/ "e_0"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "fake.email@google.com",
+                /*pii_type*/ "E",
+                /*encrypted_gaia_id*/ "e_1"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "fake.email@google.com",
+                /*pii_type*/ "E",
+                /*encrypted_gaia_id*/ "e_2"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "999-999-9999", /*pii_type*/ "P", /*encrypted_gaia_id*/ "p_0"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "999-999-9999", /*pii_type*/ "P", /*encrypted_gaia_id*/ "p_1"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ hashString("fake_first_namefake_last_nameUS99999"),
+                /*pii_type*/ "A",
+                /*encrypted_gaia_id*/ "a_0"));
+    DataChunk dataChunk2 =
+        DataChunk.builder()
+            .setSchema(getSchemaFromFields(dataSource2Fields))
+            .setRecords(dataSource2Records)
+            .build();
+    DataMatcherImpl testDataMatcher = getDataMatcherWithPiiType();
+
+    DataMatchResult dataMatchResult = testDataMatcher.match(dataChunk1, dataChunk2);
+
+    var dataRecord = dataMatchResult.dataChunk().records().get(0);
+    var singleFieldMatches = dataRecord.getJoinFields().getSingleFieldRecordMatchesMap();
+    assertThat(singleFieldMatches).hasSize(2);
+    var singleFieldOutputs =
+        sortFieldByGaia(
+            singleFieldMatches.get(0).getSingleFieldMatchedOutput().getMatchedOutputFieldsList());
+    // check phone
+    assertThat(singleFieldMatches.keySet()).containsExactlyElementsIn(List.of(0, 1));
+    assertThat(singleFieldMatches.get(1).hasSingleFieldMatchedOutput()).isTrue();
+    singleFieldOutputs =
+        sortFieldByGaia(
+            singleFieldMatches.get(1).getSingleFieldMatchedOutput().getMatchedOutputFieldsList());
+    assertThat(singleFieldOutputs).hasSize(2);
+    assertThat(singleFieldOutputs.get(0).getIndividualFieldsCount()).isEqualTo(2);
+    var gaia = singleFieldOutputs.get(0).getIndividualFields(0);
+    assertThat(gaia.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(gaia.getValue()).isEqualTo("p_0");
+    var piiType = singleFieldOutputs.get(0).getIndividualFields(1);
+    assertThat(piiType.getKey()).isEqualTo("pii_type");
+    assertThat(piiType.getValue()).isEqualTo("P");
+    assertThat(singleFieldOutputs.get(1).getIndividualFieldsCount()).isEqualTo(2);
+    gaia = singleFieldOutputs.get(1).getIndividualFields(0);
+    assertThat(gaia.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(gaia.getValue()).isEqualTo("p_1");
+    piiType = singleFieldOutputs.get(1).getIndividualFields(1);
+    assertThat(piiType.getKey()).isEqualTo("pii_type");
+    assertThat(piiType.getValue()).isEqualTo("P");
+  }
+
+  @Test
+  public void match_joinModeAndMultipleGaiaResults_validAddressJoinedField() {
+    List<String> testData =
+        ImmutableList.of(
+            /*email*/ "fake.email@google.com",
+            /*phone*/ "999-999-9999",
+            /*first_name*/ "fake_first_name",
+            /*last_name*/ "fake_last_name",
+            /*zip_code*/ "99999",
+            /*country_code*/ "US");
+    var dataSource1Record = DEFAULT_FIELD_PARSER.getDataRecord(testData);
+    DataChunk dataChunk1 =
+        DataChunk.builder().setSchema(DEFAULT_SCHEMA).addRecord(dataSource1Record).build();
+    List<String> dataSource2Fields = ImmutableList.of("pii_value", "pii_type", "encrypted_gaia_id");
+    FieldParser dataSource2FieldParser = new FieldParser(dataSource2Fields);
+    var dataSource2Records =
+        ImmutableList.of(
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "fake.email@google.com",
+                /*pii_type*/ "E",
+                /*encrypted_gaia_id*/ "e_0"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "fake.email@google.com",
+                /*pii_type*/ "E",
+                /*encrypted_gaia_id*/ "e_1"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "fake.email@google.com",
+                /*pii_type*/ "E",
+                /*encrypted_gaia_id*/ "e_2"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "999-999-9999", /*pii_type*/ "P", /*encrypted_gaia_id*/ "p_0"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ "999-999-9999", /*pii_type*/ "P", /*encrypted_gaia_id*/ "p_1"),
+            dataSource2FieldParser.getDataRecord(
+                /*pii_value*/ hashString("fake_first_namefake_last_nameUS99999"),
+                /*pii_type*/ "A",
+                /*encrypted_gaia_id*/ "a_0"));
+    DataChunk dataChunk2 =
+        DataChunk.builder()
+            .setSchema(getSchemaFromFields(dataSource2Fields))
+            .setRecords(dataSource2Records)
+            .build();
+    DataMatcherImpl testDataMatcher = getDataMatcherWithPiiType();
+
+    DataMatchResult dataMatchResult = testDataMatcher.match(dataChunk1, dataChunk2);
+
+    DataRecord dataRecord = dataMatchResult.dataChunk().records().get(0);
+    // check address
+    var compositeFieldMatches = dataRecord.getJoinFields().getCompositeFieldRecordMatchesMap();
+    assertThat(compositeFieldMatches.keySet()).containsExactly(0);
+    assertThat(compositeFieldMatches.get(0).hasCompositeFieldMatchedOutput()).isTrue();
+    var compositeFieldOutputs =
+        sortFieldByGaia(
+            compositeFieldMatches
+                .get(0)
+                .getCompositeFieldMatchedOutput()
+                .getMatchedOutputFieldsList());
+    assertThat(compositeFieldOutputs).hasSize(1);
+    assertThat(compositeFieldOutputs.get(0).getIndividualFieldsCount()).isEqualTo(2);
+    var gaia = compositeFieldOutputs.get(0).getIndividualFields(0);
+    assertThat(gaia.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(gaia.getValue()).isEqualTo("a_0");
+    var piiType = compositeFieldOutputs.get(0).getIndividualFields(1);
+    assertThat(piiType.getKey()).isEqualTo("pii_type");
+    assertThat(piiType.getValue()).isEqualTo("A");
+  }
+
+  @Test
+  public void match_joinModeWhenMultipleRepeatedGaia_validateConditionCounts() {
+    List<String> testData =
+        ImmutableList.of(
+            /*email*/ "fake.email@google.com",
+            /*phone*/ "999-999-9999",
+            /*first_name*/ "fake_first_name",
+            /*last_name*/ "fake_last_name",
+            /*zip_code*/ "99999",
+            /*country_code*/ "US");
+    var dataSource1Record0 = DEFAULT_FIELD_PARSER.getDataRecord(testData);
+    List<String> testData1 =
+        ImmutableList.of(
+            /*email*/ "fake.email2@google.com",
+            /*phone*/ "299-999-9999",
+            /*first_name*/ "fake_first_name2",
+            /*last_name*/ "fake_last_name2",
+            /*zip_code*/ "99999",
+            /*country_code*/ "US");
+    var dataSource1Record1 = DEFAULT_FIELD_PARSER.getDataRecord(testData1);
+    DataChunk dataChunk1 =
+        DataChunk.builder()
+            .setSchema(DEFAULT_SCHEMA)
+            .setRecords(
+                ImmutableList.of(dataSource1Record0, dataSource1Record0, dataSource1Record1))
+            .build();
+    List<String> dataSource2Fields = ImmutableList.of("pii_value", "encrypted_gaia_id");
+    FieldParser dataSource2FieldParser = new FieldParser(dataSource2Fields);
+    var piiDataEmail0 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ "fake.email@google.com", /*encrypted_gaia_id*/ "e_0");
+    var piiDataPhone0 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ "999-999-9999", /*encrypted_gaia_id*/ "p_0");
+    var piiDataAddress0 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ hashString("fake_first_namefake_last_nameUS99999"),
+            /*encrypted_gaia_id*/ "a_0");
+    var piiDataEmail1 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ "fake.email2@google.com", /*encrypted_gaia_id*/ "e_1");
+    var piiDataPhone1 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ "299-999-9999", /*encrypted_gaia_id*/ "p_1");
+    var piiDataAddress1 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ hashString("fake_first_name2fake_last_name2US99999"),
+            /*encrypted_gaia_id*/ "a_1");
+    DataChunk dataChunk2 =
+        DataChunk.builder()
+            .setSchema(getSchemaFromFields(dataSource2Fields))
+            .setRecords(
+                ImmutableList.of(
+                    piiDataEmail0,
+                    piiDataEmail0,
+                    piiDataEmail0,
+                    piiDataEmail0,
+                    piiDataEmail0,
+                    piiDataEmail0, // 6
+                    piiDataEmail1,
+                    piiDataPhone0,
+                    piiDataPhone0,
+                    piiDataPhone0,
+                    piiDataPhone0, // 4
+                    piiDataPhone1,
+                    piiDataAddress0,
+                    piiDataAddress0, // 2
+                    piiDataAddress1))
+            .build();
+
+    DataMatchResult dataMatchResult = dataMatcherWithJoinMode.match(dataChunk1, dataChunk2);
+
+    Map<String, Long> conditionMatchCounts = dataMatchResult.matchStatistics().conditionMatches();
+    assertThat(conditionMatchCounts).hasSize(3);
+    assertThat(conditionMatchCounts).containsEntry("address", 3L);
+    assertThat(conditionMatchCounts).containsEntry("phone", 3L);
+    assertThat(conditionMatchCounts).containsEntry("email", 3L);
+    Map<String, Long> conditionValidCounts =
+        dataMatchResult.matchStatistics().validConditionChecks();
+    assertThat(conditionValidCounts).hasSize(3);
+    assertThat(conditionValidCounts).containsEntry("address", 3L);
+    assertThat(conditionValidCounts).containsEntry("phone", 3L);
+    assertThat(conditionValidCounts).containsEntry("email", 3L);
+    Map<String, Long> datasource1Errors = dataMatchResult.matchStatistics().datasource1Errors();
+    assertThat(datasource1Errors).isEmpty();
+    Map<String, Long> datasource2ConditionMatchCounts =
+        dataMatchResult.matchStatistics().datasource2ConditionMatches();
+    assertThat(datasource2ConditionMatchCounts).hasSize(3);
+    assertThat(datasource2ConditionMatchCounts).containsEntry("address", 3L);
+    assertThat(datasource2ConditionMatchCounts).containsEntry("phone", 5L);
+    assertThat(datasource2ConditionMatchCounts).containsEntry("email", 7L);
+  }
+
+  @Test
+  public void match_joinModeWhenMultipleRepeatedGaia_validateMatchedValues() {
+    List<String> testData =
+        ImmutableList.of(
+            /*email*/ "fake.email@google.com",
+            /*phone*/ "999-999-9999",
+            /*first_name*/ "fake_first_name",
+            /*last_name*/ "fake_last_name",
+            /*zip_code*/ "99999",
+            /*country_code*/ "US");
+    var dataSource1Record0 = DEFAULT_FIELD_PARSER.getDataRecord(testData);
+    List<String> testData1 =
+        ImmutableList.of(
+            /*email*/ "fake.email2@google.com",
+            /*phone*/ "299-999-9999",
+            /*first_name*/ "fake_first_name2",
+            /*last_name*/ "fake_last_name2",
+            /*zip_code*/ "99999",
+            /*country_code*/ "US");
+    var dataSource1Record1 = DEFAULT_FIELD_PARSER.getDataRecord(testData1);
+    DataChunk dataChunk1 =
+        DataChunk.builder()
+            .setSchema(DEFAULT_SCHEMA)
+            .setRecords(
+                ImmutableList.of(dataSource1Record0, dataSource1Record0, dataSource1Record1))
+            .build();
+    List<String> dataSource2Fields = ImmutableList.of("pii_value", "encrypted_gaia_id");
+    FieldParser dataSource2FieldParser = new FieldParser(dataSource2Fields);
+    var piiDataEmail0 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ "fake.email@google.com", /*encrypted_gaia_id*/ "e_0");
+    var piiDataPhone0 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ "999-999-9999", /*encrypted_gaia_id*/ "p_0");
+    var piiDataAddress0 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ hashString("fake_first_namefake_last_nameUS99999"),
+            /*encrypted_gaia_id*/ "a_0");
+    var piiDataEmail1 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ "fake.email2@google.com", /*encrypted_gaia_id*/ "e_1");
+    var piiDataPhone1 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ "299-999-9999", /*encrypted_gaia_id*/ "p_1");
+    var piiDataAddress1 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ hashString("fake_first_name2fake_last_name2US99999"),
+            /*encrypted_gaia_id*/ "a_1");
+    DataChunk dataChunk2 =
+        DataChunk.builder()
+            .setSchema(getSchemaFromFields(dataSource2Fields))
+            .setRecords(
+                ImmutableList.of(
+                    piiDataEmail0,
+                    piiDataEmail0,
+                    piiDataEmail0,
+                    piiDataEmail0,
+                    piiDataEmail0,
+                    piiDataEmail0, // 6
+                    piiDataEmail1,
+                    piiDataPhone0,
+                    piiDataPhone0,
+                    piiDataPhone0,
+                    piiDataPhone0, // 4
+                    piiDataPhone1,
+                    piiDataAddress0,
+                    piiDataAddress0, // 2
+                    piiDataAddress1))
+            .build();
+
+    DataMatchResult dataMatchResult = dataMatcherWithJoinMode.match(dataChunk1, dataChunk2);
+
+    assertThat(dataMatchResult.dataChunk().records()).hasSize(3);
+    var result = dataMatchResult.dataChunk();
+    DataRecord dataRecord = result.records().get(0);
+    assertThat(dataRecord.getKeyValuesCount()).isEqualTo(7);
+    assertThat(dataRecord.getKeyValues(0).getKey()).isEqualTo("email");
+    assertThat(dataRecord.getKeyValues(0).getStringValue()).isEqualTo("fake.email@google.com");
+    assertThat(dataRecord.getKeyValues(1).getKey()).isEqualTo("phone");
+    assertThat(dataRecord.getKeyValues(1).getStringValue()).isEqualTo("999-999-9999");
+    assertThat(dataRecord.getKeyValues(2).getKey()).isEqualTo("first_name");
+    assertThat(dataRecord.getKeyValues(2).getStringValue()).isEqualTo("fake_first_name");
+    assertThat(dataRecord.getKeyValues(3).getKey()).isEqualTo("last_name");
+    assertThat(dataRecord.getKeyValues(3).getStringValue()).isEqualTo("fake_last_name");
+    assertThat(dataRecord.getKeyValues(4).getKey()).isEqualTo("zip_code");
+    assertThat(dataRecord.getKeyValues(4).getStringValue()).isEqualTo("99999");
+    assertThat(dataRecord.getKeyValues(5).getKey()).isEqualTo("country_code");
+    assertThat(dataRecord.getKeyValues(5).getStringValue()).isEqualTo("US");
+    assertThat(dataRecord.getKeyValues(6).getKey()).isEqualTo("row_status");
+    assertThat(dataRecord.getKeyValues(6).getStringValue()).isEqualTo("SUCCESS");
+    dataRecord = result.records().get(1);
+    assertThat(dataRecord.getKeyValuesCount()).isEqualTo(7);
+    assertThat(dataRecord.getKeyValues(0).getKey()).isEqualTo("email");
+    assertThat(dataRecord.getKeyValues(0).getStringValue()).isEqualTo("fake.email@google.com");
+    assertThat(dataRecord.getKeyValues(1).getKey()).isEqualTo("phone");
+    assertThat(dataRecord.getKeyValues(1).getStringValue()).isEqualTo("999-999-9999");
+    assertThat(dataRecord.getKeyValues(2).getKey()).isEqualTo("first_name");
+    assertThat(dataRecord.getKeyValues(2).getStringValue()).isEqualTo("fake_first_name");
+    assertThat(dataRecord.getKeyValues(3).getKey()).isEqualTo("last_name");
+    assertThat(dataRecord.getKeyValues(3).getStringValue()).isEqualTo("fake_last_name");
+    assertThat(dataRecord.getKeyValues(4).getKey()).isEqualTo("zip_code");
+    assertThat(dataRecord.getKeyValues(4).getStringValue()).isEqualTo("99999");
+    assertThat(dataRecord.getKeyValues(5).getKey()).isEqualTo("country_code");
+    assertThat(dataRecord.getKeyValues(5).getStringValue()).isEqualTo("US");
+    assertThat(dataRecord.getKeyValues(6).getKey()).isEqualTo("row_status");
+    assertThat(dataRecord.getKeyValues(6).getStringValue()).isEqualTo("SUCCESS");
+    dataRecord = result.records().get(2);
+    assertThat(dataRecord.getKeyValuesCount()).isEqualTo(7);
+    assertThat(dataRecord.getKeyValues(0).getKey()).isEqualTo("email");
+    assertThat(dataRecord.getKeyValues(0).getStringValue()).isEqualTo("fake.email2@google.com");
+    assertThat(dataRecord.getKeyValues(1).getKey()).isEqualTo("phone");
+    assertThat(dataRecord.getKeyValues(1).getStringValue()).isEqualTo("299-999-9999");
+    assertThat(dataRecord.getKeyValues(2).getKey()).isEqualTo("first_name");
+    assertThat(dataRecord.getKeyValues(2).getStringValue()).isEqualTo("fake_first_name2");
+    assertThat(dataRecord.getKeyValues(3).getKey()).isEqualTo("last_name");
+    assertThat(dataRecord.getKeyValues(3).getStringValue()).isEqualTo("fake_last_name2");
+    assertThat(dataRecord.getKeyValues(4).getKey()).isEqualTo("zip_code");
+    assertThat(dataRecord.getKeyValues(4).getStringValue()).isEqualTo("99999");
+    assertThat(dataRecord.getKeyValues(5).getKey()).isEqualTo("country_code");
+    assertThat(dataRecord.getKeyValues(5).getStringValue()).isEqualTo("US");
+    assertThat(dataRecord.getKeyValues(6).getKey()).isEqualTo("row_status");
+    assertThat(dataRecord.getKeyValues(6).getStringValue()).isEqualTo("SUCCESS");
+  }
+
+  @Test
+  public void match_joinModeWhenMultipleRepeatedGaia_validateEmailJoinedField() {
+    List<String> testData =
+        ImmutableList.of(
+            /*email*/ "fake.email@google.com",
+            /*phone*/ "999-999-9999",
+            /*first_name*/ "fake_first_name",
+            /*last_name*/ "fake_last_name",
+            /*zip_code*/ "99999",
+            /*country_code*/ "US");
+    var dataSource1Record0 = DEFAULT_FIELD_PARSER.getDataRecord(testData);
+    List<String> testData1 =
+        ImmutableList.of(
+            /*email*/ "fake.email2@google.com",
+            /*phone*/ "299-999-9999",
+            /*first_name*/ "fake_first_name2",
+            /*last_name*/ "fake_last_name2",
+            /*zip_code*/ "99999",
+            /*country_code*/ "US");
+    var dataSource1Record1 = DEFAULT_FIELD_PARSER.getDataRecord(testData1);
+    DataChunk dataChunk1 =
+        DataChunk.builder()
+            .setSchema(DEFAULT_SCHEMA)
+            .setRecords(
+                ImmutableList.of(dataSource1Record0, dataSource1Record0, dataSource1Record1))
+            .build();
+    List<String> dataSource2Fields = ImmutableList.of("pii_value", "encrypted_gaia_id");
+    FieldParser dataSource2FieldParser = new FieldParser(dataSource2Fields);
+    var piiDataEmail0 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ "fake.email@google.com", /*encrypted_gaia_id*/ "e_0");
+    var piiDataPhone0 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ "999-999-9999", /*encrypted_gaia_id*/ "p_0");
+    var piiDataAddress0 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ hashString("fake_first_namefake_last_nameUS99999"),
+            /*encrypted_gaia_id*/ "a_0");
+    var piiDataEmail1 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ "fake.email2@google.com", /*encrypted_gaia_id*/ "e_1");
+    var piiDataPhone1 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ "299-999-9999", /*encrypted_gaia_id*/ "p_1");
+    var piiDataAddress1 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ hashString("fake_first_name2fake_last_name2US99999"),
+            /*encrypted_gaia_id*/ "a_1");
+    DataChunk dataChunk2 =
+        DataChunk.builder()
+            .setSchema(getSchemaFromFields(dataSource2Fields))
+            .setRecords(
+                ImmutableList.of(
+                    piiDataEmail0,
+                    piiDataEmail0,
+                    piiDataEmail0,
+                    piiDataEmail0,
+                    piiDataEmail0,
+                    piiDataEmail0, // 6
+                    piiDataEmail1,
+                    piiDataPhone0,
+                    piiDataPhone0,
+                    piiDataPhone0,
+                    piiDataPhone0, // 4
+                    piiDataPhone1,
+                    piiDataAddress0,
+                    piiDataAddress0, // 2
+                    piiDataAddress1))
+            .build();
+
+    DataMatchResult dataMatchResult = dataMatcherWithJoinMode.match(dataChunk1, dataChunk2);
+
+    var result = dataMatchResult.dataChunk();
+    assertThat(result.records()).hasSize(3);
+    var singleFieldMatches =
+        result.records().get(0).getJoinFields().getSingleFieldRecordMatchesMap();
+    assertThat(singleFieldMatches.keySet()).containsExactlyElementsIn(List.of(0, 1));
+    // check email
+    assertThat(singleFieldMatches).containsKey(0);
+    var singleFieldOutputs =
+        singleFieldMatches.get(0).getSingleFieldMatchedOutput().getMatchedOutputFieldsList();
+    assertThat(singleFieldOutputs).hasSize(1);
+    assertThat(singleFieldOutputs.get(0).getIndividualFieldsCount()).isEqualTo(1);
+    var field = singleFieldOutputs.get(0).getIndividualFields(0);
+    assertThat(field.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(field.getValue()).isEqualTo("e_0");
+    // check email
+    singleFieldMatches = result.records().get(1).getJoinFields().getSingleFieldRecordMatchesMap();
+    assertThat(singleFieldMatches.keySet()).containsExactlyElementsIn(List.of(0, 1));
+    singleFieldOutputs =
+        singleFieldMatches.get(0).getSingleFieldMatchedOutput().getMatchedOutputFieldsList();
+    assertThat(singleFieldOutputs).hasSize(1);
+    assertThat(singleFieldOutputs.get(0).getIndividualFieldsCount()).isEqualTo(1);
+    field = singleFieldOutputs.get(0).getIndividualFields(0);
+    assertThat(field.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(field.getValue()).isEqualTo("e_0");
+    // check email
+    singleFieldMatches = result.records().get(2).getJoinFields().getSingleFieldRecordMatchesMap();
+    assertThat(singleFieldMatches.keySet()).containsExactlyElementsIn(List.of(0, 1));
+    singleFieldOutputs =
+        singleFieldMatches.get(0).getSingleFieldMatchedOutput().getMatchedOutputFieldsList();
+    assertThat(singleFieldOutputs).hasSize(1);
+    assertThat(singleFieldOutputs.get(0).getIndividualFieldsCount()).isEqualTo(1);
+    field = singleFieldOutputs.get(0).getIndividualFields(0);
+    assertThat(field.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(field.getValue()).isEqualTo("e_1");
+  }
+
+  @Test
+  public void match_joinModeWhenMultipleRepeatedGaia_validatePhoneJoinedField() {
+    List<String> testData =
+        ImmutableList.of(
+            /*email*/ "fake.email@google.com",
+            /*phone*/ "999-999-9999",
+            /*first_name*/ "fake_first_name",
+            /*last_name*/ "fake_last_name",
+            /*zip_code*/ "99999",
+            /*country_code*/ "US");
+    var dataSource1Record0 = DEFAULT_FIELD_PARSER.getDataRecord(testData);
+    List<String> testData1 =
+        ImmutableList.of(
+            /*email*/ "fake.email2@google.com",
+            /*phone*/ "299-999-9999",
+            /*first_name*/ "fake_first_name2",
+            /*last_name*/ "fake_last_name2",
+            /*zip_code*/ "99999",
+            /*country_code*/ "US");
+    var dataSource1Record1 = DEFAULT_FIELD_PARSER.getDataRecord(testData1);
+    DataChunk dataChunk1 =
+        DataChunk.builder()
+            .setSchema(DEFAULT_SCHEMA)
+            .setRecords(
+                ImmutableList.of(dataSource1Record0, dataSource1Record0, dataSource1Record1))
+            .build();
+    List<String> dataSource2Fields = ImmutableList.of("pii_value", "encrypted_gaia_id");
+    FieldParser dataSource2FieldParser = new FieldParser(dataSource2Fields);
+    var piiDataEmail0 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ "fake.email@google.com", /*encrypted_gaia_id*/ "e_0");
+    var piiDataPhone0 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ "999-999-9999", /*encrypted_gaia_id*/ "p_0");
+    var piiDataAddress0 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ hashString("fake_first_namefake_last_nameUS99999"),
+            /*encrypted_gaia_id*/ "a_0");
+    var piiDataEmail1 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ "fake.email2@google.com", /*encrypted_gaia_id*/ "e_1");
+    var piiDataPhone1 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ "299-999-9999", /*encrypted_gaia_id*/ "p_1");
+    var piiDataAddress1 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ hashString("fake_first_name2fake_last_name2US99999"),
+            /*encrypted_gaia_id*/ "a_1");
+    DataChunk dataChunk2 =
+        DataChunk.builder()
+            .setSchema(getSchemaFromFields(dataSource2Fields))
+            .setRecords(
+                ImmutableList.of(
+                    piiDataEmail0,
+                    piiDataEmail0,
+                    piiDataEmail0,
+                    piiDataEmail0,
+                    piiDataEmail0,
+                    piiDataEmail0, // 6
+                    piiDataEmail1,
+                    piiDataPhone0,
+                    piiDataPhone0,
+                    piiDataPhone0,
+                    piiDataPhone0, // 4
+                    piiDataPhone1,
+                    piiDataAddress0,
+                    piiDataAddress0, // 2
+                    piiDataAddress1))
+            .build();
+
+    DataMatchResult dataMatchResult = dataMatcherWithJoinMode.match(dataChunk1, dataChunk2);
+
+    DataChunk result = dataMatchResult.dataChunk();
+    assertThat(result.records()).hasSize(3);
+    // check phone
+    var singleFieldMatches =
+        result.records().get(0).getJoinFields().getSingleFieldRecordMatchesMap();
+    assertThat(singleFieldMatches.keySet()).containsExactlyElementsIn(List.of(0, 1));
+    var singleFieldOutputs =
+        singleFieldMatches.get(1).getSingleFieldMatchedOutput().getMatchedOutputFieldsList();
+    assertThat(singleFieldOutputs).hasSize(1);
+    assertThat(singleFieldOutputs.get(0).getIndividualFieldsCount()).isEqualTo(1);
+    var field = singleFieldOutputs.get(0).getIndividualFields(0);
+    assertThat(field.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(field.getValue()).isEqualTo("p_0");
+    singleFieldMatches = result.records().get(1).getJoinFields().getSingleFieldRecordMatchesMap();
+    // check phone
+    assertThat(singleFieldMatches.keySet()).containsExactlyElementsIn(List.of(0, 1));
+    singleFieldOutputs =
+        singleFieldMatches.get(1).getSingleFieldMatchedOutput().getMatchedOutputFieldsList();
+    assertThat(singleFieldOutputs).hasSize(1);
+    assertThat(singleFieldOutputs.get(0).getIndividualFieldsCount()).isEqualTo(1);
+    field = singleFieldOutputs.get(0).getIndividualFields(0);
+    assertThat(field.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(field.getValue()).isEqualTo("p_0");
+    singleFieldMatches = result.records().get(2).getJoinFields().getSingleFieldRecordMatchesMap();
+    // check phone
+    assertThat(singleFieldMatches.keySet()).containsExactlyElementsIn(List.of(0, 1));
+    singleFieldOutputs =
+        singleFieldMatches.get(1).getSingleFieldMatchedOutput().getMatchedOutputFieldsList();
+    assertThat(singleFieldOutputs).hasSize(1);
+    assertThat(singleFieldOutputs.get(0).getIndividualFieldsCount()).isEqualTo(1);
+    field = singleFieldOutputs.get(0).getIndividualFields(0);
+    assertThat(field.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(field.getValue()).isEqualTo("p_1");
+  }
+
+  @Test
+  public void match_joinModeWhenMultipleRepeatedGaia_validateAddressJoinedField() {
+    List<String> testData =
+        ImmutableList.of(
+            /*email*/ "fake.email@google.com",
+            /*phone*/ "999-999-9999",
+            /*first_name*/ "fake_first_name",
+            /*last_name*/ "fake_last_name",
+            /*zip_code*/ "99999",
+            /*country_code*/ "US");
+    var dataSource1Record0 = DEFAULT_FIELD_PARSER.getDataRecord(testData);
+    List<String> testData1 =
+        ImmutableList.of(
+            /*email*/ "fake.email2@google.com",
+            /*phone*/ "299-999-9999",
+            /*first_name*/ "fake_first_name2",
+            /*last_name*/ "fake_last_name2",
+            /*zip_code*/ "99999",
+            /*country_code*/ "US");
+    var dataSource1Record1 = DEFAULT_FIELD_PARSER.getDataRecord(testData1);
+    DataChunk dataChunk1 =
+        DataChunk.builder()
+            .setSchema(DEFAULT_SCHEMA)
+            .setRecords(
+                ImmutableList.of(dataSource1Record0, dataSource1Record0, dataSource1Record1))
+            .build();
+    List<String> dataSource2Fields = ImmutableList.of("pii_value", "encrypted_gaia_id");
+    FieldParser dataSource2FieldParser = new FieldParser(dataSource2Fields);
+    var piiDataEmail0 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ "fake.email@google.com", /*encrypted_gaia_id*/ "e_0");
+    var piiDataPhone0 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ "999-999-9999", /*encrypted_gaia_id*/ "p_0");
+    var piiDataAddress0 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ hashString("fake_first_namefake_last_nameUS99999"),
+            /*encrypted_gaia_id*/ "a_0");
+    var piiDataEmail1 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ "fake.email2@google.com", /*encrypted_gaia_id*/ "e_1");
+    var piiDataPhone1 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ "299-999-9999", /*encrypted_gaia_id*/ "p_1");
+    var piiDataAddress1 =
+        dataSource2FieldParser.getDataRecord(
+            /*pii_value*/ hashString("fake_first_name2fake_last_name2US99999"),
+            /*encrypted_gaia_id*/ "a_1");
+    DataChunk dataChunk2 =
+        DataChunk.builder()
+            .setSchema(getSchemaFromFields(dataSource2Fields))
+            .setRecords(
+                ImmutableList.of(
+                    piiDataEmail0,
+                    piiDataEmail0,
+                    piiDataEmail0,
+                    piiDataEmail0,
+                    piiDataEmail0,
+                    piiDataEmail0, // 6
+                    piiDataEmail1,
+                    piiDataPhone0,
+                    piiDataPhone0,
+                    piiDataPhone0,
+                    piiDataPhone0, // 4
+                    piiDataPhone1,
+                    piiDataAddress0,
+                    piiDataAddress0, // 2
+                    piiDataAddress1))
+            .build();
+
+    DataMatchResult dataMatchResult = dataMatcherWithJoinMode.match(dataChunk1, dataChunk2);
+
+    DataChunk result = dataMatchResult.dataChunk();
+    assertThat(result.records()).hasSize(3);
+    // check address
+    var compositeFieldMatches =
+        result.records().get(0).getJoinFields().getCompositeFieldRecordMatchesMap();
+    assertThat(compositeFieldMatches.keySet()).containsExactly(0);
+    var compositeFieldOutputs =
+        compositeFieldMatches.get(0).getCompositeFieldMatchedOutput().getMatchedOutputFieldsList();
+    assertThat(compositeFieldOutputs).hasSize(1);
+    assertThat(compositeFieldOutputs.get(0).getIndividualFieldsCount()).isEqualTo(1);
+    var field = compositeFieldOutputs.get(0).getIndividualFields(0);
+    assertThat(field.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(field.getValue()).isEqualTo("a_0");
+    // check address
+    compositeFieldMatches =
+        result.records().get(1).getJoinFields().getCompositeFieldRecordMatchesMap();
+    assertThat(compositeFieldMatches.keySet()).containsExactly(0);
+    compositeFieldOutputs =
+        compositeFieldMatches.get(0).getCompositeFieldMatchedOutput().getMatchedOutputFieldsList();
+    assertThat(compositeFieldOutputs).hasSize(1);
+    assertThat(compositeFieldOutputs.get(0).getIndividualFieldsCount()).isEqualTo(1);
+    field = compositeFieldOutputs.get(0).getIndividualFields(0);
+    assertThat(field.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(field.getValue()).isEqualTo("a_0");
+    // check address
+    compositeFieldMatches =
+        result.records().get(2).getJoinFields().getCompositeFieldRecordMatchesMap();
+    assertThat(compositeFieldMatches.keySet()).containsExactly(0);
+    compositeFieldOutputs =
+        compositeFieldMatches.get(0).getCompositeFieldMatchedOutput().getMatchedOutputFieldsList();
+    assertThat(compositeFieldOutputs).hasSize(1);
+    assertThat(compositeFieldOutputs.get(0).getIndividualFieldsCount()).isEqualTo(1);
+    field = compositeFieldOutputs.get(0).getIndividualFields(0);
+    assertThat(field.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(field.getValue()).isEqualTo("a_1");
+  }
+
   private DataChunk buildDataChunk(
       String[][] piiDataEmail, String[][] piiDataPhone, String[][] piiDataAddress) {
     DataChunk.Builder result = DataChunk.builder();
@@ -2156,6 +3065,31 @@ public final class DataMatcherImplTest {
     return builder.build();
   }
 
+  private DataMatcherImpl getDataMatcherWithPiiType() {
+    MatchConfig micMatchConfig = MatchConfigProvider.getMatchConfig("mic");
+    MatchConfig testMatchConfig =
+        micMatchConfig.toBuilder()
+            .setModeConfigs(
+                micMatchConfig.getModeConfigs().toBuilder()
+                    .setJoinModeConfig(
+                        micMatchConfig.getModeConfigs().getJoinModeConfig().toBuilder()
+                            .addJoinFields("pii_type")))
+            .build();
+    return new DataMatcherImpl(dataRecordTransformerFactory, testMatchConfig, JOIN_MODE_PARAMS);
+  }
+
+  private static Schema getDefaultSchemaFromDefaultFields() {
+    return getSchemaFromFields(DEFAULT_FIELDS);
+  }
+
+  private static Schema getSchemaFromFields(List<String> fields) {
+    Schema.Builder builder = Schema.newBuilder();
+    for (String alias : fields) {
+      builder.addColumns(Column.newBuilder().setColumnName(alias).setColumnAlias(alias).build());
+    }
+    return builder.build();
+  }
+
   private DataRecord getDataRecord(String[][] keyValueQuads) {
     DataRecord.Builder builder = DataRecord.newBuilder();
     for (String[] keyValue : keyValueQuads) {
@@ -2173,7 +3107,54 @@ public final class DataMatcherImplTest {
     return builder.build();
   }
 
+  /** Sort MatchedOutputField results by the value of the gaia Ids */
+  private List<MatchedOutputField> sortFieldByGaia(List<MatchedOutputField> inputList) {
+    String gaiaKey = "encrypted_gaia_id";
+    List<MatchedOutputField> mutableList = new ArrayList<>(inputList);
+    mutableList.sort(
+        ((matchedOutputField0, matchedOutputField1) -> {
+          var gaia0 =
+              matchedOutputField0.getIndividualFieldsList().stream()
+                  .filter(field -> field.getKey().equals(gaiaKey))
+                  .findFirst();
+          var gaia1 =
+              matchedOutputField1.getIndividualFieldsList().stream()
+                  .filter(field -> field.getKey().equals(gaiaKey))
+                  .findFirst();
+          String val0 = gaia0.map(Field::getValue).orElse("yyy");
+          String val1 = gaia1.map(Field::getValue).orElse("zzz");
+          return val0.compareTo(val1);
+        }));
+    return mutableList;
+  }
+
   private String hashString(String s) {
     return BaseEncoding.base64().encode(sha256().hashBytes(s.getBytes(UTF_8)).asBytes());
+  }
+
+  private static class FieldParser {
+
+    final List<String> fields;
+
+    FieldParser(List<String> fields) {
+      this.fields = fields;
+    }
+
+    DataRecord getDataRecord(List<String> values) {
+      DataRecord.Builder builder = DataRecord.newBuilder();
+      for (int i = 0; i < fields.size(); i++) {
+        builder.addKeyValues(
+            KeyValue.newBuilder().setKey(fields.get(i)).setStringValue(values.get(i)));
+      }
+      return builder.build();
+    }
+
+    DataRecord getDataRecord(String... values) {
+      DataRecord.Builder builder = DataRecord.newBuilder();
+      for (int i = 0; i < fields.size(); i++) {
+        builder.addKeyValues(KeyValue.newBuilder().setKey(fields.get(i)).setStringValue(values[i]));
+      }
+      return builder.build();
+    }
   }
 }

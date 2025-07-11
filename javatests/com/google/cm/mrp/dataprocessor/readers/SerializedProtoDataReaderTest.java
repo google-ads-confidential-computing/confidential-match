@@ -38,6 +38,7 @@ import static org.mockito.Mockito.when;
 import com.google.cm.mrp.JobProcessorException;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.ConfidentialMatchDataRecord;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.EncryptionKey;
+import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.EncryptionKey.AwsWrappedKey;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.EncryptionKey.CoordinatorKey;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.EncryptionKey.GcpWrappedKey;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.Field;
@@ -49,6 +50,7 @@ import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.Coor
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.CoordinatorKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo;
+import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.AwsWrappedKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.GcpWrappedKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.KeyType;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
@@ -70,6 +72,7 @@ import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileWriter;
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
@@ -84,6 +87,53 @@ import org.mockito.junit.MockitoRule;
 @RunWith(JUnit4.class)
 public final class SerializedProtoDataReaderTest {
 
+  private static final String TEST_WIP = "TEST_WIP";
+  private static final EncryptionMetadata COORDINATOR_ENCRYPTION_METADATA =
+      EncryptionMetadata.newBuilder()
+          .setEncryptionKeyInfo(
+              EncryptionKeyInfo.newBuilder()
+                  .setCoordinatorKeyInfo(
+                      CoordinatorKeyInfo.newBuilder()
+                          .addCoordinatorInfo(
+                              CoordinatorInfo.newBuilder()
+                                  .setKeyServiceEndpoint("TEST_ENDPOINT")
+                                  .setKmsIdentity("TEST_IDENTITY")
+                                  .setKmsWipProvider("TEST_WIP"))
+                          .addCoordinatorInfo(
+                              CoordinatorInfo.newBuilder()
+                                  .setKeyServiceEndpoint("TEST_ENDPOINT_B")
+                                  .setKmsIdentity("TEST_IDENTITY_B")
+                                  .setKmsWipProvider("TEST_WIP_B"))))
+          .build();
+  private static final EncryptionMetadata WRAPPED_ENCRYPTION_METADATA =
+      EncryptionMetadata.newBuilder()
+          .setEncryptionKeyInfo(
+              EncryptionKeyInfo.newBuilder()
+                  .setWrappedKeyInfo(
+                      WrappedKeyInfo.newBuilder()
+                          .setKeyType(KeyType.XCHACHA20_POLY1305)
+                          .setGcpWrappedKeyInfo(
+                              GcpWrappedKeyInfo.newBuilder().setWipProvider(TEST_WIP))))
+          .build();
+  private static final EncryptionMetadata NO_WIP_WRAPPED_ENCRYPTION_METADATA =
+      EncryptionMetadata.newBuilder()
+          .setEncryptionKeyInfo(
+              EncryptionKeyInfo.newBuilder()
+                  .setWrappedKeyInfo(
+                      WrappedKeyInfo.newBuilder()
+                          .setKeyType(KeyType.XCHACHA20_POLY1305)
+                          .setGcpWrappedKeyInfo(GcpWrappedKeyInfo.newBuilder().setWipProvider(""))))
+          .build();
+  private static final EncryptionMetadata AWS_ROW_LEVEL_WRAPPED_ENCRYPTION_METADATA =
+      EncryptionMetadata.newBuilder()
+          .setEncryptionKeyInfo(
+              EncryptionKeyInfo.newBuilder()
+                  .setWrappedKeyInfo(
+                      WrappedKeyInfo.newBuilder()
+                          .setKeyType(KeyType.XCHACHA20_POLY1305)
+                          .setAwsWrappedKeyInfo(AwsWrappedKeyInfo.newBuilder().setRoleArn(""))))
+          .build();
+
   private static final MatchConfig micMatchConfig = getMatchConfig("mic");
 
   @Rule public final MockitoRule mockito = MockitoJUnit.rule();
@@ -91,7 +141,6 @@ public final class SerializedProtoDataReaderTest {
   private HybridCryptoClient hybridCryptoClient;
   @Mock private AeadProvider mockAeadProvider;
   @Mock private ConfidentialMatchDataRecordParserFactory mockCfmDataRecordParserFactory;
-  private static final String TEST_WIP = "TEST_WIP";
 
   @Test
   public void next_coordinatorKey_returnsDecryptedRecords() throws Exception {
@@ -530,6 +579,120 @@ public final class SerializedProtoDataReaderTest {
   }
 
   @Test
+  public void next_awsWrappedKeyWithRole_decryptsRecords() throws Exception {
+    when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
+    Schema schema =
+        getSchemaFromFile("testdata/mic_proto_schema_wrapped_with_aws_role_arn_encrypted.json");
+    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any()))
+        .thenReturn(makeCfmProtoParser(schema, AWS_ROW_LEVEL_WRAPPED_ENCRYPTION_METADATA));
+    AeadCryptoClient aeadCryptoClient =
+        makeAeadCryptoClient(AWS_ROW_LEVEL_WRAPPED_ENCRYPTION_METADATA);
+    String dek = generateEncryptedDek();
+    String kekUri = generateAeadUri();
+    String encryptedEmail = AeadKeyGenerator.encryptString(dek, "fakeemail@fake.com");
+    MatchKey email =
+        MatchKey.newBuilder()
+            .setEncryptionKey(getAwsEncryptionKey(dek, kekUri, "testRole"))
+            .setField(buildField(/* k= */ "email", /* v= */ encryptedEmail))
+            .build();
+    try (DataReader dataReader =
+        new SerializedProtoDataReader(
+            mockCfmDataRecordParserFactory,
+            1000,
+            new FileInputStream(writeSingleMatchKeyToFile(email)),
+            schema,
+            "test",
+            micMatchConfig,
+            SuccessMode.ALLOW_PARTIAL_SUCCESS,
+            AWS_ROW_LEVEL_WRAPPED_ENCRYPTION_METADATA,
+            aeadCryptoClient)) {
+
+      assertThat(dataReader.getSchema()).isNotNull();
+      assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
+          .containsExactly(
+              "encrypted_dek",
+              "kek_uri",
+              "role_arn",
+              "email",
+              "phone",
+              "first_name",
+              "last_name",
+              "country_code",
+              "zip_code",
+              ROW_MARKER_COLUMN_NAME);
+      DataChunk dataChunk = dataReader.next();
+      var dataRecords = dataChunk.records();
+      assertThat(dataRecords).hasSize(1);
+      var record = dataRecords.get(0);
+      assertThat(record.getKeyValues(0).getStringValue()).isEqualTo(dek);
+      assertThat(record.getKeyValues(1).getStringValue()).isEqualTo(kekUri);
+      assertThat(record.getKeyValues(2).getStringValue()).isEqualTo("testRole");
+      assertThat(record.getKeyValues(3).getStringValue()).isEqualTo("fakeemail@fake.com");
+      assertThat(record.getEncryptedKeyValuesMap().get(3)).isEqualTo(encryptedEmail);
+      assertThat(record.getProcessingMetadata().getProtoEncryptionLevel())
+          .isEqualTo(ProtoEncryptionLevel.MATCH_KEY_LEVEL);
+    }
+  }
+
+  @Test
+  public void next_awsWrappedKeyWithRole_containsEncryptionKeys() throws Exception {
+    when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
+    Schema schema =
+        getSchemaFromFile("testdata/mic_proto_schema_wrapped_with_aws_role_arn_encrypted.json");
+    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any()))
+        .thenReturn(makeCfmProtoParser(schema, AWS_ROW_LEVEL_WRAPPED_ENCRYPTION_METADATA));
+    AeadCryptoClient aeadCryptoClient =
+        makeAeadCryptoClient(AWS_ROW_LEVEL_WRAPPED_ENCRYPTION_METADATA);
+    String dek = generateEncryptedDek();
+    String kekUri = generateAeadUri();
+    String encryptedEmail = AeadKeyGenerator.encryptString(dek, "fakeemail@fake.com");
+    MatchKey email =
+        MatchKey.newBuilder()
+            .setEncryptionKey(getAwsEncryptionKey(dek, kekUri, "testRole"))
+            .setField(buildField(/* k= */ "email", /* v= */ encryptedEmail))
+            .build();
+    try (DataReader dataReader =
+        new SerializedProtoDataReader(
+            mockCfmDataRecordParserFactory,
+            1000,
+            new FileInputStream(writeSingleMatchKeyToFile(email)),
+            schema,
+            "test",
+            micMatchConfig,
+            SuccessMode.ALLOW_PARTIAL_SUCCESS,
+            AWS_ROW_LEVEL_WRAPPED_ENCRYPTION_METADATA,
+            aeadCryptoClient)) {
+
+      DataChunk dataChunk = dataReader.next();
+
+      assertThat(dataChunk.encryptionColumns().isPresent()).isTrue();
+      var encryptionColumns = dataChunk.encryptionColumns().get();
+      assertThat(encryptionColumns.getEncryptedColumnIndicesList()).containsExactly(3, 4, 5, 6);
+      assertThat(
+              encryptionColumns
+                  .getEncryptionKeyColumnIndices()
+                  .getWrappedKeyColumnIndices()
+                  .getEncryptedDekColumnIndex())
+          .isEqualTo(0);
+      assertThat(
+              encryptionColumns
+                  .getEncryptionKeyColumnIndices()
+                  .getWrappedKeyColumnIndices()
+                  .getKekUriColumnIndex())
+          .isEqualTo(1);
+      assertThat(
+              encryptionColumns
+                  .getEncryptionKeyColumnIndices()
+                  .getWrappedKeyColumnIndices()
+                  .getAwsColumnIndices()
+                  .getRoleArnIndex())
+          .isEqualTo(2);
+    }
+  }
+
+  @Test
   public void next_unencrypted_returnsRecordsFromFile() throws Exception {
     Schema schema =
         ProtoUtils.getProtoFromJson(
@@ -814,51 +977,60 @@ public final class SerializedProtoDataReaderTest {
     }
   }
 
-  private static final EncryptionMetadata COORDINATOR_ENCRYPTION_METADATA =
-      EncryptionMetadata.newBuilder()
-          .setEncryptionKeyInfo(
-              EncryptionKeyInfo.newBuilder()
-                  .setCoordinatorKeyInfo(
-                      CoordinatorKeyInfo.newBuilder()
-                          .addCoordinatorInfo(
-                              CoordinatorInfo.newBuilder()
-                                  .setKeyServiceEndpoint("TEST_ENDPOINT")
-                                  .setKmsIdentity("TEST_IDENTITY")
-                                  .setKmsWipProvider("TEST_WIP"))
-                          .addCoordinatorInfo(
-                              CoordinatorInfo.newBuilder()
-                                  .setKeyServiceEndpoint("TEST_ENDPOINT_B")
-                                  .setKmsIdentity("TEST_IDENTITY_B")
-                                  .setKmsWipProvider("TEST_WIP_B"))))
-          .build();
+  private Schema getSchemaFromFile(String fileName) throws IOException {
+    return ProtoUtils.getProtoFromJson(
+        Resources.toString(Objects.requireNonNull(getClass().getResource(fileName)), UTF_8),
+        Schema.class);
+  }
 
-  private static final EncryptionMetadata WRAPPED_ENCRYPTION_METADATA =
-      EncryptionMetadata.newBuilder()
-          .setEncryptionKeyInfo(
-              EncryptionKeyInfo.newBuilder()
-                  .setWrappedKeyInfo(
-                      WrappedKeyInfo.newBuilder()
-                          .setKeyType(KeyType.XCHACHA20_POLY1305)
-                          .setGcpWrappedKeyInfo(
-                              GcpWrappedKeyInfo.newBuilder().setWipProvider(TEST_WIP))))
-          .build();
-  private static final EncryptionMetadata NO_WIP_WRAPPED_ENCRYPTION_METADATA =
-      EncryptionMetadata.newBuilder()
-          .setEncryptionKeyInfo(
-              EncryptionKeyInfo.newBuilder()
-                  .setWrappedKeyInfo(
-                      WrappedKeyInfo.newBuilder()
-                          .setKeyType(KeyType.XCHACHA20_POLY1305)
-                          .setGcpWrappedKeyInfo(GcpWrappedKeyInfo.newBuilder().setWipProvider(""))))
-          .build();
+  private Field buildField(String key, String value) {
+    return Field.newBuilder()
+        .setKeyValue(KeyValue.newBuilder().setKey(key).setStringValue(value).build())
+        .build();
+  }
 
   private AeadCryptoClient makeAeadCryptoClient() {
+    return makeAeadCryptoClient(WRAPPED_ENCRYPTION_METADATA);
+  }
+
+  private AeadCryptoClient makeAeadCryptoClient(EncryptionMetadata encryptionMetadata) {
     try {
-      return new AeadCryptoClient(
-          mockAeadProvider, WRAPPED_ENCRYPTION_METADATA.getEncryptionKeyInfo());
+      return new AeadCryptoClient(mockAeadProvider, encryptionMetadata.getEncryptionKeyInfo());
     } catch (Exception ex) {
       throw new RuntimeException(ex);
     }
+  }
+
+  private ConfidentialMatchDataRecordParserImpl makeCfmProtoParser(
+      Schema schema, EncryptionMetadata encryptionMetadata) {
+    return new ConfidentialMatchDataRecordParserImpl(
+        micMatchConfig,
+        generateInternalSchema(schema),
+        SuccessMode.ALLOW_PARTIAL_SUCCESS,
+        encryptionMetadata);
+  }
+
+  private EncryptionKey getAwsEncryptionKey(String dek, String kekUri, String role) {
+    var awsWrappedKey = AwsWrappedKey.newBuilder().setEncryptedDek(dek).setKekUri(kekUri);
+    if (!role.isBlank()) {
+      awsWrappedKey.setRoleArn(role);
+    }
+    return EncryptionKey.newBuilder().setAwsWrappedKey(awsWrappedKey).build();
+  }
+
+  private File writeSingleMatchKeyToFile(MatchKey matchKey) throws Exception {
+    ConfidentialMatchDataRecord testRecord =
+        ConfidentialMatchDataRecord.newBuilder()
+            .addAllMatchKeys(ImmutableList.of(matchKey))
+            .build();
+
+    var file = File.createTempFile("mrp_test", "txt");
+    try (BufferedWriter writer = new BufferedWriter(new FileWriter(file))) {
+      writer.newLine();
+      writer.write(base64().encode(testRecord.toByteArray()));
+      writer.newLine();
+    }
+    return file;
   }
 
   private Schema generateInternalSchema(Schema inputSchema) {

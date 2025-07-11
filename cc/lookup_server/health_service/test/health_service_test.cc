@@ -76,7 +76,7 @@ TEST_F(HealthServiceTest, CheckHealthSuccess) {
   http_context.request->method = scp::core::HttpMethod::GET;
   http_context.response = std::make_shared<HttpResponse>();
   EXPECT_CALL(*mock_match_data_storage_, GetStatus)
-      .WillOnce(Return(ServiceStatus::OK));
+      .WillRepeatedly(Return(ServiceStatus::OK));
 
   ExecutionResult result = health_service_.CheckHealth(http_context);
 
@@ -94,7 +94,7 @@ TEST_F(HealthServiceTest, CheckStartupHealthSuccess) {
   http_context.request->method = scp::core::HttpMethod::GET;
   http_context.response = std::make_shared<HttpResponse>();
   EXPECT_CALL(*mock_match_data_storage_, GetStatus)
-      .WillOnce(Return(ServiceStatus::OK));
+      .WillRepeatedly(Return(ServiceStatus::OK));
 
   ExecutionResult result = health_service_.CheckStartupHealth(http_context);
 
@@ -135,7 +135,7 @@ TEST_F(HealthServiceTest, CheckStartupHealthWithPendingDataLoad) {
   http_context.request->method = scp::core::HttpMethod::GET;
   http_context.response = std::make_shared<HttpResponse>();
   EXPECT_CALL(*mock_match_data_storage_, GetStatus)
-      .WillOnce(Return(ServiceStatus::PENDING));
+      .WillRepeatedly(Return(ServiceStatus::PENDING));
   EXPECT_SUCCESS(health_service_.Init());
 
   ExecutionResult result = health_service_.CheckStartupHealth(http_context);
@@ -152,7 +152,7 @@ TEST_F(HealthServiceTest, CheckStartupHealthWithStorageServiceError) {
   http_context.request->method = scp::core::HttpMethod::GET;
   http_context.response = std::make_shared<HttpResponse>();
   EXPECT_CALL(*mock_match_data_storage_, GetStatus)
-      .WillOnce(Return(ServiceStatus::ERROR));
+      .WillRepeatedly(Return(ServiceStatus::ERROR));
   EXPECT_SUCCESS(health_service_.Init());
 
   ExecutionResult result = health_service_.CheckStartupHealth(http_context);
@@ -164,13 +164,13 @@ TEST_F(HealthServiceTest, CheckStartupHealthWithStorageServiceError) {
 }
 
 TEST_F(HealthServiceTest, CheckStartupHealthWithPendingThenSuccessfulDataLoad) {
+  // Testing first state: Service is pending status
   AsyncContext<HttpRequest, HttpResponse> http_context;
   http_context.request = std::make_shared<HttpRequest>();
   http_context.request->method = scp::core::HttpMethod::GET;
   http_context.response = std::make_shared<HttpResponse>();
   EXPECT_CALL(*mock_match_data_storage_, GetStatus)
-      .WillOnce(Return(ServiceStatus::PENDING))
-      .WillOnce(Return(ServiceStatus::OK));
+      .WillRepeatedly(Return(ServiceStatus::PENDING));
   EXPECT_SUCCESS(health_service_.Init());
 
   ExecutionResult result = health_service_.CheckStartupHealth(http_context);
@@ -179,6 +179,10 @@ TEST_F(HealthServiceTest, CheckStartupHealthWithPendingThenSuccessfulDataLoad) {
   EXPECT_THAT(
       http_context.result,
       ResultIs(FailureExecutionResult(HEALTH_SERVICE_STORAGE_SERVICE_ERROR)));
+
+  // Testing second state: Service is healthy
+  EXPECT_CALL(*mock_match_data_storage_, GetStatus)
+      .WillRepeatedly(Return(ServiceStatus::OK));
 
   ExecutionResult second_result =
       health_service_.CheckStartupHealth(http_context);

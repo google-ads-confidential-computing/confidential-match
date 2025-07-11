@@ -131,10 +131,14 @@ public final class EncryptionMetadataConverter {
                 .setKekKmsResourceId(wrappedEncryptionKeys.getKekUri().trim())
                 .setKeyType(convertToLookupKeyType(jobWrappedKeyInfo.getKeyType()));
         if (jobWrappedKeyInfo.hasAwsWrappedKeyInfo()) {
+          String roleArn =
+              !jobWrappedKeyInfo.getAwsWrappedKeyInfo().getRoleArn().isBlank()
+                  ? jobWrappedKeyInfo.getAwsWrappedKeyInfo().getRoleArn()
+                  : wrappedEncryptionKeys.getAwsWrappedKeys().getRoleArn();
           lookupWrappedKeyInfo.setAwsWrappedKeyInfo(
               EncryptionKeyInfo.WrappedKeyInfo.AwsWrappedKeyInfo.newBuilder()
                   .setAudience(jobWrappedKeyInfo.getAwsWrappedKeyInfo().getAudience())
-                  .setRoleArn(jobWrappedKeyInfo.getAwsWrappedKeyInfo().getRoleArn())
+                  .setRoleArn(roleArn.trim())
                   .build());
         } else if (jobWrappedKeyInfo.hasGcpWrappedKeyInfo()) {
           String wipProvider =

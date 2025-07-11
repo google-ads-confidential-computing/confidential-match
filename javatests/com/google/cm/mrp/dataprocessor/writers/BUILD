@@ -37,6 +37,7 @@ java_test(
     srcs = ["SerializedProtoDataWriterTest.java"],
     resources = [
         "testdata/match_config_multiple_column_groups.json",
+        "testdata/proto_schema_aws_wrapped_key.json",
         "testdata/proto_schema_data_types.json",
         "testdata/proto_schema_hashed.json",
         "testdata/proto_schema_multiple_column_groups.json",

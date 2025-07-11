@@ -15,28 +15,11 @@
 package(default_visibility = ["//visibility:public"])
 
 java_library(
-    name = "cryptoclient",
-    srcs = glob([
-        "*.java",
-        "converters/*.java",
-        "models/*.java",
-    ]),
+    name = "exceptions",
+    srcs = glob(["*.java"]),
     deps = [
         "//java/com/google/cm/mrp:exceptions",
-        "//java/com/google/cm/mrp/clients/cryptoclient/exceptions",
-        "//java/com/google/cm/mrp/clients/cryptoclient/utils",
         "//java/com/google/cm/mrp/models",
-        "//java/external:autovalue",
-        "//java/external:clients_cryptoclient",
-        "//java/external:guava",
-        "//java/external:guice",
-        "//java/external:guice-assistedinject",
-        "//java/external:javax_inject",
-        "//java/external:protobuf_java",
-        "//java/external:shared_crypto_tink",
-        "//java/external:slf4j",
-        "//java/external:tink",
-        "//java/external:tink-gcpkms",
         "//protos/mrp/backend:java_proto",
     ],
 )

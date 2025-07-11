@@ -38,6 +38,11 @@ import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner.Da
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord.FieldMatches;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord.ProcessingMetadata;
+import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
+import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo;
+import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo;
+import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.AwsWrappedKeyInfo;
+import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.GcpWrappedKeyInfo;
 import com.google.cm.mrp.backend.FieldMatchProto.FieldMatch;
 import com.google.cm.mrp.backend.FieldMatchProto.FieldMatch.CompositeFieldMatchedOutput;
 import com.google.cm.mrp.backend.FieldMatchProto.FieldMatch.MatchedOutputField;
@@ -82,6 +87,35 @@ public final class SerializedProtoDataWriterTest {
           .setJobId("test")
           .setDataLocation(DataLocation.getDefaultInstance())
           .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
+          .build();
+
+  private static final JobParameters GCP_ENCRYPTION_PARAMS =
+      JobParameters.builder()
+          .setJobId("test")
+          .setDataLocation(DataLocation.getDefaultInstance())
+          .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
+          .setEncryptionMetadata(
+              EncryptionMetadata.newBuilder()
+                  .setEncryptionKeyInfo(
+                      EncryptionKeyInfo.newBuilder()
+                          .setWrappedKeyInfo(
+                              WrappedKeyInfo.newBuilder()
+                                  .setGcpWrappedKeyInfo(GcpWrappedKeyInfo.newBuilder())))
+                  .build())
+          .build();
+  private static final JobParameters AWS_ENCRYPTION_PARAMS =
+      JobParameters.builder()
+          .setJobId("test")
+          .setDataLocation(DataLocation.getDefaultInstance())
+          .setOutputDataLocation(OutputDataLocation.forNameAndPrefix("bucket", "test-path"))
+          .setEncryptionMetadata(
+              EncryptionMetadata.newBuilder()
+                  .setEncryptionKeyInfo(
+                      EncryptionKeyInfo.newBuilder()
+                          .setWrappedKeyInfo(
+                              WrappedKeyInfo.newBuilder()
+                                  .setAwsWrappedKeyInfo(AwsWrappedKeyInfo.newBuilder())))
+                  .build())
           .build();
   private static final JobParameters JOIN_MODE_PARAMS =
       JobParameters.builder()
@@ -188,7 +222,7 @@ public final class SerializedProtoDataWriterTest {
     SerializedProtoDataWriter dataWriter =
         new SerializedProtoDataWriter(
             1000,
-            DEFAULT_PARAMS,
+            GCP_ENCRYPTION_PARAMS,
             testDataDestination,
             "proto_writer_test.txt",
             schema,
@@ -238,7 +272,7 @@ public final class SerializedProtoDataWriterTest {
     SerializedProtoDataWriter dataWriter =
         new SerializedProtoDataWriter(
             1000,
-            DEFAULT_PARAMS,
+            GCP_ENCRYPTION_PARAMS,
             testDataDestination,
             "proto_writer_test.txt",
             schema,
@@ -266,6 +300,57 @@ public final class SerializedProtoDataWriterTest {
     assertThat(encryptionKey.getEncryptedDek()).isEqualTo("dek");
     assertThat(encryptionKey.getKekUri()).isEqualTo("kek");
     assertThat(encryptionKey.getWip()).isEqualTo("wip");
+  }
+
+  @Test
+  public void write_withAwsRowLevelEncryptionKey() throws Exception {
+    TestDataDestination testDataDestination = new TestDataDestination();
+    Schema schema = getSchema("testdata/proto_schema_aws_wrapped_key.json");
+    // One MatchKey using row level wrapped key encryption
+    List<Entry<String, Optional<String>>> keyValues = new ArrayList<>();
+    keyValues.add(Map.entry("email", Optional.of("FAKE.1@google.com")));
+    keyValues.add(Map.entry("encrypted_dek", Optional.of("dek")));
+    keyValues.add(Map.entry("kek_uri", Optional.of("kek")));
+    keyValues.add(Map.entry("role_arn", Optional.of("testRole")));
+    DataRecord dataRecord =
+        getDataRecord(keyValues)
+            .setProcessingMetadata(
+                ProcessingMetadata.newBuilder().setProtoEncryptionLevel(ROW_LEVEL).build())
+            .build();
+    DataChunk dataChunk = DataChunk.builder().addRecord(dataRecord).setSchema(schema).build();
+
+    // Run the write method
+    SerializedProtoDataWriter dataWriter =
+        new SerializedProtoDataWriter(
+            1000,
+            AWS_ENCRYPTION_PARAMS,
+            testDataDestination,
+            "proto_writer_test.txt",
+            schema,
+            matchConfig);
+    dataWriter.write(dataChunk);
+    dataWriter.close();
+
+    // Validate the written out file
+    assertThat(testDataDestination.file.exists()).isFalse(); // the temp file should've been deleted
+    assertThat(testDataDestination.name).isEqualTo("proto_writer_test_1.txt");
+    assertThat(testDataDestination.fileLines).hasSize(1);
+
+    // Validate the file's record
+    ConfidentialMatchOutputDataRecord returnedRecord =
+        base64Decode(testDataDestination.fileLines.get(0)).get();
+    assertEquals("", returnedRecord.getStatus());
+    assertThat(returnedRecord.getMetadataCount()).isEqualTo(0);
+    assertThat(returnedRecord.getMatchKeysCount()).isEqualTo(1);
+    var matchKey = returnedRecord.getMatchKeys(0);
+    assertThat(matchKey.getField().getKeyValue().getKey()).isEqualTo("email");
+    assertThat(matchKey.getField().getKeyValue().getStringValue()).isEqualTo("FAKE.1@google.com");
+    assertFalse(returnedRecord.getMatchKeys(0).hasEncryptionKey());
+    assertTrue(returnedRecord.hasEncryptionKey());
+    var encryptionKey = returnedRecord.getEncryptionKey().getAwsWrappedKey();
+    assertThat(encryptionKey.getEncryptedDek()).isEqualTo("dek");
+    assertThat(encryptionKey.getKekUri()).isEqualTo("kek");
+    assertThat(encryptionKey.getRoleArn()).isEqualTo("testRole");
   }
 
   @Test
@@ -467,23 +552,24 @@ public final class SerializedProtoDataWriterTest {
     TestDataDestination testDataDestination = new TestDataDestination();
     Schema schema = getSchema("testdata/proto_schema_multiple_column_groups.json");
     List<DataRecord> dataRecords = new ArrayList<>();
-    String joinFieldName = "encrypted_gaia_id";
 
     Map<Integer, FieldMatch> singleFieldMatchesMap = new HashMap<>();
     Map<Integer, FieldMatch> compositeFieldMatchesMap = new HashMap<>();
     List<Entry<String, Optional<String>>> keyValues = new ArrayList<>();
     keyValues.add(Map.entry("em", Optional.of("FAKE.1@google.com")));
-    singleFieldMatchesMap.put(0, getSingleFieldMatch(joinFieldName, "1-1"));
+    singleFieldMatchesMap.put(0, getSingleFieldMatch("encrypted_gaia_id", "1-1"));
     keyValues.add(Map.entry("ph", Optional.of("999-999-9999")));
-    singleFieldMatchesMap.put(1, getSingleFieldMatch(joinFieldName, "1-2"));
+    singleFieldMatchesMap.put(
+        1, getSingleFieldMatch("encrypted_gaia_id", "1-2", "encrypted_gaia_id", "1-3"));
     keyValues.add(Map.entry("fn", Optional.of("fakeName")));
     keyValues.add(Map.entry("ln", Optional.of("fakeLastName")));
     keyValues.add(Map.entry("zc", Optional.of("99999")));
     keyValues.add(Map.entry("cc", Optional.of("US")));
-    compositeFieldMatchesMap.put(0, getCompositeFieldMatch(joinFieldName, "1-3"));
+    compositeFieldMatchesMap.put(0, getCompositeFieldMatch("encrypted_gaia_id", "1-4"));
     keyValues.add(Map.entry("insta", Optional.of("test")));
     keyValues.add(Map.entry("tik", Optional.of("@test")));
-    compositeFieldMatchesMap.put(1, getCompositeFieldMatch(joinFieldName, "1-4"));
+    compositeFieldMatchesMap.put(
+        1, getCompositeFieldMatch("encrypted_gaia_id", "1-5", "encrypted_gaia_id", "1-6"));
     keyValues.add(Map.entry("coord_key_id", Optional.of("testKey")));
     keyValues.add(Map.entry("metadata", Optional.empty()));
     keyValues.add(Map.entry("row_status", Optional.of(SUCCESS.toString())));
@@ -496,7 +582,6 @@ public final class SerializedProtoDataWriterTest {
                     .putAllCompositeFieldRecordMatches(compositeFieldMatchesMap))
             .build());
     DataChunk dataChunk = DataChunk.builder().setRecords(dataRecords).setSchema(schema).build();
-
     MatchConfig testMatchConfig =
         ProtoUtils.getProtoFromJson(
             Resources.toString(
@@ -535,19 +620,24 @@ public final class SerializedProtoDataWriterTest {
     var matchedOutputFields = field.getMatchedOutputFields(0);
     assertThat(matchedOutputFields.getKeyValueCount()).isEqualTo(1);
     var keyValue = matchedOutputFields.getKeyValue(0);
-    assertThat(keyValue.getKey()).isEqualTo(joinFieldName);
+    assertThat(keyValue.getKey()).isEqualTo("encrypted_gaia_id");
     assertThat(keyValue.getStringValue()).isEqualTo("1-1");
     // check phone
     matchKey = returnedRecord.getMatchKeys(1);
     field = matchKey.getField();
     assertThat(field.getKeyValue().getKey()).isEqualTo("ph");
     assertThat(field.getKeyValue().getStringValue()).isEqualTo("999-999-9999");
-    assertThat(field.getMatchedOutputFieldsCount()).isEqualTo(1);
+    assertThat(field.getMatchedOutputFieldsCount()).isEqualTo(2);
     matchedOutputFields = matchKey.getField().getMatchedOutputFields(0);
     assertThat(matchedOutputFields.getKeyValueCount()).isEqualTo(1);
     keyValue = matchedOutputFields.getKeyValue(0);
-    assertThat(keyValue.getKey()).isEqualTo(joinFieldName);
+    assertThat(keyValue.getKey()).isEqualTo("encrypted_gaia_id");
     assertThat(keyValue.getStringValue()).isEqualTo("1-2");
+    matchedOutputFields = matchKey.getField().getMatchedOutputFields(1);
+    assertThat(matchedOutputFields.getKeyValueCount()).isEqualTo(1);
+    keyValue = matchedOutputFields.getKeyValue(0);
+    assertThat(keyValue.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(keyValue.getStringValue()).isEqualTo("1-3");
     // check address
     matchKey = returnedRecord.getMatchKeys(2);
     var compositeField = matchKey.getCompositeField();
@@ -570,8 +660,8 @@ public final class SerializedProtoDataWriterTest {
     matchedOutputFields = compositeField.getMatchedOutputFields(0);
     assertThat(matchedOutputFields.getKeyValueCount()).isEqualTo(1);
     keyValue = matchedOutputFields.getKeyValue(0);
-    assertThat(keyValue.getKey()).isEqualTo(joinFieldName);
-    assertThat(keyValue.getStringValue()).isEqualTo("1-3");
+    assertThat(keyValue.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(keyValue.getStringValue()).isEqualTo("1-4");
     // check socials
     matchKey = returnedRecord.getMatchKeys(3);
     compositeField = matchKey.getCompositeField();
@@ -584,12 +674,17 @@ public final class SerializedProtoDataWriterTest {
     assertThat(childField.getKeyValue().getKey()).isEqualTo("tik");
     assertThat(childField.getKeyValue().getStringValue()).isEqualTo("@test");
     // check socials joinFields
-    assertThat(compositeField.getMatchedOutputFieldsCount()).isEqualTo(1);
+    assertThat(compositeField.getMatchedOutputFieldsCount()).isEqualTo(2);
     matchedOutputFields = compositeField.getMatchedOutputFields(0);
     assertThat(matchedOutputFields.getKeyValueCount()).isEqualTo(1);
     keyValue = matchedOutputFields.getKeyValue(0);
-    assertThat(keyValue.getKey()).isEqualTo(joinFieldName);
-    assertThat(keyValue.getStringValue()).isEqualTo("1-4");
+    assertThat(keyValue.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(keyValue.getStringValue()).isEqualTo("1-5");
+    matchedOutputFields = compositeField.getMatchedOutputFields(1);
+    assertThat(matchedOutputFields.getKeyValueCount()).isEqualTo(1);
+    keyValue = matchedOutputFields.getKeyValue(0);
+    assertThat(keyValue.getKey()).isEqualTo("encrypted_gaia_id");
+    assertThat(keyValue.getStringValue()).isEqualTo("1-6");
   }
 
   @Test
@@ -820,7 +915,11 @@ public final class SerializedProtoDataWriterTest {
     for (String[] keyValue : keyValueQuads) {
       if (!keyValue[0].isBlank() && !keyValue[1].isBlank()) {
         builder.addMatchedOutputFields(
-            MatchedOutputField.newBuilder().setKey(keyValue[0]).setValue(keyValue[1]));
+            MatchedOutputField.newBuilder()
+                .addIndividualFields(
+                    MatchedOutputField.Field.newBuilder()
+                        .setKey(keyValue[0])
+                        .setValue(keyValue[1])));
       }
     }
     return FieldMatch.newBuilder().setSingleFieldMatchedOutput(builder).build();
@@ -836,7 +935,11 @@ public final class SerializedProtoDataWriterTest {
     for (String[] keyValue : keyValueQuads) {
       if (!keyValue[0].isBlank() && !keyValue[1].isBlank()) {
         builder.addMatchedOutputFields(
-            MatchedOutputField.newBuilder().setKey(keyValue[0]).setValue(keyValue[1]));
+            MatchedOutputField.newBuilder()
+                .addIndividualFields(
+                    MatchedOutputField.Field.newBuilder()
+                        .setKey(keyValue[0])
+                        .setValue(keyValue[1])));
       }
     }
     return FieldMatch.newBuilder().setCompositeFieldMatchedOutput(builder).build();

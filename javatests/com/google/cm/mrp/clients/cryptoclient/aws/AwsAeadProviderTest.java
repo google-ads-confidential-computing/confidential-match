@@ -30,8 +30,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 
 import com.google.cm.mrp.clients.attestation.AttestationTokenService;
-import com.google.cm.mrp.clients.cryptoclient.AeadProvider.AeadProviderException;
-import com.google.cm.mrp.clients.cryptoclient.AeadProvider.UncheckedAeadProviderException;
+import com.google.cm.mrp.clients.cryptoclient.exceptions.AeadProviderException;
+import com.google.cm.mrp.clients.cryptoclient.exceptions.UncheckedAeadProviderException;
 import com.google.cm.mrp.clients.cryptoclient.models.AeadProviderParameters;
 import com.google.cm.mrp.clients.cryptoclient.models.AeadProviderParameters.AwsParameters;
 import com.google.cm.mrp.clients.cryptoclient.models.DekKeysetReader;

@@ -23,6 +23,7 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_DEC
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_KEY_TYPE_MISMATCH;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_MISSING_IN_RECORD;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.KEK_MISSING_IN_RECORD;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.ROLE_ARN_MISSING_IN_RECORD;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.UNSUPPORTED_DEK_KEY_TYPE;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WIP_MISSING_IN_RECORD;
 import static com.google.crypto.tink.LegacyKeysetSerialization.getKeysetInfo;
@@ -39,9 +40,9 @@ import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.Encr
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.AwsWrappedKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.GcpWrappedKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.KeyType;
-import com.google.cm.mrp.clients.cryptoclient.AeadProvider.AeadProviderException;
-import com.google.cm.mrp.clients.cryptoclient.AeadProvider.UncheckedAeadProviderException;
 import com.google.cm.mrp.clients.cryptoclient.converters.AeadProviderParametersConverter;
+import com.google.cm.mrp.clients.cryptoclient.exceptions.AeadProviderException;
+import com.google.cm.mrp.clients.cryptoclient.exceptions.UncheckedAeadProviderException;
 import com.google.cm.mrp.clients.cryptoclient.models.DekKeysetReader;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
@@ -108,17 +109,15 @@ public final class AeadCryptoClient extends BaseCryptoClient {
                     }
                     return dekKeyset.getPrimitive(Aead.class);
                   } catch (AeadProviderException | UncheckedAeadProviderException e) {
-                    // TODO(b/419403254): refactor to GCP-specific provider
-                    throwIfWipFailure(e);
                     logger.warn(
                         "KEK could not be used in AeadProvider. Will not be retried in job.", e);
-                    invalidDecrypters.add(encryptionKeys.toString());
+                    invalidDecrypters.put(encryptionKeys.toString(), e.getJobResultCode());
                     throw new CryptoClientException(e, e.getJobResultCode());
                   } catch (GeneralSecurityException | RuntimeException e) {
                     logger.warn(
                         "DEK could not be decrypted with given KEK. Will not be retried in job.",
                         e);
-                    invalidDecrypters.add(encryptionKeys.toString());
+                    invalidDecrypters.put(encryptionKeys.toString(), DEK_DECRYPTION_ERROR);
                     throw new CryptoClientException(e, DEK_DECRYPTION_ERROR);
                   }
                 }
@@ -198,13 +197,14 @@ public final class AeadCryptoClient extends BaseCryptoClient {
   private Aead decryptDek(DataRecordEncryptionKeys dataRecordEncryptionKeys)
       throws CryptoClientException {
     validateEncryptionKeys(dataRecordEncryptionKeys);
-    DataRecordEncryptionKeys encryptionKeysWithWip =
-        addOrValidateAdditionalEncryptionKeyParams(dataRecordEncryptionKeys);
+    DataRecordEncryptionKeys encryptionKeysWithKmsParams =
+        addOrValidateKmsEncryptionKeyParams(dataRecordEncryptionKeys);
     try {
-      if (invalidDecrypters.contains(encryptionKeysWithWip.toString())) {
-        throw new CryptoClientException(DEK_DECRYPTION_ERROR);
+      String key = encryptionKeysWithKmsParams.toString();
+      if (invalidDecrypters.containsKey(key)) {
+        throw new CryptoClientException(invalidDecrypters.get(key));
       }
-      return dekCache.get(encryptionKeysWithWip);
+      return dekCache.get(encryptionKeysWithKmsParams);
     } catch (ExecutionException | UncheckedExecutionException e) {
       if (e.getCause() != null && e.getCause() instanceof CryptoClientException) {
         throw (CryptoClientException) e.getCause();
@@ -213,7 +213,7 @@ public final class AeadCryptoClient extends BaseCryptoClient {
     }
   }
 
-  private DataRecordEncryptionKeys addOrValidateAdditionalEncryptionKeyParams(
+  private DataRecordEncryptionKeys addOrValidateKmsEncryptionKeyParams(
       DataRecordEncryptionKeys encryptionKeys) throws CryptoClientException {
     if (encryptionKeyInfo.getWrappedKeyInfo().hasGcpWrappedKeyInfo()) {
       return addGcpKeyMetadata(encryptionKeys);
@@ -226,14 +226,21 @@ public final class AeadCryptoClient extends BaseCryptoClient {
     }
   }
 
-  /** Adds audience either from job-level or from record-level. */
-  private DataRecordEncryptionKeys addAwsKeyMetadata(DataRecordEncryptionKeys encryptionKeys) {
+  /** Adds role ARN and audience either from job-level or from record-level. */
+  private DataRecordEncryptionKeys addAwsKeyMetadata(DataRecordEncryptionKeys encryptionKeys)
+      throws CryptoClientException {
     AwsWrappedKeyInfo awsJobLevelInfo =
         encryptionKeyInfo.getWrappedKeyInfo().getAwsWrappedKeyInfo();
     WrappedEncryptionKeys wrappedEncryptionKeys = encryptionKeys.getWrappedEncryptionKeys();
 
-    // TODO(b/384749925): Add row-level roleARN
-    var awsWrappedKeys = AwsWrappedKeys.newBuilder().setRoleArn(awsJobLevelInfo.getRoleArn());
+    // default to upstream config
+    var awsWrappedKeys = wrappedEncryptionKeys.getAwsWrappedKeys().toBuilder();
+    if (!awsJobLevelInfo.getRoleArn().isBlank()) {
+      awsWrappedKeys = AwsWrappedKeys.newBuilder().setRoleArn(awsJobLevelInfo.getRoleArn());
+    } else if (awsWrappedKeys.getRoleArn().isBlank()) {
+      throw new CryptoClientException(ROLE_ARN_MISSING_IN_RECORD);
+    }
+
     if (!awsJobLevelInfo.getAudience().isBlank()) {
       awsWrappedKeys.setAudience(awsJobLevelInfo.getAudience());
     }

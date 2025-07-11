@@ -16,10 +16,16 @@
 
 package com.google.cm.mrp.clients.cryptoclient.gcp;
 
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_DECRYPTION_ERROR;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_KEK_FORMAT;
+
 import com.google.auth.oauth2.GoogleCredentials;
 import com.google.cm.mrp.clients.cryptoclient.AeadProvider;
+import com.google.cm.mrp.clients.cryptoclient.exceptions.AeadProviderException;
+import com.google.cm.mrp.clients.cryptoclient.exceptions.UncheckedAeadProviderException;
 import com.google.cm.mrp.clients.cryptoclient.models.AeadProviderParameters;
 import com.google.cm.mrp.clients.cryptoclient.models.AeadProviderParameters.GcpParameters;
+import com.google.cm.mrp.clients.cryptoclient.utils.GcpProviderUtils;
 import com.google.crypto.tink.Aead;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.KeysetReader;
@@ -62,8 +68,18 @@ public final class GcpAeadProvider implements AeadProvider {
     try {
       return KeysetHandle.read(dekReader, kekAead);
     } catch (GeneralSecurityException | IOException e) {
-      // TODO(b/419403254): Handle with more specific cases, currently handled in caller
-      throw new AeadProviderException(e);
+      Optional<AeadProviderException> gcpException = GcpProviderUtils.tryParseGcpKmsException(e);
+      if (gcpException.isPresent()) {
+        throw gcpException.get();
+      } else {
+        String msg = "KeysetHandle read failed for unknown reason.";
+        logger.warn(msg, e);
+        throw new AeadProviderException(msg, e, DEK_DECRYPTION_ERROR);
+      }
+    } catch (IllegalArgumentException e) {
+      String msg = "Invalid format for KEK.";
+      logger.info(msg, e);
+      throw new AeadProviderException(msg, e, INVALID_KEK_FORMAT);
     }
   }
 
@@ -91,6 +107,10 @@ public final class GcpAeadProvider implements AeadProvider {
       } catch (GeneralSecurityException e) {
         String message = String.format("Error getting gcloud Aead with uri %s.", kekUri);
         throw new UncheckedAeadProviderException(message, e);
+      } catch (IllegalArgumentException e) {
+        String msg = "Invalid format for KEK.";
+        logger.info(msg, e);
+        throw new UncheckedAeadProviderException(msg, e, INVALID_KEK_FORMAT);
       }
     };
   }

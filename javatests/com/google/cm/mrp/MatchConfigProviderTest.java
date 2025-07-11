@@ -65,4 +65,36 @@ public class MatchConfigProviderTest {
       }
     }
   }
+
+  @Test
+  public void getMatchConfig_verifyWrappedKeyAliases() {
+    for (ApplicationId applicationId : ApplicationId.values()) {
+      if (applicationId == UNRECOGNIZED || applicationId == APPLICATION_ID_UNSPECIFIED) {
+        continue;
+      }
+
+      // Test matchConfig is able to be parsed successfully
+      MatchConfig config = MatchConfigProvider.getMatchConfig(applicationId.name().toLowerCase());
+
+      if (config.hasEncryptionKeyColumns()
+          && config.getEncryptionKeyColumns().hasWrappedKeyColumns()) {
+        var wrappedKeyColumns = config.getEncryptionKeyColumns().getWrappedKeyColumns();
+        assertThat(wrappedKeyColumns.getEncryptedDekColumnAlias()).isNotEmpty();
+        assertThat(wrappedKeyColumns.getEncryptedDekColumnAlias().isBlank()).isFalse();
+        assertThat(wrappedKeyColumns.getKekUriColumnAlias()).isNotEmpty();
+        assertThat(wrappedKeyColumns.getKekUriColumnAlias().isBlank()).isFalse();
+        if (wrappedKeyColumns.hasGcpWrappedKeyColumns()) {
+          assertThat(wrappedKeyColumns.getGcpWrappedKeyColumns().getWipProviderAlias())
+              .isNotEmpty();
+          assertThat(wrappedKeyColumns.getGcpWrappedKeyColumns().getWipProviderAlias().isBlank())
+              .isFalse();
+        }
+        if (wrappedKeyColumns.hasAwsWrappedKeyColumns()) {
+          assertThat(wrappedKeyColumns.getAwsWrappedKeyColumns().getRoleArnAlias()).isNotEmpty();
+          assertThat(wrappedKeyColumns.getAwsWrappedKeyColumns().getRoleArnAlias().isBlank())
+              .isFalse();
+        }
+      }
+    }
+  }
 }

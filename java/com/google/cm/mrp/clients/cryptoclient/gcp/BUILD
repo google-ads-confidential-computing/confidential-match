@@ -20,6 +20,8 @@ java_library(
     deps = [
         "//java/com/google/cm/mrp:exceptions",
         "//java/com/google/cm/mrp/clients/cryptoclient",
+        "//java/com/google/cm/mrp/clients/cryptoclient/exceptions",
+        "//java/com/google/cm/mrp/clients/cryptoclient/utils",
         "//java/com/google/cm/util",
         "//java/external:autovalue",
         "//java/external:autovalue_annotations",

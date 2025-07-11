@@ -42,6 +42,7 @@ import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncry
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.CoordinatorKey;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.WrappedEncryptionKeys;
+import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.WrappedEncryptionKeys.AwsWrappedKeys;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.WrappedEncryptionKeys.GcpWrappedKeys;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
@@ -545,21 +546,23 @@ public final class LookupServerDataSource implements LookupDataSource {
   }
 
   private DataRecord.KeyValue toMrpKeyValue(LookupProto.KeyValue lookupKeyValue) {
-    var builder = DataRecord.KeyValue.newBuilder()
-        .setKey(lookupKeyValue.getKey());
+    var builder = DataRecord.KeyValue.newBuilder().setKey(lookupKeyValue.getKey());
 
     switch (lookupKeyValue.getValueCase()) {
       case STRING_VALUE:
         return builder.setStringValue(lookupKeyValue.getStringValue()).build();
       case BYTES_VALUE:
-        String encodedValue = BaseEncoding.base64().encode(lookupKeyValue.getBytesValue().toByteArray());
+        String encodedValue =
+            BaseEncoding.base64().encode(lookupKeyValue.getBytesValue().toByteArray());
         return builder.setStringValue(encodedValue).build();
       case INT_VALUE:
       case DOUBLE_VALUE:
       case BOOL_VALUE:
       case VALUE_NOT_SET:
       default:
-        String message = "Lookup associated data in an unexpected value type: " + lookupKeyValue.getValueCase().name();
+        String message =
+            "Lookup associated data in an unexpected value type: "
+                + lookupKeyValue.getValueCase().name();
         logger.error(message);
         throw new JobProcessorException(message, LOOKUP_SERVICE_INVALID_ASSOCIATED_DATA);
     }
@@ -664,25 +667,31 @@ public final class LookupServerDataSource implements LookupDataSource {
               OptionalInt.of(wrappedKeyColumnIndices.getGcpColumnIndices().getWipProviderIndex());
         }
         encryptionKey.setWrappedEncryptionKeys(
-            getWrappedEncryptionKeys(
+            getGcpWrappedEncryptionKeys(
                 dataRecord,
                 wrappedKeyColumnIndices.getEncryptedDekColumnIndex(),
                 wrappedKeyColumnIndices.getKekUriColumnIndex(),
                 wipColumnIndex,
                 encryptedColumnIndices));
       } else if (encryptionKeyInfo.getWrappedKeyInfo().hasAwsWrappedKeyInfo()) {
-        // TODO(b/384749925):Add row-level roleARN support
-        if (encryptionKeyInfo.getWrappedKeyInfo().getAwsWrappedKeyInfo().getRoleArn().isBlank()) {
-          String message = "No role ARN in request found.";
+        OptionalInt roleArnIndex;
+        // Do not try to search if request has valid RoleARN
+        if (!encryptionKeyInfo.getWrappedKeyInfo().getAwsWrappedKeyInfo().getRoleArn().isBlank()) {
+          roleArnIndex = OptionalInt.empty();
+        } else if (!wrappedKeyColumnIndices.hasAwsColumnIndices()) {
+          String message = "No Role ARN in request and no Role ARN column index found.";
           logger.error(message);
           throw new JobProcessorException(message, ENCRYPTION_COLUMNS_PROCESSING_ERROR);
+        } else {
+          roleArnIndex =
+              OptionalInt.of(wrappedKeyColumnIndices.getAwsColumnIndices().getRoleArnIndex());
         }
         encryptionKey.setWrappedEncryptionKeys(
-            getWrappedEncryptionKeys(
+            getAwsWrappedEncryptionKeys(
                 dataRecord,
                 wrappedKeyColumnIndices.getEncryptedDekColumnIndex(),
                 wrappedKeyColumnIndices.getKekUriColumnIndex(),
-                OptionalInt.empty(),
+                roleArnIndex,
                 encryptedColumnIndices));
       }
     }
@@ -708,11 +717,74 @@ public final class LookupServerDataSource implements LookupDataSource {
     return CoordinatorKey.newBuilder().setKeyId(coordKeyValue).build();
   }
 
-  private WrappedEncryptionKeys getWrappedEncryptionKeys(
+  private WrappedEncryptionKeys getGcpWrappedEncryptionKeys(
       DataRecord dataRecord,
       int dekColumnIndex,
       int kekColumnIndex,
       OptionalInt optionalWipColumnIndex,
+      Set<Integer> encryptedColumnIndices) {
+    var wrappedKeysBuilder =
+        getBuilderWithDekAndKek(dataRecord, dekColumnIndex, kekColumnIndex, encryptedColumnIndices);
+    optionalWipColumnIndex.ifPresent(
+        wipColumnIndex -> {
+          if (wipColumnIndex < 0 || wipColumnIndex >= dataRecord.getKeyValuesCount()) {
+            String message = "WIP index out of bounds";
+            logger.info(message);
+            throw new JobProcessorException(message, INVALID_ENCRYPTION_COLUMN);
+          }
+          if (encryptedColumnIndices.contains(wipColumnIndex)) {
+            String message = "WIP index cannot be part of columns-to-encrypt";
+            logger.info(message);
+            throw new JobProcessorException(message, INVALID_ENCRYPTION_COLUMN);
+          }
+          String wipValue = dataRecord.getKeyValues(wipColumnIndex).getStringValue();
+          if (wipValue.isBlank()) {
+            String message = "WIP key value missing in input data row";
+            logger.info(message);
+            throw new JobProcessorException(message, MISSING_ENCRYPTION_COLUMN);
+          }
+          wrappedKeysBuilder.setGcpWrappedKeys(
+              GcpWrappedKeys.newBuilder().setWipProvider(wipValue));
+        });
+    return wrappedKeysBuilder.build();
+  }
+
+  private WrappedEncryptionKeys getAwsWrappedEncryptionKeys(
+      DataRecord dataRecord,
+      int dekColumnIndex,
+      int kekColumnIndex,
+      OptionalInt optionalRoleArnIndex,
+      Set<Integer> encryptedColumnIndices) {
+    var wrappedKeysBuilder =
+        getBuilderWithDekAndKek(dataRecord, dekColumnIndex, kekColumnIndex, encryptedColumnIndices);
+    optionalRoleArnIndex.ifPresent(
+        roleIndex -> {
+          if (roleIndex < 0 || roleIndex >= dataRecord.getKeyValuesCount()) {
+            String message = "Role ARN index out of bounds.";
+            logger.info(message);
+            throw new JobProcessorException(message, INVALID_ENCRYPTION_COLUMN);
+          }
+          if (encryptedColumnIndices.contains(roleIndex)) {
+            String message = "Role ARN cannot be part of columns-to-encrypt.";
+            logger.info(message);
+            throw new JobProcessorException(message, INVALID_ENCRYPTION_COLUMN);
+          }
+          String roleArnValue = dataRecord.getKeyValues(roleIndex).getStringValue();
+          if (roleArnValue.isBlank()) {
+            String message = "Role ARN key value missing in input data row.";
+            logger.info(message);
+            throw new JobProcessorException(message, MISSING_ENCRYPTION_COLUMN);
+          }
+          wrappedKeysBuilder.setAwsWrappedKeys(
+              AwsWrappedKeys.newBuilder().setRoleArn(roleArnValue));
+        });
+    return wrappedKeysBuilder.build();
+  }
+
+  private WrappedEncryptionKeys.Builder getBuilderWithDekAndKek(
+      DataRecord dataRecord,
+      int dekColumnIndex,
+      int kekColumnIndex,
       Set<Integer> encryptedColumnIndices) {
     if (dekColumnIndex < 0
         || dekColumnIndex >= dataRecord.getKeyValuesCount()
@@ -736,30 +808,7 @@ public final class LookupServerDataSource implements LookupDataSource {
       logger.info(message);
       throw new JobProcessorException(message, MISSING_ENCRYPTION_COLUMN);
     }
-    var wrappedKeysBuilder =
-        WrappedEncryptionKeys.newBuilder().setEncryptedDek(dekValue).setKekUri(kekValue);
-    optionalWipColumnIndex.ifPresent(
-        wipColumnIndex -> {
-          if (wipColumnIndex < 0 || wipColumnIndex >= dataRecord.getKeyValuesCount()) {
-            String message = "WIP index out of bounds";
-            logger.info(message);
-            throw new JobProcessorException(message, INVALID_ENCRYPTION_COLUMN);
-          }
-          if (encryptedColumnIndices.contains(wipColumnIndex)) {
-            String message = "WIP index cannot be part of columns-to-encrypt";
-            logger.info(message);
-            throw new JobProcessorException(message, INVALID_ENCRYPTION_COLUMN);
-          }
-          String wipValue = dataRecord.getKeyValues(wipColumnIndex).getStringValue();
-          if (wipValue.isBlank()) {
-            String message = "WIP key value missing in input data row";
-            logger.info(message);
-            throw new JobProcessorException(message, MISSING_ENCRYPTION_COLUMN);
-          }
-          wrappedKeysBuilder.setGcpWrappedKeys(
-              GcpWrappedKeys.newBuilder().setWipProvider(wipValue));
-        });
-    return wrappedKeysBuilder.build();
+    return WrappedEncryptionKeys.newBuilder().setEncryptedDek(dekValue).setKekUri(kekValue);
   }
 
   private void addCompositeSingleColumn(

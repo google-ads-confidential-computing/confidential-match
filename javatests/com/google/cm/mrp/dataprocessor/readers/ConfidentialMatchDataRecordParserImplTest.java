@@ -32,6 +32,7 @@ import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeChildFiel
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeField;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.ConfidentialMatchDataRecord;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.EncryptionKey;
+import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.EncryptionKey.AwsWrappedKey;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.EncryptionKey.CoordinatorKey;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.EncryptionKey.GcpWrappedKey;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.Field;
@@ -42,6 +43,8 @@ import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.CoordinatorKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo;
+import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.AwsWrappedKeyInfo;
+import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.GcpWrappedKeyInfo;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.SuccessConfig.SuccessMode;
 import com.google.cm.mrp.backend.SchemaProto.Schema;
@@ -60,6 +63,16 @@ import org.junit.runners.JUnit4;
 
 @RunWith(JUnit4.class)
 public final class ConfidentialMatchDataRecordParserImplTest {
+
+  private static final EncryptionMetadata TEST_GCP_ENCRYPTION_METADATA =
+      EncryptionMetadata.newBuilder()
+          .setEncryptionKeyInfo(
+              EncryptionKeyInfo.newBuilder()
+                  .setWrappedKeyInfo(
+                      WrappedKeyInfo.newBuilder()
+                          .setGcpWrappedKeyInfo(
+                              GcpWrappedKeyInfo.newBuilder().setWipProvider("testWip"))))
+          .build();
 
   private static final MatchConfig micMatchConfig = getMatchConfig("mic");
 
@@ -238,15 +251,9 @@ public final class ConfidentialMatchDataRecordParserImplTest {
 
   @Test
   public void parse_encryptedWrappedEncryptionKey() throws Exception {
-    EncryptionMetadata encryptionMetadata =
-        EncryptionMetadata.newBuilder()
-            .setEncryptionKeyInfo(
-                EncryptionKeyInfo.newBuilder()
-                    .setWrappedKeyInfo(WrappedKeyInfo.newBuilder().build()))
-            .build();
     ConfidentialMatchDataRecordParserImpl confidentialMatchDataRecordParser =
         getConfidentialMatchDataRecordParserEncrypted(
-            "testdata/mic_proto_schema_wrapped_encrypted.json", encryptionMetadata);
+            "testdata/mic_proto_schema_wrapped_encrypted.json", TEST_GCP_ENCRYPTION_METADATA);
 
     MatchKey email =
         MatchKey.newBuilder()
@@ -279,6 +286,7 @@ public final class ConfidentialMatchDataRecordParserImplTest {
     List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(testRecord);
 
     assertEquals(1, resultList.size());
+    assertThat(resultList.get(0).hasErrorCode()).isFalse();
     assertEquals("metadata", resultList.get(0).getKeyValues(0).getKey());
     assertEquals("fake metadata", resultList.get(0).getKeyValues(0).getStringValue());
     List<String> rowIds = new ArrayList<>();
@@ -298,15 +306,10 @@ public final class ConfidentialMatchDataRecordParserImplTest {
 
   @Test
   public void parse_encryptedWrappedEncryptionKeyWithWip() throws Exception {
-    EncryptionMetadata encryptionMetadata =
-        EncryptionMetadata.newBuilder()
-            .setEncryptionKeyInfo(
-                EncryptionKeyInfo.newBuilder()
-                    .setWrappedKeyInfo(WrappedKeyInfo.newBuilder().build()))
-            .build();
     ConfidentialMatchDataRecordParserImpl confidentialMatchDataRecordParser =
         getConfidentialMatchDataRecordParserEncrypted(
-            "testdata/mic_proto_schema_wrapped_with_wip_encrypted.json", encryptionMetadata);
+            "testdata/mic_proto_schema_wrapped_with_wip_encrypted.json",
+            TEST_GCP_ENCRYPTION_METADATA);
 
     MatchKey email =
         MatchKey.newBuilder()
@@ -340,6 +343,7 @@ public final class ConfidentialMatchDataRecordParserImplTest {
     List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(testRecord);
 
     assertEquals(1, resultList.size());
+    assertThat(resultList.get(0).hasErrorCode()).isFalse();
     assertEquals("metadata", resultList.get(0).getKeyValues(0).getKey());
     assertEquals("fake metadata", resultList.get(0).getKeyValues(0).getStringValue());
     List<String> rowIds = new ArrayList<>();
@@ -355,6 +359,124 @@ public final class ConfidentialMatchDataRecordParserImplTest {
       assertEquals("email", dataRecord.getKeyValues(4).getKey());
       assertEquals("fakeemail@fake.com", dataRecord.getKeyValues(4).getStringValue());
       rowIds.add(dataRecord.getKeyValues(8).getStringValue());
+    }
+    assertEquals(1, rowIds.size());
+  }
+
+  @Test
+  public void parse_encryptedWrappedEncryptionKeyWithAwsRoleArn() throws Exception {
+    EncryptionMetadata awsEncryptionMetadata =
+        EncryptionMetadata.newBuilder()
+            .setEncryptionKeyInfo(
+                EncryptionKeyInfo.newBuilder()
+                    .setWrappedKeyInfo(
+                        WrappedKeyInfo.newBuilder()
+                            .setAwsWrappedKeyInfo(AwsWrappedKeyInfo.newBuilder())))
+            .build();
+    ConfidentialMatchDataRecordParserImpl confidentialMatchDataRecordParser =
+        getConfidentialMatchDataRecordParserEncrypted(
+            "testdata/mic_proto_schema_wrapped_with_aws_role_arn_encrypted.json",
+            awsEncryptionMetadata);
+    MatchKey email =
+        MatchKey.newBuilder()
+            .setEncryptionKey(
+                EncryptionKey.newBuilder()
+                    .setAwsWrappedKey(
+                        AwsWrappedKey.newBuilder()
+                            .setEncryptedDek("123")
+                            .setKekUri("fake.com")
+                            .setRoleArn("testRole")
+                            .build())
+                    .build())
+            .setField(
+                Field.newBuilder()
+                    .setKeyValue(
+                        KeyValue.newBuilder()
+                            .setKey("email")
+                            .setStringValue("fakeemail@fake.com")
+                            .build())
+                    .build())
+            .build();
+    ConfidentialMatchDataRecord testRecord =
+        ConfidentialMatchDataRecord.newBuilder().addMatchKeys(email).build();
+
+    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(testRecord);
+
+    assertEquals(1, resultList.size());
+    assertThat(resultList.get(0).hasErrorCode()).isFalse();
+    List<String> rowIds = new ArrayList<>();
+    for (int i = 0; i < resultList.size(); i++) {
+      DataRecord dataRecord = resultList.get(i);
+      // encryption key 123 data record
+      assertEquals("encrypted_dek", dataRecord.getKeyValues(0).getKey());
+      assertEquals("123", dataRecord.getKeyValues(0).getStringValue());
+      assertEquals("kek_uri", dataRecord.getKeyValues(1).getKey());
+      assertEquals("fake.com", dataRecord.getKeyValues(1).getStringValue());
+      assertEquals("role_arn", dataRecord.getKeyValues(2).getKey());
+      assertEquals("testRole", dataRecord.getKeyValues(2).getStringValue());
+      assertEquals("email", dataRecord.getKeyValues(3).getKey());
+      assertEquals("fakeemail@fake.com", dataRecord.getKeyValues(3).getStringValue());
+      rowIds.add(dataRecord.getKeyValues(7).getStringValue());
+    }
+    assertEquals(1, rowIds.size());
+  }
+
+  @Test
+  public void parse_encryptedWrappedEncryptionKeyWithRowAwsRoleArn() throws Exception {
+    EncryptionMetadata awsEncryptionMetadata =
+        EncryptionMetadata.newBuilder()
+            .setEncryptionKeyInfo(
+                EncryptionKeyInfo.newBuilder()
+                    .setWrappedKeyInfo(
+                        WrappedKeyInfo.newBuilder()
+                            .setAwsWrappedKeyInfo(AwsWrappedKeyInfo.newBuilder())))
+            .build();
+    ConfidentialMatchDataRecordParserImpl confidentialMatchDataRecordParser =
+        getConfidentialMatchDataRecordParserEncrypted(
+            "testdata/mic_proto_schema_wrapped_with_aws_role_arn_encrypted.json",
+            awsEncryptionMetadata);
+    MatchKey email =
+        MatchKey.newBuilder()
+            .setField(
+                Field.newBuilder()
+                    .setKeyValue(
+                        KeyValue.newBuilder()
+                            .setKey("email")
+                            .setStringValue("fakeemail@fake.com")
+                            .build())
+                    .build())
+            .build();
+    ConfidentialMatchDataRecord testRecord =
+        ConfidentialMatchDataRecord.newBuilder()
+            .addMatchKeys(email)
+            .setEncryptionKey(
+                EncryptionKey.newBuilder()
+                    .setAwsWrappedKey(
+                        AwsWrappedKey.newBuilder()
+                            .setEncryptedDek("123")
+                            .setKekUri("fake.com")
+                            .setRoleArn("testRole")
+                            .build())
+                    .build())
+            .build();
+
+    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(testRecord);
+
+    assertEquals(1, resultList.size());
+    assertThat(resultList.get(0).hasErrorCode()).isFalse();
+    List<String> rowIds = new ArrayList<>();
+    for (int i = 0; i < resultList.size(); i++) {
+      DataRecord dataRecord = resultList.get(i);
+      // encryption key 123 data record
+      assertEquals("encrypted_dek", dataRecord.getKeyValues(0).getKey());
+      assertEquals("123", dataRecord.getKeyValues(0).getStringValue());
+      assertEquals("kek_uri", dataRecord.getKeyValues(1).getKey());
+      assertEquals("fake.com", dataRecord.getKeyValues(1).getStringValue());
+      assertEquals("role_arn", dataRecord.getKeyValues(2).getKey());
+      assertEquals("testRole", dataRecord.getKeyValues(2).getStringValue());
+      assertEquals("email", dataRecord.getKeyValues(3).getKey());
+      assertEquals("fakeemail@fake.com", dataRecord.getKeyValues(3).getStringValue());
+      rowIds.add(dataRecord.getKeyValues(7).getStringValue());
     }
     assertEquals(1, rowIds.size());
   }
@@ -592,15 +714,9 @@ public final class ConfidentialMatchDataRecordParserImplTest {
 
   @Test
   public void parse_nameToAliasMapping() throws Exception {
-    EncryptionMetadata encryptionMetadata =
-        EncryptionMetadata.newBuilder()
-            .setEncryptionKeyInfo(
-                EncryptionKeyInfo.newBuilder()
-                    .setWrappedKeyInfo(WrappedKeyInfo.newBuilder().build()))
-            .build();
     ConfidentialMatchDataRecordParserImpl confidentialMatchDataRecordParser =
         getConfidentialMatchDataRecordParserEncrypted(
-            "testdata/mic_proto_schema_custom_names.json", encryptionMetadata);
+            "testdata/mic_proto_schema_custom_names.json", TEST_GCP_ENCRYPTION_METADATA);
 
     MatchKey email =
         MatchKey.newBuilder()
@@ -633,6 +749,7 @@ public final class ConfidentialMatchDataRecordParserImplTest {
     List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(testRecord);
 
     assertEquals(1, resultList.size());
+    assertThat(resultList.get(0).hasErrorCode()).isFalse();
     assertEquals("metadata", resultList.get(0).getKeyValues(0).getKey());
     assertEquals("fake metadata", resultList.get(0).getKeyValues(0).getStringValue());
     List<String> rowIds = new ArrayList<>();
@@ -652,15 +769,9 @@ public final class ConfidentialMatchDataRecordParserImplTest {
 
   @Test
   public void parse_duplicateAliasMapping() throws Exception {
-    EncryptionMetadata encryptionMetadata =
-        EncryptionMetadata.newBuilder()
-            .setEncryptionKeyInfo(
-                EncryptionKeyInfo.newBuilder()
-                    .setWrappedKeyInfo(WrappedKeyInfo.newBuilder().build()))
-            .build();
     ConfidentialMatchDataRecordParserImpl confidentialMatchDataRecordParser =
         getConfidentialMatchDataRecordParserEncrypted(
-            "testdata/mic_proto_schema_duplicate_aliases.json", encryptionMetadata);
+            "testdata/mic_proto_schema_duplicate_aliases.json", TEST_GCP_ENCRYPTION_METADATA);
 
     // Email 1
     MatchKey email1 =
@@ -820,6 +931,7 @@ public final class ConfidentialMatchDataRecordParserImplTest {
     List<String> rowIds = new ArrayList<>();
     // Evaluate keys and any values that will be consistent across both records
     for (DataRecord dataRecord : resultList) {
+      assertThat(dataRecord.hasErrorCode()).isFalse();
       assertEquals("metadata", dataRecord.getKeyValues(0).getKey());
       assertEquals("dek", dataRecord.getKeyValues(1).getKey());
       assertEquals("123", dataRecord.getKeyValues(1).getStringValue());

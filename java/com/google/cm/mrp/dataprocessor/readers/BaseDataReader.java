@@ -18,23 +18,17 @@ package com.google.cm.mrp.dataprocessor.readers;
 
 import static com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo.KeyInfoCase.COORDINATOR_KEY_INFO;
 import static com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo.KeyInfoCase.WRAPPED_KEY_INFO;
-import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.COORDINATOR_KEY_MISSING_IN_RECORD;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DATA_READER_CONFIGURATION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DECODING_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DECRYPTION_ERROR;
-import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_DECRYPTION_ERROR;
-import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_MISSING_IN_RECORD;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.ENCRYPTION_COLUMNS_CONFIG_ERROR;
-import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_WIP_PARAMETER;
-import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.KEK_MISSING_IN_RECORD;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.UNSUPPORTED_ENCRYPTION_TYPE;
-import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WIP_AUTH_FAILED;
-import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WIP_MISSING_IN_RECORD;
 import static com.google.cm.mrp.backend.SchemaProto.Schema.ColumnEncoding.BASE64_URL;
 
 import com.google.cloud.storage.StorageException;
 import com.google.cm.mrp.JobProcessorException;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns;
+import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.WrappedKeyColumnIndices.AwsWrappedKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.WrappedKeyColumnIndices.GcpWrappedKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys;
 import com.google.cm.mrp.backend.EncodingTypeProto.EncodingType;
@@ -63,14 +57,9 @@ public abstract class BaseDataReader implements DataReader {
 
   /** Create a new {@link DataRecordEncryptionColumns}. */
   protected static DataRecordEncryptionColumns buildDataRecordEncryptionColumns(
-      EncryptionKeyColumns keys, List<Column> columns, EncryptionMetadata encryptionMetadata) {
-    KeyInfoCase keyType = encryptionMetadata.getEncryptionKeyInfo().getKeyInfoCase();
-
-    String dekAlias = keys.getWrappedKeyColumns().getEncryptedDekColumnAlias();
-    String kekAlias = keys.getWrappedKeyColumns().getKekUriColumnAlias();
-    Optional<String> wipAlias = maybeGetWipAlias(keys, encryptionMetadata.getEncryptionKeyInfo());
-
-    String coordAlias = keys.getCoordinatorKeyColumn().getCoordinatorKeyColumnAlias();
+      EncryptionKeyColumns matchConfigKeys,
+      List<Column> columns,
+      EncryptionMetadata encryptionMetadata) {
     var columnsBuilder = DataRecordEncryptionColumns.newBuilder();
     for (int i = 0; i < columns.size(); ++i) {
       Column column = columns.get(i);
@@ -79,7 +68,15 @@ public abstract class BaseDataReader implements DataReader {
       }
       // TODO(b/410914524): Proto defaults for aliases could cause collision of metadata and
       // encryption columns
+      KeyInfoCase keyType = encryptionMetadata.getEncryptionKeyInfo().getKeyInfoCase();
       if (keyType == WRAPPED_KEY_INFO && column.hasColumnAlias()) {
+        String dekAlias = matchConfigKeys.getWrappedKeyColumns().getEncryptedDekColumnAlias();
+        String kekAlias = matchConfigKeys.getWrappedKeyColumns().getKekUriColumnAlias();
+        Optional<String> wipAlias =
+            maybeGetWipAlias(matchConfigKeys, encryptionMetadata.getEncryptionKeyInfo());
+        Optional<String> roleArnAlias =
+            maybeGetRoleArnAlias(matchConfigKeys, encryptionMetadata.getEncryptionKeyInfo());
+
         if (column.getColumnAlias().equalsIgnoreCase(dekAlias)) {
           columnsBuilder
               .getEncryptionKeyColumnIndicesBuilder()
@@ -99,7 +96,17 @@ public abstract class BaseDataReader implements DataReader {
               .setGcpColumnIndices(
                   GcpWrappedKeyColumnIndices.newBuilder().setWipProviderIndex(i).build());
         }
+        if (roleArnAlias.isPresent()
+            && column.getColumnAlias().equalsIgnoreCase(roleArnAlias.get())) {
+          columnsBuilder
+              .getEncryptionKeyColumnIndicesBuilder()
+              .getWrappedKeyColumnIndicesBuilder()
+              .setAwsColumnIndices(
+                  AwsWrappedKeyColumnIndices.newBuilder().setRoleArnIndex(i).build());
+        }
       } else if (keyType == COORDINATOR_KEY_INFO && column.hasColumnAlias()) {
+        String coordAlias =
+            matchConfigKeys.getCoordinatorKeyColumn().getCoordinatorKeyColumnAlias();
         if (column.getColumnAlias().equalsIgnoreCase(coordAlias)) {
           columnsBuilder
               .getEncryptionKeyColumnIndicesBuilder()
@@ -127,15 +134,7 @@ public abstract class BaseDataReader implements DataReader {
 
   /** Determine if the error code represents a row level error. */
   protected static boolean isRowLevelError(JobResultCode errorCode) {
-    return errorCode == DECODING_ERROR
-        || errorCode == DEK_DECRYPTION_ERROR
-        || errorCode == DECRYPTION_ERROR
-        || errorCode == DEK_MISSING_IN_RECORD
-        || errorCode == KEK_MISSING_IN_RECORD
-        || errorCode == WIP_MISSING_IN_RECORD
-        || errorCode == COORDINATOR_KEY_MISSING_IN_RECORD
-        || errorCode == INVALID_WIP_PARAMETER
-        || errorCode == WIP_AUTH_FAILED;
+    return errorCode.getNumber() > 200;
   }
 
   /** Determine if the exception is caused by the input stream. */
@@ -146,25 +145,47 @@ public abstract class BaseDataReader implements DataReader {
 
   /** Only fetch WIP alias if needed */
   private static Optional<String> maybeGetWipAlias(
-      EncryptionKeyColumns keys, EncryptionKeyInfo encryptionKeyInfo) {
-    // Return empty if not a Wrapped Key or if it is a WrappedKey with existing WIP
-    if (!encryptionKeyInfo.hasWrappedKeyInfo()
-        || (encryptionKeyInfo.getWrappedKeyInfo().hasGcpWrappedKeyInfo()
-            && !encryptionKeyInfo
-                .getWrappedKeyInfo()
-                .getGcpWrappedKeyInfo()
-                .getWipProvider()
-                .isBlank())) {
+      EncryptionKeyColumns matchConfigKeys, EncryptionKeyInfo requestKeyInfo) {
+    // Return empty if not a Wrapped Key or a GCP wrappedKey
+    if (!requestKeyInfo.hasWrappedKeyInfo()
+        || !requestKeyInfo.getWrappedKeyInfo().hasGcpWrappedKeyInfo()) {
       return Optional.empty();
     }
-    // If WIP is not in request, it must be at the column-level
-    else if (!keys.getWrappedKeyColumns().hasGcpWrappedKeyColumns()) {
+    // Return empty if WIP is at the request level
+    if (!requestKeyInfo.getWrappedKeyInfo().getGcpWrappedKeyInfo().getWipProvider().isBlank()) {
+      return Optional.empty();
+    }
+    // WIP can now only be at the row level, so try to get alias from match config
+    if (!matchConfigKeys.getWrappedKeyColumns().hasGcpWrappedKeyColumns()) {
       String msg = "WIP missing in request and no WIP column in match config.";
       logger.error(msg);
       throw new JobProcessorException(msg, ENCRYPTION_COLUMNS_CONFIG_ERROR);
     } else {
       return Optional.of(
-          keys.getWrappedKeyColumns().getGcpWrappedKeyColumns().getWipProviderAlias());
+          matchConfigKeys.getWrappedKeyColumns().getGcpWrappedKeyColumns().getWipProviderAlias());
+    }
+  }
+
+  /** Only fetch Role ARN alias if needed */
+  private static Optional<String> maybeGetRoleArnAlias(
+      EncryptionKeyColumns matchConfigKeys, EncryptionKeyInfo requestKeyInfo) {
+    // Return empty if not a Wrapped Key or an AWS wrappedKey
+    if (!requestKeyInfo.hasWrappedKeyInfo()
+        || !requestKeyInfo.getWrappedKeyInfo().hasAwsWrappedKeyInfo()) {
+      return Optional.empty();
+    }
+    // Return empty if Role ARN is at the request level
+    if (!requestKeyInfo.getWrappedKeyInfo().getAwsWrappedKeyInfo().getRoleArn().isBlank()) {
+      return Optional.empty();
+    }
+    // RoleARN can now only be at the row level, so try to get alias from match config
+    if (!matchConfigKeys.getWrappedKeyColumns().hasAwsWrappedKeyColumns()) {
+      String msg = "Role ARN missing in request and no Role ARN  column in match config.";
+      logger.error(msg);
+      throw new JobProcessorException(msg, ENCRYPTION_COLUMNS_CONFIG_ERROR);
+    } else {
+      return Optional.of(
+          matchConfigKeys.getWrappedKeyColumns().getAwsWrappedKeyColumns().getRoleArnAlias());
     }
   }
 
@@ -195,7 +216,7 @@ public abstract class BaseDataReader implements DataReader {
           errorCode == DECODING_ERROR
               ? "Failed to decode column \"" + column.getColumnName() + "\""
               : "Unable to decrypt column \"" + column.getColumnName() + "\"";
-      getLogger().error(message, ex);
+      getLogger().info(message, ex);
       if (rowLevelErrorsAllowed && isRowLevelError(errorCode)) {
         return new DecryptionResult(
             value, Optional.of(errorCode), /* decryptionSuccessful */ false);

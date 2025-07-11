@@ -24,6 +24,7 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INPUT_F
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_INPUT_FILE_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.KEK_MISSING_IN_RECORD;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.MISSING_ENCRYPTION_COLUMN;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.ROLE_ARN_MISSING_IN_RECORD;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WIP_MISSING_IN_RECORD;
 import static com.google.cm.mrp.dataprocessor.common.Constants.ROW_MARKER_COLUMN_NAME;
 
@@ -34,6 +35,7 @@ import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncry
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.EncryptionKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.WrappedKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys;
+import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.WrappedEncryptionKeys.AwsWrappedKeys;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.WrappedEncryptionKeys.GcpWrappedKeys;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord.KeyValue;
@@ -180,7 +182,7 @@ public final class SerializedProtoDataReader extends BaseDataReader {
         }
         List<DataRecord> modifiedDataRecords =
             confidentialMatchDataRecordParser.parse(cfmDataRecord).stream()
-                .map(dataRecord -> populateEncryptionKeyValues(dataRecord))
+                .map(this::populateEncryptionKeyValues)
                 .collect(Collectors.toList());
         records.addAll(modifiedDataRecords);
       }
@@ -228,6 +230,7 @@ public final class SerializedProtoDataReader extends BaseDataReader {
       // If the encryption keys are present, so is the decrypter
       encryptionKeys = decrypter.map(d -> d.getEncryptionKeyValues(dataRecord));
     } catch (JobProcessorException ex) {
+      logger.info("JobProcessorException when getting encryption values: ", ex);
       JobResultCode errorCode = getErrorCode(ex);
       if (decrypter.map(SerializedProtoDataDecrypter::getRowLevelErrorsAllowed).orElse(false)
           && isRowLevelError(errorCode)) {
@@ -355,6 +358,18 @@ public final class SerializedProtoDataReader extends BaseDataReader {
             keysBuilder
                 .getWrappedEncryptionKeysBuilder()
                 .setGcpWrappedKeys(GcpWrappedKeys.newBuilder().setWipProvider(wipValue));
+          } else if (wrappedKeyIndices.hasAwsColumnIndices()) {
+            String roleValue =
+                dataRecord
+                    .getKeyValues(wrappedKeyIndices.getAwsColumnIndices().getRoleArnIndex())
+                    .getStringValue();
+            if (roleValue.isBlank()) {
+              throw new JobProcessorException(
+                  ROLE_ARN_MISSING_IN_RECORD.name(), ROLE_ARN_MISSING_IN_RECORD);
+            }
+            keysBuilder
+                .getWrappedEncryptionKeysBuilder()
+                .setAwsWrappedKeys(AwsWrappedKeys.newBuilder().setRoleArn(roleValue));
           }
 
           keysBuilder.getWrappedEncryptionKeysBuilder().setEncryptedDek(dek);
@@ -373,8 +388,7 @@ public final class SerializedProtoDataReader extends BaseDataReader {
           }
           keysBuilder.getCoordinatorKeyBuilder().setKeyId(coordKey);
         }
-        DataRecordEncryptionKeys encryptionKeys = keysBuilder.build();
-        return encryptionKeys;
+        return keysBuilder.build();
       } catch (NoSuchElementException ex) {
         // Should never be thrown
         String message = "Encryption columns were not found in the schema.";

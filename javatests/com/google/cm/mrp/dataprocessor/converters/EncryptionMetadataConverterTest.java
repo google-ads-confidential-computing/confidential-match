@@ -34,6 +34,7 @@ import com.google.cm.mrp.api.EncryptionMetadataProto.EncryptionMetadata.WrappedK
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.CoordinatorKey;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.WrappedEncryptionKeys;
+import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.WrappedEncryptionKeys.AwsWrappedKeys;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.WrappedEncryptionKeys.GcpWrappedKeys;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.AwsWrappedKeyInfo;
@@ -375,6 +376,39 @@ public class EncryptionMetadataConverterTest {
     assertThat(result.getWrappedKeyInfo().getEncryptedDek()).isEqualTo(dek);
     assertThat(result.getWrappedKeyInfo().getKekKmsResourceId()).isEqualTo(kek);
     assertThat(result.getWrappedKeyInfo().getAwsWrappedKeyInfo().getAudience()).isEqualTo(audience);
+    assertThat(result.getWrappedKeyInfo().getAwsWrappedKeyInfo().getRoleArn()).isEqualTo(role);
+  }
+
+  @Test
+  public void convertToLookupEncryptionKeyInfo_awsWrappedKeyInDataRecord_success() {
+    EncryptionMetadata encryptionMetadata =
+        EncryptionMetadata.newBuilder()
+            .setEncryptionKeyInfo(
+                EncryptionMetadata.EncryptionKeyInfo.newBuilder()
+                    .setWrappedKeyInfo(
+                        EncryptionMetadata.WrappedKeyInfo.newBuilder()
+                            .setKeyType(XCHACHA20_POLY1305)
+                            .setAwsWrappedKeyInfo(AwsWrappedKeyInfo.newBuilder().setRoleArn(("")))))
+            .build();
+    String dek = "testDek";
+    String kek = "testKek";
+    String role = "testRole";
+    var dataRecordEncryptionKeys =
+        DataRecordEncryptionKeys.newBuilder()
+            .setWrappedEncryptionKeys(
+                WrappedEncryptionKeys.newBuilder()
+                    .setEncryptedDek(dek)
+                    .setKekUri(kek)
+                    .setAwsWrappedKeys(AwsWrappedKeys.newBuilder().setRoleArn(role)))
+            .build();
+
+    var result =
+        EncryptionMetadataConverter.convertToLookupEncryptionKeyInfo(
+            dataRecordEncryptionKeys, encryptionMetadata);
+
+    assertThat(result.getWrappedKeyInfo().getKeyType()).isEqualTo(KEY_TYPE_XCHACHA20_POLY1305);
+    assertThat(result.getWrappedKeyInfo().getEncryptedDek()).isEqualTo(dek);
+    assertThat(result.getWrappedKeyInfo().getKekKmsResourceId()).isEqualTo(kek);
     assertThat(result.getWrappedKeyInfo().getAwsWrappedKeyInfo().getRoleArn()).isEqualTo(role);
   }
 

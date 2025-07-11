@@ -326,6 +326,31 @@ public final class CsvDataReaderTest {
   }
 
   @Test
+  public void next_whenInvalidDataInFirstRowThenThrows() throws Exception {
+    try (DataReader dataReader =
+        new CsvDataReader(
+            1000,
+            Objects.requireNonNull(
+                getClass().getResourceAsStream("testdata/invalid_quotes_first_record.csv")),
+            ProtoUtils.getProtoFromJson(
+                Resources.toString(
+                    Objects.requireNonNull(
+                        getClass()
+                            .getResource("/com/google/cm/mrp/dataprocessor/testdata/schema.json")),
+                    UTF_8),
+                Schema.class),
+            "test",
+            SuccessMode.ONLY_COMPLETE_SUCCESS)) {
+
+      JobProcessorException ex = assertThrows(JobProcessorException.class, dataReader::hasNext);
+
+      assertThat(ex)
+          .hasMessageThat()
+          .isEqualTo("Could not read CSV file, make sure input data is correct.");
+    }
+  }
+
+  @Test
   public void next_whenGcsReadErrorThenRetry() throws Exception {
     when(mockFileInputStream.read(any(), anyInt(), anyInt()))
         .thenThrow(new IOException("GCS error", new StorageException(1, "Test Error")));

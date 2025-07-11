@@ -118,8 +118,15 @@ message MatchConfig {
         string wip_provider_alias = 1;
       }
 
+      message AwsWrappedKeyColumns {
+        string role_arn_alias = 1;
+      }
+
       // GCP-specific columns
       optional GcpWrappedKeyColumns gcp_wrapped_key_columns = 3;
+
+      // AWS-specific columns
+      optional AwsWrappedKeyColumns aws_wrapped_key_columns = 4;
     }
 
     message CoordinatorKeyColumn {

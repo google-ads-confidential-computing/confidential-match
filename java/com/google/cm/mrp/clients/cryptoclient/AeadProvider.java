@@ -16,11 +16,8 @@
 
 package com.google.cm.mrp.clients.cryptoclient;
 
-import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_DECRYPTION_ERROR;
-
-import com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode;
+import com.google.cm.mrp.clients.cryptoclient.exceptions.AeadProviderException;
 import com.google.cm.mrp.clients.cryptoclient.models.AeadProviderParameters;
-import com.google.cm.mrp.models.JobResultCodeException;
 import com.google.crypto.tink.Aead;
 import com.google.crypto.tink.KeysetHandle;
 import com.google.crypto.tink.KeysetReader;
@@ -36,63 +33,4 @@ public interface AeadProvider extends Closeable {
 
   /** Reads the KeysetHandle from a given DEK reader and the KEK AEAD */
   KeysetHandle readKeysetHandle(KeysetReader dekReader, Aead kekAead) throws AeadProviderException;
-
-  /** Checked exception to contain AeadProvider errors */
-  class AeadProviderException extends Exception implements JobResultCodeException {
-    private final JobResultCode jobResultCode;
-
-    public AeadProviderException(Throwable cause) {
-      super(cause);
-      this.jobResultCode = DEK_DECRYPTION_ERROR;
-    }
-
-    public AeadProviderException(String message) {
-      super(message);
-      this.jobResultCode = DEK_DECRYPTION_ERROR;
-    }
-
-    public AeadProviderException(String message, Throwable cause) {
-      super(message, cause);
-      this.jobResultCode = DEK_DECRYPTION_ERROR;
-    }
-
-    public AeadProviderException(String message, Throwable cause, JobResultCode jobResultCode) {
-      super(message, cause);
-      this.jobResultCode = jobResultCode;
-    }
-
-    public JobResultCode getJobResultCode() {
-      return jobResultCode;
-    }
-  }
-
-  /** Unchecked exception to contain AeadProvider errors. Useful to throw in lambdas */
-  class UncheckedAeadProviderException extends RuntimeException implements JobResultCodeException {
-    private final JobResultCode jobResultCode;
-
-    public UncheckedAeadProviderException(Throwable cause) {
-      super(cause);
-      this.jobResultCode = DEK_DECRYPTION_ERROR;
-    }
-
-    public UncheckedAeadProviderException(String message) {
-      super(message);
-      this.jobResultCode = DEK_DECRYPTION_ERROR;
-    }
-
-    public UncheckedAeadProviderException(String message, Throwable cause) {
-      super(message, cause);
-      this.jobResultCode = DEK_DECRYPTION_ERROR;
-    }
-
-    public UncheckedAeadProviderException(
-        String message, Throwable cause, JobResultCode jobResultCode) {
-      super(message, cause);
-      this.jobResultCode = jobResultCode;
-    }
-
-    public JobResultCode getJobResultCode() {
-      return jobResultCode;
-    }
-  }
 }

@@ -34,6 +34,7 @@ import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncry
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.CoordinatorKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.EncryptionKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.WrappedKeyColumnIndices;
+import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.WrappedKeyColumnIndices.AwsWrappedKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns.WrappedKeyColumnIndices.GcpWrappedKeyColumnIndices;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys.CoordinatorKey;
@@ -213,6 +214,7 @@ public final class DataSourceFormatterImpl implements DataSourceFormatter {
           throw new JobProcessorException(msg, INVALID_PARAMETERS);
         }
 
+        // TODO(b/428278366): consolidate column parsing logic
         WrappedKeyColumns wrappedKeyColumns = encryptionKeyColumns.getWrappedKeyColumns();
         var wrappedKeyIndicesBuilder =
             WrappedKeyColumnIndices.newBuilder()
@@ -253,6 +255,31 @@ public final class DataSourceFormatterImpl implements DataSourceFormatter {
                               () ->
                                   new JobProcessorException(
                                       "WIP missing in request and no WIP column in schema.",
+                                      MISSING_ENCRYPTION_COLUMN))));
+        }
+        // For AWS, if Role ARN is not in request, then try to get it from the schema
+        else if (encryptionKeyInfo.getWrappedKeyInfo().hasAwsWrappedKeyInfo()
+            && encryptionKeyInfo
+                .getWrappedKeyInfo()
+                .getAwsWrappedKeyInfo()
+                .getRoleArn()
+                .isBlank()) {
+          // Check Role ARN alias exists in matchConfig
+          if (!wrappedKeyColumns.hasAwsWrappedKeyColumns()) {
+            String msg = "Role ARN missing in request and no Role ARN alias in match config.";
+            logger.error(msg);
+            throw new JobProcessorException(msg, ENCRYPTION_COLUMNS_CONFIG_ERROR);
+          }
+          wrappedKeyIndicesBuilder.setAwsColumnIndices(
+              AwsWrappedKeyColumnIndices.newBuilder()
+                  .setRoleArnIndex(
+                      getEncryptionKeyColumnIndex(
+                              schema, wrappedKeyColumns.getAwsWrappedKeyColumns().getRoleArnAlias())
+                          .orElseThrow(
+                              () ->
+                                  new JobProcessorException(
+                                      "Role ARN missing in request and no Role ARN column in"
+                                          + " schema.",
                                       MISSING_ENCRYPTION_COLUMN))));
         }
         encryptionKeyColumnIndicesBuilder.setWrappedKeyColumnIndices(wrappedKeyIndicesBuilder);
@@ -315,6 +342,12 @@ public final class DataSourceFormatterImpl implements DataSourceFormatter {
                 int wipIndex = wrappedKeyColumnIndices.getGcpColumnIndices().getWipProviderIndex();
                 encryptionKeyIndicesMapBuilder.put(
                     schema.getColumns(wipIndex).getColumnName(), wipIndex);
+              }
+              // Check if Role ARN is in row
+              if (wrappedKeyColumnIndices.hasAwsColumnIndices()) {
+                int roleArnIndex = wrappedKeyColumnIndices.getAwsColumnIndices().getRoleArnIndex();
+                encryptionKeyIndicesMapBuilder.put(
+                    schema.getColumns(roleArnIndex).getColumnName(), roleArnIndex);
               }
               break;
             case COORDINATOR_KEY_COLUMN_INDICES:

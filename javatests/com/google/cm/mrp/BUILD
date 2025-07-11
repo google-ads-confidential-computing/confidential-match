@@ -155,6 +155,7 @@ java_test(
         "//java/external:mockserver_core",
         "//java/external:mockserver_junit_rule",
         "//java/external:operator_frontend_protos",
+        "//java/external:protobuf_java",
         "//java/external:shared_proto",
         "//java/external:shared_util",
         "//java/external:slf4j",

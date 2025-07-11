@@ -25,6 +25,8 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.TINK_RE
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys;
+import com.google.cm.mrp.clients.cryptoclient.exceptions.AeadProviderException;
+import com.google.cm.mrp.clients.cryptoclient.utils.GcpProviderUtils;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -38,6 +40,7 @@ import com.google.scp.operator.cpio.cryptoclient.HybridEncryptionKeyService;
 import com.google.scp.operator.cpio.cryptoclient.HybridEncryptionKeyService.KeyFetchException;
 import java.io.IOException;
 import java.security.GeneralSecurityException;
+import java.util.Optional;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
@@ -67,7 +70,7 @@ public final class HybridCryptoClient extends BaseCryptoClient {
                     HybridEncrypt encrypter = decryptionKeyService.getEncrypter(keyId);
                     return new HybridPair(encrypter, decrypter);
                   } catch (KeyFetchException e) {
-                    throwIfWipFailure(e);
+                    throwIfWipFailure(keyId, e);
                     logger.warn(
                         String.format(
                             "%s error when fetching the primitives for the key %s",
@@ -77,7 +80,7 @@ public final class HybridCryptoClient extends BaseCryptoClient {
                       case KEY_NOT_FOUND:
                       case KEY_DECRYPTION_ERROR:
                       case INVALID_ARGUMENT:
-                        invalidDecrypters.add(keyId);
+                        invalidDecrypters.put(keyId, DECRYPTION_ERROR);
                         logger.warn(
                             "Coordinator key could not be used. Will not be retried in job.");
                         throw new CryptoClientException(e, DECRYPTION_ERROR);
@@ -97,6 +100,20 @@ public final class HybridCryptoClient extends BaseCryptoClient {
                   }
                 }
               });
+
+  private void throwIfWipFailure(String keyId, KeyFetchException exception)
+      throws CryptoClientException {
+    Optional<AeadProviderException> wipExceptionOpt =
+        GcpProviderUtils.tryParseWipException(exception);
+    if (wipExceptionOpt.isPresent()) {
+      var wipException = wipExceptionOpt.get();
+      invalidDecrypters.put(keyId, wipException.getJobResultCode());
+      logger.warn(
+          "Coordinator split key could not be decrypted due to a configuration WIP failure. Will"
+              + " not be retried.");
+      throw new CryptoClientException(wipException, wipException.getJobResultCode());
+    }
+  }
 
   private final HybridEncryptionKeyService decryptionKeyService;
 
@@ -158,9 +175,9 @@ public final class HybridCryptoClient extends BaseCryptoClient {
    * according to the specified cache size and expiration time.
    */
   private HybridDecrypt getDecrypter(String keyID) throws CryptoClientException {
-    if (invalidDecrypters.contains(keyID)) {
+    if (invalidDecrypters.containsKey(keyID)) {
       throw new CryptoClientException(
-          new RuntimeException("Key " + keyID + " is invalid."), DECRYPTION_ERROR);
+          new RuntimeException("Key " + keyID + " is invalid."), invalidDecrypters.get(keyID));
     }
     try {
       return cache.get(keyID).getDecrypter();
@@ -177,9 +194,9 @@ public final class HybridCryptoClient extends BaseCryptoClient {
    * according to the specified cache size and expiration time.
    */
   private HybridEncrypt getEncrypter(String keyID) throws CryptoClientException {
-    if (invalidDecrypters.contains(keyID)) {
+    if (invalidDecrypters.containsKey(keyID)) {
       throw new CryptoClientException(
-          new RuntimeException("Key " + keyID + " is invalid."), DECRYPTION_ERROR);
+          new RuntimeException("Key " + keyID + " is invalid."), invalidDecrypters.get(keyID));
     }
     try {
       return cache.get(keyID).getEncrypter();

@@ -22,6 +22,7 @@ java_test(
     resources = [
         "testdata/gtag_coordinator_schema.json",
         "testdata/input_data.csv",
+        "testdata/invalid_quotes_first_record.csv",
         "testdata/invalid_quotes_in_records.csv",
         "testdata/mic_ecw_encoded_schema.json",
         "testdata/too_few_columns_in_record_row.csv",
@@ -63,6 +64,7 @@ java_test(
         "testdata/mic_proto_schema_encrypted.json",
         "testdata/mic_proto_schema_unencrypted.json",
         "testdata/mic_proto_schema_wrapped_encrypted.json",
+        "testdata/mic_proto_schema_wrapped_with_aws_role_arn_encrypted.json",
         "testdata/mic_proto_schema_wrapped_with_wip_encrypted.json",
     ],
     deps = [
@@ -97,6 +99,7 @@ java_test(
         "testdata/mic_proto_schema_encrypted.json",
         "testdata/mic_proto_schema_unencrypted.json",
         "testdata/mic_proto_schema_wrapped_encrypted.json",
+        "testdata/mic_proto_schema_wrapped_with_aws_role_arn_encrypted.json",
         "testdata/mic_proto_schema_wrapped_with_wip_encrypted.json",
         "//javatests/com/google/cm/mrp/dataprocessor/testdata",
     ],
