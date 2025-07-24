@@ -41,6 +41,7 @@ java_test(
         "//java/com/google/cm/mrp/dataprocessor/models",
         "//java/com/google/cm/util",
         "//java/external:google_truth",
+        "//java/external:guava",
         "//java/external:mockito",
         "//protos/mrp/backend:java_proto",
     ],
@@ -66,6 +67,7 @@ java_test(
         "//java/com/google/cm/mrp/dataprocessor/formatters",
         "//java/com/google/cm/util",
         "//java/external:google_truth",
+        "//java/external:guava",
         "//protos/mrp/backend:java_proto",
     ],
 )
@@ -93,6 +95,7 @@ java_test(
         "//java/com/google/cm/mrp/dataprocessor/formatters",
         "//java/com/google/cm/util",
         "//java/external:google_truth",
+        "//java/external:guava",
         "//java/external:mockito",
         "//javatests/com/google/cm/mrp/testutils",
         "//protos/mrp/backend:java_proto",
@@ -105,6 +108,7 @@ java_test(
     deps = [
         "//java/com/google/cm/mrp/dataprocessor/formatters",
         "//java/external:google_truth",
+        "//java/external:guava",
         "//protos/mrp/backend:java_proto",
     ],
 )
@@ -120,6 +124,7 @@ java_test(
         "//java/com/google/cm/mrp/dataprocessor/formatters",
         "//java/com/google/cm/util",
         "//java/external:google_truth",
+        "//java/external:guava",
         "//protos/mrp/backend:java_proto",
     ],
 )

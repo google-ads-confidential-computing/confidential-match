@@ -24,7 +24,7 @@ import org.testcontainers.utility.MountableFile;
 /** Class for creating and accessing a container running a Cloud Function emulator. */
 public final class CloudFunctionEmulator extends TestingContainer<CloudFunctionEmulator> {
 
-  private static final String INVOKER_JAR_FILENAME = "java-function-invoker-1.3.1.jar";
+  private static final String INVOKER_JAR_FILENAME = "processed_java-function-invoker-1.3.1.jar";
   private static final String INVOKER_JAR_PATH =
       "external/maven/v1/https/repo1.maven.org/maven2/"
           + "com/google/cloud/functions/invoker/java-function-invoker/1.3.1/"
@@ -36,8 +36,7 @@ public final class CloudFunctionEmulator extends TestingContainer<CloudFunctionE
       String functionFilename, String functionJarPath, String functionClassTarget) {
     super(JAVA_BASE);
     withExposedPorts(INVOKER_PORT);
-    withCopyFileToContainer(
-        MountableFile.forHostPath(INVOKER_JAR_PATH), INVOKER_JAR_FILENAME);
+    withCopyFileToContainer(MountableFile.forHostPath(INVOKER_JAR_PATH), INVOKER_JAR_FILENAME);
     withCopyFileToContainer(
         MountableFile.forHostPath(functionJarPath + functionFilename), functionFilename);
     withCommand(

@@ -26,6 +26,7 @@ java_test(
         "//java/com/google/cm/util",
         "//java/external:google_http_client",
         "//java/external:google_truth",
+        "//java/external:guava",
         "//java/external:mockito",
         "//protos/lookup_server/api:java_proto",
         "//protos/mrp/backend:java_proto",
@@ -47,9 +48,9 @@ java_test(
         "//java/com/google/cm/util",
         "//java/external:apache_httpclient5",
         "//java/external:google_truth",
+        "//java/external:guava",
         "//java/external:log4j_core",
         "//java/external:mockito",
-        "//java/external:mockito_inline",
         "//protos/lookup_server/api:java_proto",
     ],
 )

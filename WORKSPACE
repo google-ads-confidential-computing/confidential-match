@@ -19,7 +19,7 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_file"
 # Download all http_archives and git_repositories: Begin
 ################################################################################
 
-SCP_VERSION = "v0.295.0"  # latest as of Tue Jun 10 02:42:39 2025 +0000
+SCP_VERSION = "v0.309.0"  # latest as of Tue Jul 08 05:37:59 2025 +0000
 
 SCP_REPOSITORY = "https://github.com/google-ads-confidential-computing/conf-data-processing-architecture-reference"
 
@@ -32,8 +32,8 @@ git_repository(
 ################################################################################
 # Rules JVM External: Begin
 ################################################################################
-RULES_JVM_EXTERNAL_TAG = "4.4"
-RULES_JVM_EXTERNAL_SHA = "0068b92a1527799d7268f6774654ed35024a660c6c68ac1f8011edade905929d"
+RULES_JVM_EXTERNAL_TAG = "6.6"
+RULES_JVM_EXTERNAL_SHA = "ec60d258e6f55a1014368e40ca52058b1a645a3d455ca471c4edb7c03f4b8d88"
 http_archive(
     name = "rules_jvm_external",
     sha256 = RULES_JVM_EXTERNAL_SHA,
@@ -154,11 +154,6 @@ switched_rules_by_language(
     grpc = True,
 )
 
-# Boost
-load("@com_github_nelhage_rules_boost//:boost/boost.bzl", "boost_deps")
-
-boost_deps()
-
 load("@rules_foreign_cc//foreign_cc:repositories.bzl", "rules_foreign_cc_dependencies")
 
 rules_foreign_cc_dependencies()
@@ -215,6 +210,11 @@ load("@io_opentelemetry_cpp//bazel:extra_deps.bzl", "opentelemetry_extra_deps")
 
 opentelemetry_extra_deps()
 
+# Load rules_boost deps after opentelemetry to avoid zlib errors
+load("@com_github_nelhage_rules_boost//:boost/boost.bzl", "boost_deps")
+
+boost_deps()
+
 ################################################################################
 # Download Indirect Dependencies: End
 ################################################################################
@@ -223,6 +223,7 @@ opentelemetry_extra_deps()
 # Download Maven Dependencies: Begin
 ################################################################################
 load("@rules_jvm_external//:defs.bzl", "maven_install")
+load("@rules_jvm_external//:specs.bzl", "maven")
 load("@com_google_adm_cloud_scp//build_defs/tink:tink_defs.bzl", "TINK_MAVEN_ARTIFACTS")
 
 JACKSON_VERSION = "2.12.2"
@@ -278,7 +279,6 @@ maven_install(
         "com.google.cloud:google-cloudevent-types:0.14.0",
         "com.google.api.grpc:proto-google-cloud-compute-v1:1.58.0",
         "com.google.api-client:google-api-client:2.7.0",
-        "com.google.apis:google-api-services-cloudkms:v1-rev20240808-2.0.0",
         "com.google.cloud.functions.invoker:java-function-invoker:1.3.1",
         "com.google.auth:google-auth-library-oauth2-http:1.24.1",
         "com.google.cloud.functions:functions-framework-api:1.1.0",
@@ -332,8 +332,7 @@ maven_install(
         "org.mock-server:mockserver-junit-rule:5.15.0",
         "org.mock-server:mockserver-client-java:5.15.0",
         "org.hamcrest:hamcrest-library:1.3",
-        "org.mockito:mockito-core:3.11.2",
-        "org.mockito:mockito-inline:3.11.2",
+        "org.mockito:mockito-core:5.4.0",
         "org.slf4j:slf4j-api:" + SLF4J_VERSION,
         "org.slf4j:slf4j-simple:" + SLF4J_VERSION,
         "org.testcontainers:testcontainers:1.18.1",
@@ -358,6 +357,13 @@ maven_install(
         "software.amazon.awssdk:utils:" + AWS_SDK_VERSION,
         "software.amazon.awssdk:auth:" + AWS_SDK_VERSION,
         "software.amazon.awssdk:lambda:" + AWS_SDK_VERSION,
+        # maven_install can't generate the right url to download this library
+        # with com.google.apis:google-api-services-cloudkms:<version>
+        maven.artifact(
+            group = "com.google.apis",
+            artifact = "google-api-services-cloudkms",
+            version = "v1-rev20240808-2.0.0",
+        ),
     ] + TINK_MAVEN_ARTIFACTS,
     repositories = [
         "https://repo1.maven.org/maven2",
@@ -382,18 +388,20 @@ gazelle_dependencies()
 ###################
 # Container rules #
 ###################
-load(
-    "@io_bazel_rules_docker//repositories:repositories.bzl",
-    container_repositories = "repositories",
+http_archive(
+    name = "rules_oci",
+    sha256 = "5994ec0e8df92c319ef5da5e1f9b514628ceb8fc5824b4234f2fe635abb8cc2e",
+    strip_prefix = "rules_oci-2.2.6",
+    url = "https://github.com/bazel-contrib/rules_oci/releases/download/v2.2.6/rules_oci-v2.2.6.tar.gz",
 )
 
-container_repositories()
+load("@rules_oci//oci:dependencies.bzl", "rules_oci_dependencies")
 
-load("@io_bazel_rules_docker//repositories:deps.bzl", container_deps = "deps")
+rules_oci_dependencies()
 
-container_deps()
+load("@rules_oci//oci:repositories.bzl", "oci_register_toolchains")
 
-load("@io_bazel_rules_docker//container:container.bzl", "container_pull")
+oci_register_toolchains(name = "oci")
 
 #############
 # PKG rules #
@@ -406,51 +414,50 @@ rules_pkg_dependencies()
 # Download Containers: Begin
 ################################################################################
 
+load("@rules_oci//oci:pull.bzl", "oci_pull")
+
+# To get an image's latest digest, run the following command after replacing the
+# image repository link, and only include a tag when specified in a comment:
+#  crane digest <repository full link> --platform=linux/amd64
+
 # Base Images
 
 # Base image for the MRP and some tests
-container_pull(
+oci_pull(
     name = "java_base",
-    digest = "sha256:d0ca593abaf2415c6828cad12c5cc8757d1ca7f50d544233ef442f85f9a9fae1",
-    registry = "gcr.io",
-    repository = "distroless/java17-debian12",
+    digest = "sha256:bcc3b8fc7f5abea2efaa3a81e7ddffc2424e9c1f053561a327008d9aee29dda8",
+    image = "gcr.io/distroless/java21-debian12",
 )
 
 # Base layer of the lookup server base and builder images
-container_pull(
+oci_pull(
     name = "debian12_base",
-    digest = "sha256:1c62ac5d3b7b18ddbbda0f8a49f4d734a9ad21df68531f8f59f73babf28a9050",
-    registry = "marketplace.gcr.io",
-    repository = "google/debian12",
+    digest = "sha256:2ca479fe972e71088bb83fd0b0c300c537935a6f2eefd56f429947d5707fa26c",
+    image = "marketplace.gcr.io/google/debian12",
 )
 
 # Testing Images
 
 # https://github.com/GoogleCloudPlatform/cloud-sdk-docker
-container_pull(
+# Tag: emulators
+oci_pull(
    name = "pubsub_emulator",
-   digest = "sha256:5f77874cdfa9c6b53ad13948af5b52dc7e96404ab9403af9f4005af150e584d4",
-   registry = "gcr.io",
-   repository = "google.com/cloudsdktool/google-cloud-cli",
-   tag = "emulators",
+   digest = "sha256:e71213061230d222941d4107b92cc2889507a832f076de24b822fc2f7f137f2c",
+   image = "gcr.io/google.com/cloudsdktool/google-cloud-cli",
 )
 
 # https://github.com/GoogleCloudPlatform/cloud-spanner-emulator
-container_pull(
+oci_pull(
    name = "spanner_emulator",
-   digest = "sha256:11b3615343c74d3c4ef7c4668305a87e2cab287dcab89fe2570e8d4d91938927",
-   registry = "gcr.io",
-   repository = "cloud-spanner-emulator/emulator",
-   tag = "1.5.25",
+   digest = "sha256:84871f164cfb6f5cc1776671286f7f2006399ddb99bc714d651bce61db427b82",
+   image = "gcr.io/cloud-spanner-emulator/emulator",
 )
 
 # https://github.com/googleapis/storage-testbench
-container_pull(
+oci_pull(
    name = "gcs_emulator",
-   digest = "sha256:83e66a19feaa97c412747a071220a5a3b09c08432ce72d297b6974d9f0bed5e9",
-   registry = "gcr.io",
-   repository = "cloud-devrel-public-resources/storage-testbench",
-   tag = "v0.49.0",
+   digest = "sha256:bfe7af2ecf0c6b1ea0188e938953ec81a49555c4e1ba7d18f43c331723b4d6b0",
+   image = "gcr.io/cloud-devrel-public-resources/storage-testbench",
 )
 
 ################################################################################

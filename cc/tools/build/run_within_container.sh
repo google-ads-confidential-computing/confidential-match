@@ -18,8 +18,8 @@
 #
 # Usage: run_within_container.sh [<bazel image tar target>|<bazel test targets>]
 #
-# If the first target ends in ".tar", the script will assume it is an image
-# target, building it and then loading it into Docker. Otherwise, the targets
+# If the first target ends in ".tar" or "_load", the script will assume it is an
+# image, building it and then loading it into Docker. Otherwise, the targets
 # will be run as Bazel tests. All targets are relative to the Bazel workspace
 # directory.
 #
@@ -49,7 +49,7 @@ fi
 cd "${BASH_SOURCE[0]%/*}/../../.."
 
 # Load the builder image as bazel/cc/tools/build:container_to_build_cc
-bazel run //cc/tools/build:container_to_build_cc
+bazel run //cc/tools/build:container_to_build_cc_load
 
 # Pull the SCP repository with Bazel, so it can be mounted to the container
 bazel sync --only=com_google_adm_cloud_scp
@@ -90,12 +90,10 @@ container_init_command="
   bazel sync --only=com_google_adm_cloud_scp
   "
 
-# If there is one arg that ends in ".tar", build it and load it into Docker
+# If the first arg ends in ".tar" or "_load", build it and load it into Docker
 # Otherwise, treat args as "bazel test" arguments
-if [[ "$1" == *.tar ]]; then
-  rm -f "${out_dir}/image.tar"
-  bazel_command="bazel build $1 && cp -f \"\$(bazel info execution_root)/\$(
-    bazel cquery --output=files $1)\" \"${out_dir}/image.tar\""
+if [[ "$1" == *.tar || "$1" == *_load ]]; then
+  bazel_command="bazel run ${1/\.tar/_load}"
 else
   bazel_command="bazel test $@"
 fi
@@ -105,16 +103,12 @@ fi
 # * Caches outputs across runs in /tmp/cfm_build_output when on a host OS
 docker run --rm \
   --network host \
+  -v /var/run/docker.sock:/var/run/docker.sock \
   -v "${out_dir}":"${out_dir}" \
   -v "${scp_dir}":/scp:ro \
   -v "$(bazel info workspace)":/src/confidential-match:ro \
   -w /src/confidential-match \
   bazel/cc/tools/build:container_to_build_cc \
   bash -c "${container_init_command} ${bazel_command}"
-
-# If an image was built, load it
-if [[ -f "${out_dir}/image.tar" ]]; then
-  docker load --input "${out_dir}/image.tar"
-fi
 
 echo BUILD SUCCEEDED

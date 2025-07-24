@@ -20,6 +20,7 @@ java_test(
     deps = [
         "//java/com/google/cm/mrp/dataprocessor/transformations",
         "//java/external:google_truth",
+        "//java/external:guava",
         "//protos/mrp/backend:java_proto",
     ],
 )
@@ -36,6 +37,7 @@ java_test(
         "//java/com/google/cm/mrp/models",
         "//java/com/google/cm/util",
         "//java/external:google_truth",
+        "//java/external:guava",
         "//protos/mrp/api:java_proto",
         "//protos/mrp/backend:java_proto",
     ],
@@ -47,6 +49,7 @@ java_test(
     deps = [
         "//java/com/google/cm/mrp/dataprocessor/transformations",
         "//java/external:google_truth",
+        "//java/external:guava",
         "//protos/mrp/backend:java_proto",
     ],
 )
@@ -57,6 +60,7 @@ java_test(
     deps = [
         "//java/com/google/cm/mrp/dataprocessor/transformations",
         "//java/external:google_truth",
+        "//java/external:guava",
         "//protos/mrp/backend:java_proto",
     ],
 )

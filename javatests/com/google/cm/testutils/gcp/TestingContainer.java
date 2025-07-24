@@ -91,7 +91,8 @@ public class TestingContainer<T extends GenericContainer<T>> extends GenericCont
     /** Loads the tar file as a Docker image and returns its name. */
     public DockerImageName load() {
       String imageName = "bazel/javatests/com/google/cm/testutils/gcp:" + name().toLowerCase();
-      String tarFile = "javatests/com/google/cm/testutils/gcp/" + name().toLowerCase() + ".tar";
+      String tarFile =
+          "javatests/com/google/cm/testutils/gcp/" + name().toLowerCase() + "/tarball.tar";
       try (InputStream tarStream = newInputStream(Path.of(tarFile))) {
         DockerClientFactory.instance().client().loadImageCmd(tarStream).exec();
         return DockerImageName.parse(imageName);

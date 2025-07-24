@@ -19,7 +19,8 @@
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/types/span.h"
-#include "cc/public/core/interface/execution_result.h"
+#include "cc/public/core/interface/execution_result_macros.h"
+#include "cc/public/core/interface/execution_result_or_macros.h"
 
 #include "cc/lookup_server/converters/src/error_codes.h"
 #include "cc/lookup_server/converters/src/key_value_converter.h"

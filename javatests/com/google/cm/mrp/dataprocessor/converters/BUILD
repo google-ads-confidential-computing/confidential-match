@@ -49,6 +49,7 @@ java_test(
         "//java/com/google/cm/mrp/dataprocessor/converters",
         "//java/com/google/cm/util",
         "//java/external:google_truth",
+        "//java/external:guava",
         "//protos/mrp/backend:java_proto",
     ],
 )

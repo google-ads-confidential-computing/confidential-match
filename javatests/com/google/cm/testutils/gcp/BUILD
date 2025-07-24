@@ -12,32 +12,68 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@io_bazel_rules_docker//container:container.bzl", "container_image")
+load("@rules_oci//oci:defs.bzl", "oci_load")
 
 package(default_visibility = ["//visibility:public"])
 
-container_image(
+oci_load(
     name = "java_base",
     testonly = True,
-    base = "@java_base//image",
+    image = "@java_base",
+    repo_tags = ["bazel/javatests/com/google/cm/testutils/gcp:java_base"],
+    tags = ["manual"],
 )
 
-container_image(
+filegroup(
+    name = "java_base.tar",
+    srcs = [":java_base"],
+    output_group = "tarball",
+    tags = ["manual"],
+)
+
+oci_load(
     name = "gcs_emulator",
     testonly = True,
-    base = "@gcs_emulator//image",
+    image = "@gcs_emulator",
+    repo_tags = ["bazel/javatests/com/google/cm/testutils/gcp:gcs_emulator"],
+    tags = ["manual"],
 )
 
-container_image(
+filegroup(
+    name = "gcs_emulator.tar",
+    srcs = [":gcs_emulator"],
+    output_group = "tarball",
+    tags = ["manual"],
+)
+
+oci_load(
     name = "pubsub_emulator",
     testonly = True,
-    base = "@pubsub_emulator//image",
+    image = "@pubsub_emulator",
+    repo_tags = ["bazel/javatests/com/google/cm/testutils/gcp:pubsub_emulator"],
+    tags = ["manual"],
 )
 
-container_image(
+filegroup(
+    name = "pubsub_emulator.tar",
+    srcs = [":pubsub_emulator"],
+    output_group = "tarball",
+    tags = ["manual"],
+)
+
+oci_load(
     name = "spanner_emulator",
     testonly = True,
-    base = "@spanner_emulator//image",
+    image = "@spanner_emulator",
+    repo_tags = ["bazel/javatests/com/google/cm/testutils/gcp:spanner_emulator"],
+    tags = ["manual"],
+)
+
+filegroup(
+    name = "spanner_emulator.tar",
+    srcs = [":spanner_emulator"],
+    output_group = "tarball",
+    tags = ["manual"],
 )
 
 java_library(

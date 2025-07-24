@@ -25,7 +25,8 @@
 #include "cc/core/common/uuid/src/uuid.h"
 #include "cc/core/interface/async_context.h"
 #include "cc/core/interface/errors.h"
-#include "cc/public/core/interface/execution_result.h"
+#include "cc/public/core/interface/execution_result_macros.h"
+#include "cc/public/core/interface/execution_result_or_macros.h"
 
 #include "cc/lookup_server/converters/src/key_value_converter.h"
 #include "cc/lookup_server/interface/crypto_key_interface.h"

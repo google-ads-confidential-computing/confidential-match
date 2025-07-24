@@ -219,12 +219,6 @@ alias(
 )
 
 alias(
-    name = "mockito_inline",
-    actual = "@maven//:org_mockito_mockito_inline",
-    visibility = ["//javatests:__subpackages__"],
-)
-
-alias(
     name = "testcontainers",
     actual = "@maven//:org_testcontainers_testcontainers",
 )

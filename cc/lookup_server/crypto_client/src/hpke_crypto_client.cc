@@ -21,7 +21,8 @@
 
 #include "absl/strings/string_view.h"
 #include "cc/core/interface/async_context.h"
-#include "cc/public/core/interface/execution_result.h"
+#include "cc/public/core/interface/execution_result_macros.h"
+#include "cc/public/core/interface/execution_result_or_macros.h"
 #include "cc/public/cpio/proto/crypto_service/v1/crypto_service.pb.h"
 
 #include "cc/lookup_server/crypto_client/src/error_codes.h"

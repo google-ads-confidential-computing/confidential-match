@@ -21,7 +21,8 @@
 #include "cc/core/common/uuid/src/uuid.h"
 #include "cc/core/interface/async_context.h"
 #include "cc/core/interface/async_executor_interface.h"
-#include "cc/public/core/interface/execution_result.h"
+#include "cc/public/core/interface/execution_result_macros.h"
+#include "cc/public/core/interface/execution_result_or_macros.h"
 #include "cc/public/cpio/interface/kms_client/kms_client_interface.h"
 #include "cc/public/cpio/utils/sync_utils/src/sync_utils.h"
 

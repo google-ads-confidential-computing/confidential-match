@@ -33,7 +33,8 @@
 #include "cc/core/interface/errors.h"
 #include "cc/core/interface/streaming_context.h"
 #include "cc/core/interface/type_def.h"
-#include "cc/public/core/interface/execution_result.h"
+#include "cc/public/core/interface/execution_result_macros.h"
+#include "cc/public/core/interface/execution_result_or_macros.h"
 #include "external/tink_cc/proto/tink.pb.h"
 
 #include "cc/lookup_server/match_data_loader/src/error_codes.h"

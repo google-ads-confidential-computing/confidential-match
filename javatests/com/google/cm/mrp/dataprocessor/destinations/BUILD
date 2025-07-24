@@ -25,6 +25,7 @@ java_test(
         "//java/external:clients_blobstorageclient_model",
         "//java/external:clients_metricclient",
         "//java/external:google_truth",
+        "//java/external:guava",
         "//java/external:mockito",
         "//protos/mrp/backend:java_proto",
     ],

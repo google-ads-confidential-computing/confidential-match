@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@io_bazel_rules_docker//container:container.bzl", "container_image", "container_push")
+load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load")
+load("@rules_pkg//:pkg.bzl", "pkg_tar")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -141,9 +142,16 @@ alias(
     actual = ":MatchWorkerRunner_deploy.jar",
 )
 
-container_image(
+pkg_tar(
+    name = "binary_layer",
+    srcs = ["//java/com/google/cm/mrp:MatchWorkerRunnerDeploy"],
+    include_runfiles = True,
+    tags = ["manual"],
+)
+
+oci_image(
     name = "mrp_app_gcp_image",
-    base = "@java_base//image",
+    base = "@java_base",
     cmd = [
         "MatchWorkerRunner_deploy.jar",
         "--blob_storage_client",
@@ -166,10 +174,26 @@ container_image(
         "-XX:MaxRAMPercentage=66.0",
         "-jar",
     ],
-    files = ["//java/com/google/cm/mrp:MatchWorkerRunnerDeploy"],
     labels = {
         "tee.launch_policy.allow_cmd_override": "false",
         "tee.launch_policy.log_redirect": "always",
         "tee.launch_policy.monitoring_memory_allow": "always",
     },
+    tags = ["manual"],
+    tars = [":binary_layer"],
+)
+
+oci_load(
+    name = "mrp_app_gcp_image_load",
+    image = ":mrp_app_gcp_image",
+    repo_tags = ["bazel/java/com/google/cm/mrp:mrp_app_gcp_image"],
+    tags = ["manual"],
+)
+
+# Legacy target for building tar files directly
+filegroup(
+    name = "mrp_app_gcp_image.tar",
+    srcs = [":mrp_app_gcp_image_load"],
+    output_group = "tarball",
+    tags = ["manual"],
 )

@@ -17,18 +17,18 @@ which provides a technical guarantee about how the data is processed.
 Confidential Match source code and images are built with the following
 dependencies:
 
-* Debian 11 (Bullseye) on x86_64
-* Docker Engine 20.10.21
+* Debian 12 (Bookworm) on x86_64
+* Docker Engine 20.10.24
     * https://docs.docker.com/engine/install/debian/#install-using-the-repository
     * https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user
 * Bazel 6.4.0
     * https://bazel.build/versions/6.4.0/install/ubuntu
     * If installing Bazelisk, it must be callable with the command `bazel`
-* OpenJDK JRE 11
-* Python 3.8.13
+* OpenJDK JDK 17
+* Python 3.12.8
     * Installed using https://github.com/pyenv/pyenv
-* Go (golang) 1.18.2
-* Google Cloud SDK (gcloud) 426.0.0
+* Go (golang) 1.19.8
+* Google Cloud SDK (gcloud) 530.0.0
     * https://cloud.google.com/sdk/docs/install
 
 ### Google Cloud Platform (GCP) Authentication

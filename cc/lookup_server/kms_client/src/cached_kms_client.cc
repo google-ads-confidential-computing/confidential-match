@@ -25,7 +25,8 @@
 #include "cc/core/interface/async_context.h"
 #include "cc/core/interface/async_executor_interface.h"
 #include "cc/core/interface/errors.h"
-#include "cc/public/core/interface/execution_result.h"
+#include "cc/public/core/interface/execution_result_macros.h"
+#include "cc/public/core/interface/execution_result_or_macros.h"
 #include "cc/public/cpio/utils/sync_utils/src/sync_utils.h"
 
 #include "cc/lookup_server/kms_client/src/error_codes.h"

@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@io_bazel_rules_docker//container:container.bzl", "container_image")
 load("@rules_distroless//apt:defs.bzl", "dpkg_statusd")
 load("@rules_distroless//distroless:defs.bzl", "cacerts")
+load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_attributes", "pkg_files")
+load("@rules_pkg//:pkg.bzl", "pkg_tar")
 
 package(default_visibility = ["//visibility:public"])
 
@@ -371,31 +373,77 @@ cacerts(
     tags = ["manual"],
 )
 
-container_image(
+# Creates a layer for apt packages, without overwriting Debian root symlinks
+# Workaround for https://github.com/GoogleContainerTools/rules_distroless/issues/53
+# For details, see https://www.debian.org/releases/bookworm/amd64/release-notes/ch-information.en.html#a-merged-usr-is-now-required
+genrule(
+    name = "remapped_apt_deps_layer",
+    srcs = LS_BUILDER_PACKAGES + LS_BUILDER_PACKAGE_INSTALL_STATUSES + [":cacerts"],
+    outs = ["remapped_apt_deps_layer.tar"],
+    cmd = """
+    TEMP_DIR=$$(mktemp -d)
+    for SRC in $(SRCS); do
+      tar --no-same-owner --no-same-permissions -xf $$SRC -C $$TEMP_DIR
+    done
+    pushd $$TEMP_DIR
+    for DIR in bin sbin lib*; do
+      [[ -d $$DIR ]] && cp -r $$DIR usr && rm -r $$DIR
+    done
+    popd
+    tar -C $$TEMP_DIR -cf $@ ./
+    """,
+    tags = ["manual"],
+)
+
+# Repackage the remapped layer to fix hermeticity
+pkg_tar(
+    name = "fixed_apt_deps_layer",
+    tags = ["manual"],
+    deps = [":remapped_apt_deps_layer"],
+)
+
+pkg_files(
+    name = "bazelisk_file",
+    srcs = ["@bazelisk//file"],
+    attributes = pkg_attributes(mode = "0755"),
+    renames = {"@bazelisk//file": "bazel"},
+    tags = ["manual"],
+)
+
+pkg_tar(
+    name = "bazelisk_layer",
+    srcs = [":bazelisk_file"],
+    package_dir = "/usr/local/bin/",
+    tags = ["manual"],
+)
+
+oci_image(
     name = "container_to_build_cc",
-    base = "@debian12_base//image",
+    base = "@debian12_base",
     env = {
         # Required to use :cacerts, see that target definition for details
         "SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt",
         "CC": "/usr/bin/clang-13",
         "CXX": "/usr/bin/clang++-13",
     },
-    # "@bazelisk//file" is added as "/downloaded"
-    files = ["@bazelisk//file"],
-    symlinks = {
-        "/usr/bin/bazel": "/downloaded",
-        "/bin/bash": "/usr/bin/bash",
-        "/bin/sh": "/usr/bin/sh",
-        "/bin/autoconf": "/usr/bin/autoconf",
-        "/bin/make": "/usr/bin/make",
-        "/bin/cmake": "/usr/bin/cmake",
-        "/bin/python": "/usr/bin/python",
-        "/usr/bin/clang": "/usr/bin/clang-13",
-        "/usr/bin/clang++": "/usr/bin/clang++-13",
-        "/usr/bin/clang-cpp": "/usr/bin/clang-cpp-13",
-    },
     tags = ["manual"],
     tars = [
-        ":cacerts",
-    ] + LS_BUILDER_PACKAGES + LS_BUILDER_PACKAGE_INSTALL_STATUSES,
+        ":bazelisk_layer",
+        ":fixed_apt_deps_layer",
+    ],
+)
+
+oci_load(
+    name = "container_to_build_cc_load",
+    image = ":container_to_build_cc",
+    repo_tags = ["bazel/cc/tools/build:container_to_build_cc"],
+    tags = ["manual"],
+)
+
+# Legacy target for building tar files directly
+filegroup(
+    name = "container_to_build_cc.tar",
+    srcs = [":container_to_build_cc_load"],
+    output_group = "tarball",
+    tags = ["manual"],
 )

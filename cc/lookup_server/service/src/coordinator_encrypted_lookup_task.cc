@@ -23,7 +23,8 @@
 #include "absl/strings/string_view.h"
 #include "cc/core/common/uuid/src/uuid.h"
 #include "cc/core/interface/async_context.h"
-#include "cc/public/core/interface/execution_result.h"
+#include "cc/public/core/interface/execution_result_macros.h"
+#include "cc/public/core/interface/execution_result_or_macros.h"
 
 #include "cc/lookup_server/converters/src/encryption_key_info_converter.h"
 #include "cc/lookup_server/converters/src/matched_data_record_converter.h"

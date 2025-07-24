@@ -16,7 +16,8 @@
 
 #include "cc/core/common/global_logger/src/global_logger.h"
 #include "cc/core/common/uuid/src/uuid.h"
-#include "cc/public/core/interface/execution_result.h"
+#include "cc/public/core/interface/execution_result_macros.h"
+#include "cc/public/core/interface/execution_result_or_macros.h"
 
 #include "cc/lookup_server/converters/src/error_codes.h"
 #include "protos/lookup_server/api/lookup.pb.h"

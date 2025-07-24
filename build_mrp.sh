@@ -13,11 +13,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# TODO(b/379357774): With rules_oci, we can safely load from an oci_load target
-
-# Build the MRP image tar
-bazel build //java/com/google/cm/mrp:mrp_app_gcp_image.tar
-
-# Load the image into Docker as bazel/java/com/google/cm/mrp:mrp_app_gcp_image
-docker load --input "$(bazel info execution_root)/$(
-  bazel cquery //java/com/google/cm/mrp:mrp_app_gcp_image.tar --output=files)"
+# Build and load the image into Docker as
+# bazel/java/com/google/cm/mrp:mrp_app_gcp_image
+bazel run //java/com/google/cm/mrp:mrp_app_gcp_image_load

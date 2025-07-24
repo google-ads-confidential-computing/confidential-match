@@ -87,6 +87,7 @@ java_test(
         "//java/external:clients_metricclient_model",
         "//java/external:google_truth",
         "//java/external:google_truth8",
+        "//java/external:guava",
         "//java/external:mockito",
         "//java/external:operator_backend_protos",
         "//java/external:operator_frontend_protos",

@@ -35,6 +35,24 @@ message EncryptionMetadata {
     optional string kms_wip_provider = 2;
   }
 
+  // A data encryption key wrapped by an AWS KMS key.
+  message AwsWrappedKeyInfo {
+    // The Key type (encryption algorithm) used to encrypt the data
+    enum KeyType {
+      UNSPECIFIED = 0;
+      XCHACHA20_POLY1305 = 1;
+    }
+
+    // Key Type enum
+    KeyType key_type = 1;
+
+    // Optional: The Role ARN to assume for KMS decryption access
+    optional string role_arn = 2;
+
+    // Optional: The audience value for a customer to provide.
+    optional string audience = 3;
+  }
+
   message CoordinatorInfo {
     // The endpoint for the encryption key service.
     string key_service_endpoint = 1;
@@ -55,32 +73,14 @@ message EncryptionMetadata {
     repeated CoordinatorInfo coordinator_info = 1;
   }
 
-  // A data encryption key wrapped by an AWS KMS key.
-  message AwsWrappedKeyInfo {
-    // The Key type (encryption algorithm) used to encrypt the data
-    enum KeyType {
-      UNSPECIFIED = 0;
-      XCHACHA20_POLY1305 = 1;
-    }
-
-    // Key Type enum
-    KeyType key_type = 1;
-
-    // The Role ARN to assume for KMS decryption access
-    string role_arn = 2;
-
-    // The audience value for a customer to provide.
-    optional string audience = 3;
-  }
-
   // A container message to allow different kinds of data encryption keys.
   message EncryptionKeyInfo {
     reserved 1;
     reserved "key_id";
     oneof key_info {
       WrappedKeyInfo wrapped_key_info = 2;
-      CoordinatorKeyInfo coordinator_key_info = 3;
       AwsWrappedKeyInfo aws_wrapped_key_info = 4;
+      CoordinatorKeyInfo coordinator_key_info = 3;
     }
   }
 

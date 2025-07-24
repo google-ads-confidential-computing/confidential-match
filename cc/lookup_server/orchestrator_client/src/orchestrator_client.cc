@@ -26,7 +26,8 @@
 #include "cc/core/common/uuid/src/uuid.h"
 #include "cc/core/interface/async_context.h"
 #include "cc/core/interface/http_types.h"
-#include "cc/public/core/interface/execution_result.h"
+#include "cc/public/core/interface/execution_result_macros.h"
+#include "cc/public/core/interface/execution_result_or_macros.h"
 #include "google/protobuf/util/json_util.h"
 
 #include "cc/lookup_server/orchestrator_client/src/error_codes.h"

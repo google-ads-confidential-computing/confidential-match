@@ -19,7 +19,6 @@ package google.confidential_match.mrp.api;
 option java_package = "com.google.cm.mrp.api";
 option java_outer_classname = "ConfidentialMatchDataRecordProto";
 
-// TODO(b/383186977): consider breaking into multiple files
 // Represents a single row of input data.
 message ConfidentialMatchDataRecord {
   // Match keys must be specified in MatchConfig for matching.
@@ -93,7 +92,7 @@ message EncryptionKey {
     // The URI of the GCP KMS key to decrypt the DEK
     string kek_uri = 2;
     // Fully-qualified Workload Identity Pool Provider ID
-    string wip = 3;
+    optional string wip = 3;
   }
 
   // A data encryption key wrapped by an AWS KMS key.
