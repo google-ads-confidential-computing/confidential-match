@@ -373,33 +373,65 @@ cacerts(
     tags = ["manual"],
 )
 
-# Creates a layer for apt packages, without overwriting Debian root symlinks
+# Initial tar used for following steps that fix apt dep installation directories
 # Workaround for https://github.com/GoogleContainerTools/rules_distroless/issues/53
 # For details, see https://www.debian.org/releases/bookworm/amd64/release-notes/ch-information.en.html#a-merged-usr-is-now-required
+pkg_tar(
+    name = "unfixed_apt_deps",
+    tags = ["manual"],
+    deps = LS_BUILDER_PACKAGES + LS_BUILDER_PACKAGE_INSTALL_STATUSES + [":cacerts"],
+)
+
+# Creates a tar file that only keeps directories already in correct locations
 genrule(
-    name = "remapped_apt_deps_layer",
-    srcs = LS_BUILDER_PACKAGES + LS_BUILDER_PACKAGE_INSTALL_STATUSES + [":cacerts"],
-    outs = ["remapped_apt_deps_layer.tar"],
+    name = "correct_dirs_apt_deps",
+    srcs = [":unfixed_apt_deps"],
+    outs = ["correct_dirs_apt_deps.tar"],
     cmd = """
-    TEMP_DIR=$$(mktemp -d)
-    for SRC in $(SRCS); do
-      tar --no-same-owner --no-same-permissions -xf $$SRC -C $$TEMP_DIR
+    cp $< $@
+    chmod +w $@
+    for DIR in './bin' './sbin' './lib*'; do
+      if (($$(tar -tf $< --wildcards $$DIR &>/dev/null ; echo $$?)==0)); then
+        tar -f $@ --wildcards --delete $$DIR
+      fi
     done
-    pushd $$TEMP_DIR
-    for DIR in bin sbin lib*; do
-      [[ -d $$DIR ]] && cp -r $$DIR usr && rm -r $$DIR
-    done
-    popd
-    tar -C $$TEMP_DIR -cf $@ ./
     """,
     tags = ["manual"],
 )
 
-# Repackage the remapped layer to fix hermeticity
-pkg_tar(
-    name = "fixed_apt_deps_layer",
+# Creates a tar file that only keeps directories in wrong locations
+# i.e. /bin, /sbin, /lib*
+genrule(
+    name = "wrong_dirs_apt_deps",
+    srcs = [":unfixed_apt_deps"],
+    outs = ["wrong_dirs_apt_deps.tar"],
+    cmd = """
+    cp $< $@
+    chmod +w $@
+    tar -tf $< --wildcards --exclude './*/*' \
+      --exclude './bin' --exclude './sbin' --exclude './lib*' | \
+      tar -f $@ --delete -T -
+    """,
     tags = ["manual"],
-    deps = [":remapped_apt_deps_layer"],
+)
+
+# Creates a tar file that fixes the incorrect directories
+pkg_tar(
+    name = "remapped_dirs_apt_deps",
+    package_dir = "./usr",
+    tags = ["manual"],
+    deps = [":wrong_dirs_apt_deps"],
+)
+
+# Merges apt dep tar files with correct directories
+pkg_tar(
+    name = "apt_deps_layer",
+    package_dir = ".",
+    tags = ["manual"],
+    deps = [
+        ":correct_dirs_apt_deps",
+        ":remapped_dirs_apt_deps",
+    ],
 )
 
 pkg_files(
@@ -429,7 +461,7 @@ oci_image(
     tags = ["manual"],
     tars = [
         ":bazelisk_layer",
-        ":fixed_apt_deps_layer",
+        ":apt_deps_layer",
     ],
 )
 
