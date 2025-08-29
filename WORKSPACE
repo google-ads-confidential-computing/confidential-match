@@ -19,7 +19,7 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_file"
 # Download all http_archives and git_repositories: Begin
 ################################################################################
 
-SCP_VERSION = "v0.309.0"  # latest as of Tue Jul 08 05:37:59 2025 +0000
+SCP_VERSION = "v0.323.0"  # latest as of Thu Aug 14 21:10:42 2025 +0000
 
 SCP_REPOSITORY = "https://github.com/google-ads-confidential-computing/conf-data-processing-architecture-reference"
 
