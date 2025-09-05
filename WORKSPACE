@@ -425,14 +425,14 @@ load("@rules_oci//oci:pull.bzl", "oci_pull")
 # Base image for the MRP and some tests
 oci_pull(
     name = "java_base",
-    digest = "sha256:bcc3b8fc7f5abea2efaa3a81e7ddffc2424e9c1f053561a327008d9aee29dda8",
+    digest = "sha256:0157ad57c3c00a42db2a3d1958abf524058e004e70481cd74577080d4aee9760",
     image = "gcr.io/distroless/java21-debian12",
 )
 
 # Base layer of the lookup server base and builder images
 oci_pull(
     name = "debian12_base",
-    digest = "sha256:2ca479fe972e71088bb83fd0b0c300c537935a6f2eefd56f429947d5707fa26c",
+    digest = "sha256:0bd74e115685484124d5340406cfc3c883d5e898021111a28b59f3299da147cd",
     image = "marketplace.gcr.io/google/debian12",
 )
 
