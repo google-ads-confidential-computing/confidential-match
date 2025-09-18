@@ -16,6 +16,7 @@
 
 package com.google.cm.mrp.clients.cryptoclient.gcp;
 
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.CRYPTO_CLIENT_CONFIGURATION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_DECRYPTION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_KEK_FORMAT;
 
@@ -55,7 +56,7 @@ public final class GcpAeadProvider implements AeadProvider {
                 () -> {
                   String msg = "GCP parameters not found in GcpAeadProvider";
                   logger.error(msg);
-                  return new AeadProviderException(msg);
+                  return new AeadProviderException(msg, CRYPTO_CLIENT_CONFIGURATION_ERROR);
                 });
     GoogleCredentials credentials =
         getCredentials(gcpParameters.wipProvider(), gcpParameters.serviceAccountToImpersonate());

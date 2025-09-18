@@ -35,6 +35,11 @@ public class AeadProviderException extends Exception implements JobResultCodeExc
     this.jobResultCode = DEK_DECRYPTION_ERROR;
   }
 
+  public AeadProviderException(String message, JobResultCode jobResultCode) {
+    super(message);
+    this.jobResultCode = jobResultCode;
+  }
+
   public AeadProviderException(String message, Throwable cause) {
     super(message, cause);
     this.jobResultCode = DEK_DECRYPTION_ERROR;

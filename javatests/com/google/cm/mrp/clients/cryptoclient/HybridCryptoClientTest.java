@@ -25,6 +25,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -137,6 +138,24 @@ public class HybridCryptoClientTest {
 
     assertThrows(
         CryptoClientException.class, () -> cryptoClient.encrypt(encryptionKeys, plaintext));
+  }
+
+  @Test
+  public void encrypt_getEncrypterGenericFailure_retries() throws Exception {
+    when(mockHybridEncryptionKeyService.getEncrypter(any())).thenThrow(new RuntimeException());
+    when(mockHybridEncryptionKeyService.getDecrypter(any())).thenReturn(getDefaultHybridDecrypt());
+    DataRecordEncryptionKeys encryptionKeys =
+        DataRecordEncryptionKeys.newBuilder()
+            .setCoordinatorKey(CoordinatorKey.newBuilder().setKeyId("123").build())
+            .build();
+    String plaintext = "TestString";
+
+    var ex =
+        assertThrows(
+            CryptoClientException.class, () -> cryptoClient.encrypt(encryptionKeys, plaintext));
+    assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.CRYPTO_CLIENT_ERROR);
+    verify(mockHybridEncryptionKeyService, times(5)).getEncrypter(any());
+    verify(mockHybridEncryptionKeyService, times(5)).getDecrypter(any());
   }
 
   @Test
@@ -262,7 +281,7 @@ public class HybridCryptoClientTest {
             () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
     assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.INVALID_WIP_PARAMETER);
 
-    verify(mockHybridEncryptionKeyService, times(1)).getDecrypter(any());
+    verify(mockHybridEncryptionKeyService, atLeastOnce()).getDecrypter(any());
   }
 
   @Test
@@ -290,7 +309,7 @@ public class HybridCryptoClientTest {
             () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
     assertThat(ex1.getErrorCode()).isEqualTo(JobResultCode.INVALID_WIP_PARAMETER);
 
-    verify(mockHybridEncryptionKeyService, times(1)).getDecrypter(any());
+    verify(mockHybridEncryptionKeyService, atLeastOnce()).getDecrypter(any());
   }
 
   @Test
@@ -313,7 +332,7 @@ public class HybridCryptoClientTest {
             () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
     assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.WIP_AUTH_FAILED);
 
-    verify(mockHybridEncryptionKeyService, times(1)).getDecrypter(any());
+    verify(mockHybridEncryptionKeyService, atLeastOnce()).getDecrypter(any());
   }
 
   @Test

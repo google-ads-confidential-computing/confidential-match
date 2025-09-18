@@ -25,6 +25,9 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys;
 import com.google.cm.mrp.backend.EncodingTypeProto.EncodingType;
 import com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode;
+import io.github.resilience4j.core.IntervalFunction;
+import io.github.resilience4j.retry.Retry;
+import io.github.resilience4j.retry.RetryConfig;
 import java.util.concurrent.ConcurrentHashMap;
 import org.slf4j.Logger;
 
@@ -32,9 +35,27 @@ import org.slf4j.Logger;
 public abstract class BaseCryptoClient implements CryptoClient {
 
   protected static final int CONCURRENCY_LEVEL = Runtime.getRuntime().availableProcessors();
+  private static final String CRYPTO_CLIENT_RETRY_NAME = "CryptoClientRetry";
+  private static final int CRYPTO_CLIENT_RETRY_ATTEMPTS = 5;
 
   // If KEK or CoordKey has issues decrypting, do not try again for the rest of the job.
   protected ConcurrentHashMap<String, JobResultCode> invalidDecrypters = new ConcurrentHashMap<>();
+
+  protected final Retry retry;
+
+  protected BaseCryptoClient() {
+    this.retry =
+        Retry.of(
+            CRYPTO_CLIENT_RETRY_NAME,
+            RetryConfig.custom()
+                .maxAttempts(CRYPTO_CLIENT_RETRY_ATTEMPTS)
+                .retryOnException(this::isCryptoClientExceptionRetryable)
+                .failAfterMaxAttempts(true)
+                .intervalFunction(
+                    IntervalFunction.ofExponentialBackoff(
+                        /* initialIntervalMillis */ 500, /* multiplier */ 1.5))
+                .build());
+  }
 
   /** {@inheritDoc} */
   @Override
@@ -86,4 +107,7 @@ public abstract class BaseCryptoClient implements CryptoClient {
 
   /** Get child class logger */
   protected abstract Logger getLogger();
+
+  /** Determines if decrypt request is retryable */
+  protected abstract boolean isCryptoClientExceptionRetryable(Throwable e);
 }

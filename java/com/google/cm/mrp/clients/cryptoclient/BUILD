@@ -33,6 +33,8 @@ java_library(
         "//java/external:guice-assistedinject",
         "//java/external:javax_inject",
         "//java/external:protobuf_java",
+        "//java/external:resilience4j_core",
+        "//java/external:resilience4j_retry",
         "//java/external:shared_crypto_tink",
         "//java/external:slf4j",
         "//java/external:tink",

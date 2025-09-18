@@ -76,6 +76,7 @@ java_test(
         "//java/com/google/cm/mrp:match_config_provider",
         "//java/com/google/cm/mrp/clients/cryptoclient",
         "//java/com/google/cm/mrp/dataprocessor",
+        "//java/com/google/cm/mrp/dataprocessor/common",
         "//java/com/google/cm/mrp/dataprocessor/models",
         "//java/com/google/cm/mrp/dataprocessor/transformations",
         "//java/com/google/cm/mrp/models",

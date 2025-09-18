@@ -565,6 +565,77 @@ public final class MrpGcpIntegrationTest {
   }
 
   @Test
+  public void createAndGet_someMatchesSerializedProto_success() throws Exception {
+    String gcsFolder = "createAndGet_someMatchesSerializedProto";
+    HttpRequest schemeRequest = getMockServerRequest("GET", GET_SCHEME_API_PATH, HTTP_1_1);
+    String schemeResponseJson = getJsonFromProto(createSchemeResponse());
+    mockClient.when(schemeRequest).respond(getMockServerResponse(200, schemeResponseJson));
+    HttpRequest lookupRequest = getMockServerRequest("POST", LOOKUP_API_PATH, HTTP_2);
+
+    List<String> hashMatches =
+        ImmutableList.of(
+            "SdKMJphS1g5K1jw4n7hCXVUf3nPpRS6r+MjkQf4JEHM=",
+            "pqdztlrf8u1aUn1zsgkvO2aIoyxsNulsLAdO8CltRv0=");
+    var lookupResponse = createResponseWithMatchedKeys(hashMatches);
+    String lookupResponseJson = getJsonFromProto(lookupResponse);
+    mockClient.when(lookupRequest).respond(getMockServerResponse(200, lookupResponseJson));
+    createGcsSchemaFile(gcsFolder, PROTO_SCHEMA_JSON);
+    createGcsDataFiles(gcsFolder, ImmutableList.of(setupHashedSerializedProtoData()));
+
+    GetJobResponse response =
+        createAndGet(createCreateJobRequest(gcsFolder, /* application= */ "mic"));
+
+    mockClient.verify(schemeRequest, atMost(1));
+    mockClient.verify(lookupRequest, atLeast(1));
+    assertThat(response.getResultInfo().getReturnCode()).isEqualTo(SUCCESS.name());
+    assertThat(response.getResultInfo().getErrorSummary().getErrorCountsList()).isEmpty();
+    List<String> outputFiles = getGcsOutputFileContents(gcsFolder);
+    assertThat(outputFiles).hasSize(1);
+    var outputProtos =
+        Arrays.stream(outputFiles.get(0).split("\n"))
+            .map(this::base64DecodeProto)
+            .collect(Collectors.toList());
+    assertThat(outputProtos).hasSize(2);
+    List<MatchKey> nonMatches =
+        outputProtos.stream()
+            .map(cfmProto -> getAllMatchKeys(cfmProto, false))
+            .flatMap(Collection::stream)
+            .collect(Collectors.toList());
+    int expectedNumUnmatched = NUM_GENERIC_DATA_FIELDS - 2; // only 2 emails matched
+    AtomicInteger actualNumUnmatched = new AtomicInteger(); // atomic since lambda requires final
+    nonMatches.forEach(
+        matchKey -> {
+          if (matchKey.hasField()) {
+            assertThat(matchKey.getField().getMatchedOutputFieldsList()).isEmpty();
+            assertThat(matchKey.getField().getKeyValue().getStringValue()).isEqualTo("UNMATCHED");
+            actualNumUnmatched.getAndIncrement();
+          } else {
+            assertThat(matchKey.getCompositeField().getMatchedOutputFieldsList()).isEmpty();
+            matchKey
+                .getCompositeField()
+                .getChildFieldsList()
+                .forEach(
+                    cf -> {
+                      assertThat(cf.getKeyValue().getStringValue()).isEqualTo("UNMATCHED");
+                      actualNumUnmatched.getAndIncrement();
+                    });
+          }
+        });
+    assertThat(actualNumUnmatched.get()).isEqualTo(expectedNumUnmatched);
+    // verify record stats
+    var metadataMap = response.getResultInfo().getResultMetadataMap();
+    assertThat(metadataMap).containsEntry("numdatarecords", "2");
+    assertThat(metadataMap).containsEntry("numdatarecordswithmatch", "1");
+
+    // Verify that requests to the lookup service contain the expected encryption info
+    HttpRequest[] actualLookupRequests = mockClient.retrieveRecordedRequests(lookupRequest);
+    assertThat(actualLookupRequests).hasLength(1);
+    LookupRequest actualLookupRequest =
+        getProtoFromJson(actualLookupRequests[0].getBodyAsString(), LookupRequest.class);
+    assertThat(actualLookupRequest.hasEncryptionKeyInfo()).isFalse();
+  }
+
+  @Test
   public void createAndGet_someMatchesHexHashed_success() throws Exception {
     String gcsFolder = "someMatchesHex";
     HttpRequest schemeRequest = getMockServerRequest("GET", GET_SCHEME_API_PATH, HTTP_1_1);
@@ -1904,20 +1975,33 @@ public final class MrpGcpIntegrationTest {
     String[] columnHeaders = lines[0].split(",");
     List<String> protoLines = new ArrayList<>(lines.length);
 
-    for (int i = 1; i < lines.length; i++) {
+    // verify there are even number of lines (plus header)
+    assertThat(lines.length % 2).isEqualTo(1);
+    for (int i = 1; i < lines.length; i = i + 2) {
       String line = lines[i];
-      String[] columns = line.split(",");
-      List<MatchKey> matchKeys = new ArrayList<>(columns.length);
+      String[] columns0 = line.split(",");
+      List<MatchKey> matchKeys = new ArrayList<>(columns0.length * 2);
 
-      matchKeys.add(buildSingleField(columnHeaders[0], columns[0]));
-      matchKeys.add(buildSingleField(columnHeaders[1], columns[1]));
+      matchKeys.add(buildSingleField(columnHeaders[0], columns0[0]));
+      matchKeys.add(buildSingleField(columnHeaders[1], columns0[1]));
       String[][] addressValues = {
-        {columnHeaders[2], columns[2]},
-        {columnHeaders[3], columns[3]},
-        {columnHeaders[4], columns[4]},
-        {columnHeaders[5], columns[5]}
+        {columnHeaders[2], columns0[2]},
+        {columnHeaders[3], columns0[3]},
+        {columnHeaders[4], columns0[4]},
+        {columnHeaders[5], columns0[5]}
       };
       matchKeys.add(buildCompositeField("address", addressValues));
+
+      String[] columns1 = lines[i + 1].split(",");
+      matchKeys.add(buildSingleField(columnHeaders[0], columns1[0]));
+      matchKeys.add(buildSingleField(columnHeaders[1], columns1[1]));
+      String[][] addressValues1 = {
+        {columnHeaders[2], columns1[2]},
+        {columnHeaders[3], columns1[3]},
+        {columnHeaders[4], columns1[4]},
+        {columnHeaders[5], columns1[5]}
+      };
+      matchKeys.add(buildCompositeField("address", addressValues1));
       var proto = ConfidentialMatchDataRecord.newBuilder().addAllMatchKeys(matchKeys).build();
       protoLines.add(base64().encode(proto.toByteArray()));
     }

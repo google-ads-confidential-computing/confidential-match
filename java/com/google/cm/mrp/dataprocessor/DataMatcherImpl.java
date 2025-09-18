@@ -23,6 +23,7 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.SUCCESS
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.UNSUPPORTED_MODE_ERROR;
 import static com.google.cm.mrp.backend.ModeProto.Mode.JOIN;
 import static com.google.cm.mrp.backend.ModeProto.Mode.REDACT;
+import static com.google.cm.mrp.dataprocessor.common.Constants.ROW_MARKER_COLUMN_NAME;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.hash.Hashing.sha256;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -150,6 +151,8 @@ public final class DataMatcherImpl implements DataMatcher {
     DataRecordTransformer transformer =
         dataRecordTransformerFactory.create(
             matchConfig, dataChunkFromDataSource1.schema(), jobParameters);
+    // Find rowMarker index if it exists
+    Optional<Integer> rowMarkerIndex = getRowMarkerIndex(dataChunkFromDataSource1.schema());
 
     // For JOIN mode. Get the index where to find the associated data in dataSource2
     SingleColumnIndices dataSource2AssociatedDataIndices =
@@ -165,8 +168,13 @@ public final class DataMatcherImpl implements DataMatcher {
     ImmutableMap<Integer, Integer> dataSource1IndexToGroupNumberMap =
         getIndexToGroupNumberMap(dataChunkFromDataSource1.schema(), dataSource1MatchColumnsList);
 
-    // Counts the number of records that contain at least one match
-    long numDataRecordsWithMatch = 0L;
+    // Counter for number of records, with and without matches
+    var dataRecordsCounter =
+        // row markers will be used to keep track of unique cfmDataRecord rows
+        rowMarkerIndex.isPresent()
+            ? new DataRecordsCounter(new HashMap<>())
+            : new DataRecordsCounter();
+
     // Counts the number of conditions checked where the record has all required fields present
     var validConditionCheckCounts = new HashMap<String, Long>();
     // Counts the number of conditions that were matched
@@ -187,6 +195,8 @@ public final class DataMatcherImpl implements DataMatcher {
       DataRecord outputRecord;
 
       if (shouldAppendRecordStatus() && dataRecord.hasErrorCode()) {
+        // errored-out row does not have matches but still needs to be counted
+        dataRecordsCounter.incrementRecordsCount(/* hasMatch= */ false);
         String errorCode = dataRecord.getErrorCode().name();
         outputRecord =
             redact(
@@ -206,7 +216,16 @@ public final class DataMatcherImpl implements DataMatcher {
                 datasource2ConditionMatches,
                 processedFields);
 
-        numDataRecordsWithMatch += matchedFields.isEmpty() ? 0 : 1;
+        boolean hasMatch = !matchedFields.isEmpty();
+        // Row marker exists, try to get its value from internal data record
+        if (rowMarkerIndex.isPresent()) {
+          String rowMarkerVal = dataRecord.getKeyValues(rowMarkerIndex.get()).getStringValue();
+          // Add to map of rowMarkerValue -> hasMatch
+          dataRecordsCounter.addMatchForRow(rowMarkerVal, hasMatch);
+        } else {
+          // simply add to counter
+          dataRecordsCounter.incrementRecordsCount(hasMatch);
+        }
 
         if (REDACT == jobParameters.mode()) {
           outputRecord =
@@ -247,9 +266,9 @@ public final class DataMatcherImpl implements DataMatcher {
             .setRecords(outputRecords.build())
             .build(),
         MatchStatistics.create(
-            0,
-            dataChunkFromDataSource1.records().size(),
-            numDataRecordsWithMatch,
+            0, // populated downstream
+            dataRecordsCounter.getTotalNumRecords(),
+            dataRecordsCounter.getTotalNumRecordsWithMatch(),
             conditionMatchCounts,
             validConditionCheckCounts,
             datasource1ErrorCounts,
@@ -915,5 +934,71 @@ public final class DataMatcherImpl implements DataMatcher {
         .filter(matchColumnsList::isMultiMatchCondition)
         .collect(
             toImmutableMap(Function.identity(), idx -> schema.getColumns(idx).getColumnGroup()));
+  }
+
+  private Optional<Integer> getRowMarkerIndex(Schema dataSource1Schema) {
+    for (int i = 0; i < dataSource1Schema.getColumnsCount(); i++) {
+      if (dataSource1Schema.getColumns(i).getColumnName().equals(ROW_MARKER_COLUMN_NAME)) {
+        return Optional.of(i);
+      }
+    }
+    return Optional.empty();
+  }
+
+  /**
+   * Inner class to encapsulate data records counts. Will either keep track of counts through Long
+   * counters or through a map of values to keep track of matches. rowMatchMap maps a rowMarker
+   * value to a boolean to keep track if the row has any matches.
+   */
+  private static class DataRecordsCounter {
+
+    // Counters
+    private long numRecordsWithMatch;
+    private long totalRecordCount;
+
+    private Map<String, Boolean> rowMatchMap;
+
+    private DataRecordsCounter() {
+      this.numRecordsWithMatch = 0L;
+      this.totalRecordCount = 0L;
+    }
+
+    private DataRecordsCounter(Map<String, Boolean> rowMatchMap) {
+      this.rowMatchMap = rowMatchMap;
+    }
+
+    private void incrementRecordsCount(boolean hasMatch) {
+      totalRecordCount += 1;
+      if (hasMatch) {
+        numRecordsWithMatch += 1;
+      }
+    }
+
+    /**
+     * Adds a rowId (the value of the row marker column) and whether a match exists. This is added
+     * to a hashMap, whose keyset will keep track of all unique row marker values. The keyset count
+     * corresponds to the count of external cfmDataRecords
+     */
+    private void addMatchForRow(String rowId, boolean hasMatch) {
+      // inserts if no value exists
+      // if value exists, then performs OR to ensure previous matches are not overwritten
+      rowMatchMap.compute(rowId, (key, value) -> (value == null) ? hasMatch : value || hasMatch);
+    }
+
+    private long getTotalNumRecords() {
+      if (rowMatchMap == null) {
+        return totalRecordCount;
+      } else {
+        return rowMatchMap.keySet().size();
+      }
+    }
+
+    private long getTotalNumRecordsWithMatch() {
+      if (rowMatchMap == null) {
+        return numRecordsWithMatch;
+      } else {
+        return rowMatchMap.values().stream().filter(b -> b).count();
+      }
+    }
   }
 }

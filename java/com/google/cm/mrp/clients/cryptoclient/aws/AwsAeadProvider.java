@@ -17,6 +17,7 @@
 package com.google.cm.mrp.clients.cryptoclient.aws;
 
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.AWS_AUTH_FAILED;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.CRYPTO_CLIENT_CONFIGURATION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_DECRYPTION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_KEK;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_KEK_FORMAT;
@@ -93,7 +94,12 @@ public final class AwsAeadProvider implements AeadProvider {
     AwsParameters awsParameters =
         aeadProviderParameters
             .awsParameters()
-            .orElseThrow(() -> new UncheckedAeadProviderException("Missing AWS parameters"));
+            .orElseThrow(
+                () -> {
+                  String msg = "AWS parameters not found in AWSAeadProvider";
+                  logger.error(msg);
+                  return new AeadProviderException(msg, CRYPTO_CLIENT_CONFIGURATION_ERROR);
+                });
     // AWS Credentials provider requires a token file
     Path tokenFilePath = createNewTokenFile();
     getAndWriteTokenToFile(tokenFilePath, awsParameters.audience());

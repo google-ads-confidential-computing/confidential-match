@@ -31,6 +31,8 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
@@ -339,26 +341,6 @@ public class AeadCryptoClientTest {
   }
 
   @Test
-  public void decryptDek_generalFailureThrowsException() throws Exception {
-    when(mockAead.decrypt(any(), any())).thenThrow(GeneralSecurityException.class);
-    when(mockAeadSelector.getAead(any())).thenReturn(mockAead);
-    when(mockAeadProvider.getAeadSelector(eq(TEST_PARAMETERS))).thenReturn(mockAeadSelector);
-    String testKek = generateAeadUri();
-    var keyset = generateXChaChaKeyset();
-    var encryptedDek = encryptDek(keyset);
-    var encryptionKeys = getDataRecordEncryptionKeys(testKek, encryptedDek);
-    String plaintext = "TestString";
-    String encrypted = encryptString(encryptedDek, plaintext);
-    var cryptoClient = new AeadCryptoClient(mockAeadProvider, TEST_KEY_INFO);
-
-    var ex =
-        assertThrows(
-            CryptoClientException.class,
-            () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
-    assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.DEK_DECRYPTION_ERROR);
-  }
-
-  @Test
   public void decryptDek_failureForSameKek_ThrowsSameException() throws Exception {
     when(mockAeadProvider.getAeadSelector(eq(TEST_PARAMETERS)))
         .thenReturn(getDefaultAeadSelector());
@@ -472,6 +454,30 @@ public class AeadCryptoClientTest {
 
     assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.DECODING_ERROR);
     verifyNoMoreInteractions(mockAead, mockAeadSelector);
+  }
+
+  @Test
+  public void decryptDek_genericFailure_retries() throws Exception {
+    when(mockAeadProvider.getAeadSelector(eq(TEST_PARAMETERS)))
+        .thenReturn(getDefaultAeadSelector());
+    when(mockAeadProvider.readKeysetHandle(any(), any()))
+        .thenThrow(
+            new AeadProviderException(
+                "error", new GeneralSecurityException(), JobResultCode.DEK_DECRYPTION_ERROR));
+    String testKek = generateAeadUri();
+    var keyset = generateXChaChaKeyset();
+    var encryptedDek = encryptDek(keyset);
+    var encryptionKeys = getDataRecordEncryptionKeys(testKek, encryptedDek);
+    String plaintext = "TestString";
+    String encrypted = encryptString(encryptedDek, plaintext);
+    var cryptoClient = new AeadCryptoClient(mockAeadProvider, TEST_KEY_INFO);
+
+    var ex =
+        assertThrows(
+            CryptoClientException.class,
+            () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
+    assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.DEK_DECRYPTION_ERROR);
+    verify(mockAeadProvider, times(5)).getAeadSelector(eq(TEST_PARAMETERS));
   }
 
   private DataRecordEncryptionKeys getDataRecordEncryptionKeys(String kek, String dek) {

@@ -60,46 +60,7 @@ public final class HybridCryptoClient extends BaseCryptoClient {
           .maximumSize(MAX_CACHE_SIZE)
           .expireAfterAccess(CACHE_ENTRY_IDLE_EXPIRY, TimeUnit.SECONDS)
           .concurrencyLevel(CONCURRENCY_LEVEL)
-          .build(
-              new CacheLoader<>() {
-                @SuppressWarnings("NullableProblems")
-                @Override
-                public HybridPair load(final String keyId) throws CryptoClientException {
-                  try {
-                    HybridDecrypt decrypter = decryptionKeyService.getDecrypter(keyId);
-                    HybridEncrypt encrypter = decryptionKeyService.getEncrypter(keyId);
-                    return new HybridPair(encrypter, decrypter);
-                  } catch (KeyFetchException e) {
-                    throwIfWipFailure(keyId, e);
-                    logger.warn(
-                        String.format(
-                            "%s error when fetching the primitives for the key %s",
-                            e.getReason().name(), keyId),
-                        e);
-                    switch (e.getReason()) {
-                      case KEY_NOT_FOUND:
-                      case KEY_DECRYPTION_ERROR:
-                      case INVALID_ARGUMENT:
-                        invalidDecrypters.put(keyId, DECRYPTION_ERROR);
-                        logger.warn(
-                            "Coordinator key could not be used. Will not be retried in job.");
-                        throw new CryptoClientException(e, DECRYPTION_ERROR);
-                      case PERMISSION_DENIED:
-                      case UNAUTHENTICATED:
-                        // fall back to throwing a retriable error code.
-                        logger.warn(
-                            "Authentication/Authorization failed on request to private key service"
-                                + " or KMS client.",
-                            e.getCause());
-                    }
-                    // For all other error reasons, send a retryable error code.
-                    throw new CryptoClientException(e, COORDINATOR_KEY_SERVICE_ERROR);
-                  } catch (IllegalArgumentException e) {
-                    logger.warn("Error when calling getDecrypter/getEncrypter", e.getCause());
-                    throw new CryptoClientException(e, DECRYPTION_ERROR);
-                  }
-                }
-              });
+          .build(getCacheLoader());
 
   private void throwIfWipFailure(String keyId, KeyFetchException exception)
       throws CryptoClientException {
@@ -168,6 +129,83 @@ public final class HybridCryptoClient extends BaseCryptoClient {
   @Override
   protected Logger getLogger() {
     return logger;
+  }
+
+  /** Determines if exception should be retried */
+  @Override
+  protected boolean isCryptoClientExceptionRetryable(Throwable e) {
+    // Hybrid requests are retriable by default
+    boolean shouldRetry = true;
+    if (e instanceof KeyFetchException) {
+      shouldRetry = isKeyFetchExceptionRetryable((KeyFetchException) e);
+    } else if (e instanceof IllegalArgumentException) {
+      shouldRetry = false;
+    }
+    if (shouldRetry) {
+      // Log retried exceptions. If not retried, they are logged right before failing
+      logger.info("Retrying HybridCryptoClient error", e);
+    }
+    return shouldRetry;
+  }
+
+  /** Returns CacheLoader which defines the logic to be executed on a cache miss. */
+  private CacheLoader<String, HybridPair> getCacheLoader() {
+    return new CacheLoader<>() {
+      @SuppressWarnings("NullableProblems")
+      @Override
+      public HybridPair load(final String keyId) throws CryptoClientException {
+        try {
+          return retry.executeCallable(
+              () -> {
+                HybridDecrypt decrypter = decryptionKeyService.getDecrypter(keyId);
+                HybridEncrypt encrypter = decryptionKeyService.getEncrypter(keyId);
+                return new HybridPair(encrypter, decrypter);
+              });
+        } catch (KeyFetchException e) {
+          throwIfWipFailure(keyId, e);
+          logger.warn(
+              String.format(
+                  "%s error when fetching the primitives for the key %s",
+                  e.getReason().name(), keyId),
+              e);
+          if (!isKeyFetchExceptionRetryable(e)) {
+            invalidDecrypters.put(keyId, DECRYPTION_ERROR);
+            logger.warn("Coordinator key could not be used. Will not be retried in job.");
+            throw new CryptoClientException(e, DECRYPTION_ERROR);
+          } else {
+            // fall back to throwing a retryable error code.
+            logger.warn(
+                "Authentication/Authorization failed on request to private key service"
+                    + " or KMS client.",
+                e.getCause());
+          }
+          // For all other error reasons, send a retryable error code.
+          logger.warn(
+              "Hybrid Crypto client could not use coordinator key for an unknown reason.", e);
+          throw new CryptoClientException(e, COORDINATOR_KEY_SERVICE_ERROR);
+        } catch (IllegalArgumentException e) {
+          logger.warn("Error when calling getDecrypter/getEncrypter", e.getCause());
+          throw new CryptoClientException(e, DECRYPTION_ERROR);
+        } catch (Throwable e) {
+          logger.warn(
+              "Hybrid Crypto client could not use coordinator key for an unknown reason.", e);
+          throw new CryptoClientException(e, CRYPTO_CLIENT_ERROR);
+        }
+      }
+    };
+  }
+
+  private boolean isKeyFetchExceptionRetryable(KeyFetchException e) {
+    switch (e.getReason()) {
+      case KEY_NOT_FOUND:
+      case INVALID_ARGUMENT:
+        return false;
+      case KEY_DECRYPTION_ERROR:
+      case PERMISSION_DENIED:
+      case UNAUTHENTICATED:
+      default:
+        return true;
+    }
   }
 
   /**

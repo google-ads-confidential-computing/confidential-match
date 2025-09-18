@@ -19,6 +19,7 @@ package com.google.cm.mrp.dataprocessor;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DECRYPTION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_DECRYPTION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PARTIAL_SUCCESS_CONFIG_ERROR;
+import static com.google.cm.mrp.dataprocessor.common.Constants.ROW_MARKER_COLUMN_NAME;
 import static com.google.common.hash.Hashing.sha256;
 import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -1724,13 +1725,16 @@ public final class DataMatcherImplTest {
     DataChunk dataChunk2 = DataChunk.builder().setSchema(Schema.getDefaultInstance()).build();
 
     DataMatchResult dataMatchResult = dataMatcherWithPartialSuccess.match(dataChunk1, dataChunk2);
+
     DataChunk result = dataMatchResult.dataChunk();
-    Map<String, Long> conditionMatchCounts = dataMatchResult.matchStatistics().conditionMatches();
+    var matchStats = dataMatchResult.matchStatistics();
+    assertThat(matchStats.numDataRecords()).isEqualTo(2);
+    assertThat(matchStats.numDataRecordsWithMatch()).isEqualTo(0);
+    Map<String, Long> conditionMatchCounts = matchStats.conditionMatches();
     Map<String, Long> conditionValidCounts =
         dataMatchResult.matchStatistics().validConditionChecks();
-    Map<String, Long> datasource1Errors = dataMatchResult.matchStatistics().datasource1Errors();
-    Map<String, Long> datasource2ConditionMatchCounts =
-        dataMatchResult.matchStatistics().datasource2ConditionMatches();
+    Map<String, Long> datasource1Errors = matchStats.datasource1Errors();
+    Map<String, Long> datasource2ConditionMatchCounts = matchStats.datasource2ConditionMatches();
     assertFalse(result.records().isEmpty());
     assertEquals(9, result.records().get(0).getKeyValuesCount());
     assertEquals("email", result.records().get(0).getKeyValues(0).getKey());
@@ -1799,6 +1803,55 @@ public final class DataMatcherImplTest {
     assertEquals(
         ex.getMessage(),
         "SUCCESS_MODE is ALLOW_PARTIAL_SUCCESS, but partial_success_attributes empty");
+  }
+
+  @Test
+  public void match_dataRecordsWithRowMarker_statsBasedOnRowMarkers() {
+    List<String> ds1Fields = ImmutableList.of("email", ROW_MARKER_COLUMN_NAME);
+    FieldParser ds1FieldParser = new FieldParser(ds1Fields);
+    var ds1Records =
+        ImmutableList.of(
+            ds1FieldParser.getDataRecord(/*email*/ "fake.email0@google.com", /*row_marker*/ "rm0"),
+            ds1FieldParser.getDataRecord(/*email*/ "fake.email1@google.com", /*row_marker*/ "rm0"),
+            ds1FieldParser.getDataRecord(/*email*/ "fake.email2@google.com", /*row_marker*/ "rm0"),
+            ds1FieldParser.getDataRecord(/*email*/ "fake.email3@google.com", /*row_marker*/ "rm1"),
+            ds1FieldParser.getDataRecord(/*email*/ "fake.email4@google.com", /*row_marker*/ "rm1"),
+            ds1FieldParser.getDataRecord(/*email*/ "fake.email5@google.com", /*row_marker*/ "rm2"));
+    DataChunk dataChunk1 =
+        DataChunk.builder()
+            .setSchema(getSchemaFromFields(ds1Fields))
+            .setRecords(ds1Records)
+            .build();
+    List<String> ds2Fields = ImmutableList.of("pii_value");
+    FieldParser ds2FieldParser = new FieldParser(ds2Fields);
+    var ds2Records =
+        ImmutableList.of(
+            ds2FieldParser.getDataRecord(/*pii_value*/ "fake.email0@google.com"),
+            ds2FieldParser.getDataRecord(/*pii_value*/ "fake.email1@google.com"),
+            ds2FieldParser.getDataRecord(/*pii_value*/ "fake.email4@google.com"));
+    DataChunk dataChunk2 =
+        DataChunk.builder()
+            .setSchema(getSchemaFromFields(ds2Fields))
+            .setRecords(ds2Records)
+            .build();
+
+    DataMatchResult dataMatchResult = dataMatcher.match(dataChunk1, dataChunk2);
+
+    var matchStats = dataMatchResult.matchStatistics();
+    assertThat(matchStats.numDataRecords()).isEqualTo(3);
+    assertThat(matchStats.numDataRecordsWithMatch()).isEqualTo(2);
+    // assert condition matches for completeness
+    Map<String, Long> conditionMatchCounts = matchStats.conditionMatches();
+    assertThat(conditionMatchCounts).containsExactly("email", 3L);
+    Map<String, Long> conditionValidCounts = matchStats.validConditionChecks();
+    assertThat(conditionValidCounts).hasSize(3);
+    assertThat(conditionValidCounts).containsEntry("address", 0L);
+    assertThat(conditionValidCounts).containsEntry("phone", 0L);
+    assertThat(conditionValidCounts).containsEntry("email", 6L);
+    Map<String, Long> datasource1Errors = matchStats.datasource1Errors();
+    assertThat(datasource1Errors).isEmpty();
+    Map<String, Long> datasource2ConditionMatchCounts = matchStats.datasource2ConditionMatches();
+    assertThat(datasource2ConditionMatchCounts).containsExactly("email", 3L);
   }
 
   @Test

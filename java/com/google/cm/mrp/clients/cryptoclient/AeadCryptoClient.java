@@ -40,6 +40,7 @@ import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.Encr
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.AwsWrappedKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.GcpWrappedKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.KeyType;
+import com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode;
 import com.google.cm.mrp.clients.cryptoclient.converters.AeadProviderParametersConverter;
 import com.google.cm.mrp.clients.cryptoclient.exceptions.AeadProviderException;
 import com.google.cm.mrp.clients.cryptoclient.exceptions.UncheckedAeadProviderException;
@@ -79,49 +80,7 @@ public final class AeadCryptoClient extends BaseCryptoClient {
           .maximumSize(MAX_CACHE_SIZE)
           .expireAfterAccess(CACHE_ENTRY_IDLE_EXPIRY, TimeUnit.SECONDS)
           .concurrencyLevel(CONCURRENCY_LEVEL)
-          .build(
-              new CacheLoader<>() {
-                @SuppressWarnings("NullableProblems")
-                @Override
-                public Aead load(final DataRecordEncryptionKeys encryptionKeys)
-                    throws CryptoClientException {
-                  try {
-                    WrappedEncryptionKeys keys = encryptionKeys.getWrappedEncryptionKeys();
-                    String kekUri = keys.getKekUri().trim();
-
-                    // DEK is always in Base64
-                    byte[] dekBytes = decode(keys.getEncryptedDek().trim(), EncodingType.BASE64);
-                    KeysetReader reader = new DekKeysetReader(ByteString.copyFrom(dekBytes));
-                    Aead kmsAead =
-                        aeadProvider
-                            .getAeadSelector(
-                                AeadProviderParametersConverter.convertToAeadProviderParameters(
-                                    encryptionKeys))
-                            .getAead(kekUri);
-                    KeysetHandle dekKeyset = aeadProvider.readKeysetHandle(reader, kmsAead);
-                    // Validate that all key types match the job's key type
-                    for (KeyInfo key : getKeysetInfo(dekKeyset).getKeyInfoList()) {
-                      if (!keyTypeUrl.equals(key.getTypeUrl())) {
-                        String message = "Unexpected DEK type: " + key.getTypeUrl();
-                        logger.warn(message);
-                        throw new CryptoClientException(DEK_KEY_TYPE_MISMATCH);
-                      }
-                    }
-                    return dekKeyset.getPrimitive(Aead.class);
-                  } catch (AeadProviderException | UncheckedAeadProviderException e) {
-                    logger.warn(
-                        "KEK could not be used in AeadProvider. Will not be retried in job.", e);
-                    invalidDecrypters.put(encryptionKeys.toString(), e.getJobResultCode());
-                    throw new CryptoClientException(e, e.getJobResultCode());
-                  } catch (GeneralSecurityException | RuntimeException e) {
-                    logger.warn(
-                        "DEK could not be decrypted with given KEK. Will not be retried in job.",
-                        e);
-                    invalidDecrypters.put(encryptionKeys.toString(), DEK_DECRYPTION_ERROR);
-                    throw new CryptoClientException(e, DEK_DECRYPTION_ERROR);
-                  }
-                }
-              });
+          .build(getCacheLoader());
 
   private final AeadProvider aeadProvider;
   private final EncryptionKeyInfo encryptionKeyInfo;
@@ -176,6 +135,79 @@ public final class AeadCryptoClient extends BaseCryptoClient {
   @Override
   protected Logger getLogger() {
     return logger;
+  }
+
+  /** Determines if exception should be retried */
+  @Override
+  protected boolean isCryptoClientExceptionRetryable(Throwable e) {
+    // default is to retry
+    boolean shouldRetry = true;
+    if (e instanceof CryptoClientException) {
+      shouldRetry = DEK_DECRYPTION_ERROR == ((CryptoClientException) e).getErrorCode();
+    } else if (e instanceof AeadProviderException) {
+      // Only retry on general non-specific errors
+      shouldRetry = DEK_DECRYPTION_ERROR == ((AeadProviderException) e).getJobResultCode();
+    } else if (e instanceof UncheckedAeadProviderException) {
+      // Only retry on general non-specific errors
+      shouldRetry = DEK_DECRYPTION_ERROR == ((UncheckedAeadProviderException) e).getJobResultCode();
+    }
+    if (shouldRetry) {
+      // Log retried exceptions. If not retried, they are logged right before failing
+      logger.info("Retrying AeadCryptoClient error", e);
+    }
+    return shouldRetry;
+  }
+
+  /** Returns CacheLoader which defines the logic to be executed on a cache miss. */
+  private CacheLoader<DataRecordEncryptionKeys, Aead> getCacheLoader() {
+    return new CacheLoader<>() {
+      @SuppressWarnings("NullableProblems")
+      @Override
+      public Aead load(final DataRecordEncryptionKeys encryptionKeys) throws CryptoClientException {
+        try {
+          return retry.executeCallable(
+              () -> {
+                WrappedEncryptionKeys keys = encryptionKeys.getWrappedEncryptionKeys();
+                String kekUri = keys.getKekUri().trim();
+
+                // DEK is always in Base64
+                byte[] dekBytes = decode(keys.getEncryptedDek().trim(), EncodingType.BASE64);
+                KeysetReader reader = new DekKeysetReader(ByteString.copyFrom(dekBytes));
+                Aead kmsAead =
+                    aeadProvider
+                        .getAeadSelector(
+                            AeadProviderParametersConverter.convertToAeadProviderParameters(
+                                encryptionKeys))
+                        .getAead(kekUri);
+                KeysetHandle dekKeyset = aeadProvider.readKeysetHandle(reader, kmsAead);
+                // Validate that all key types match the job's key type
+                for (KeyInfo key : getKeysetInfo(dekKeyset).getKeyInfoList()) {
+                  if (!keyTypeUrl.equals(key.getTypeUrl())) {
+                    String message = "Unexpected DEK type: " + key.getTypeUrl();
+                    logger.warn(message);
+                    throw new CryptoClientException(DEK_KEY_TYPE_MISMATCH);
+                  }
+                }
+                return dekKeyset.getPrimitive(Aead.class);
+              });
+        } catch (AeadProviderException | UncheckedAeadProviderException e) {
+          logger.warn("KEK could not be used in AeadProvider. Will not be retried in job.", e);
+          invalidDecrypters.put(encryptionKeys.toString(), e.getJobResultCode());
+          throw new CryptoClientException(e, e.getJobResultCode());
+        } catch (Throwable e) {
+          if (e instanceof CryptoClientException) {
+            JobResultCode errorCode = ((CryptoClientException) e).getErrorCode();
+            if (DEK_DECRYPTION_ERROR != errorCode) {
+              invalidDecrypters.put(encryptionKeys.toString(), errorCode);
+            }
+            throw (CryptoClientException) e;
+          }
+          logger.error(
+              "Aead Crypto client could not decrypt DEK using KEK for an unknown reason.", e);
+          throw new CryptoClientException(e, DEK_DECRYPTION_ERROR);
+        }
+      }
+    };
   }
 
   /** Throw if KEK or DEK are not present. */
