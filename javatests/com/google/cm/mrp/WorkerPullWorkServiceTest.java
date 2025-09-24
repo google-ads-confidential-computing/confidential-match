@@ -36,7 +36,6 @@ import com.google.scp.operator.cpio.jobclient.JobClient;
 import com.google.scp.operator.cpio.jobclient.JobClient.JobClientException;
 import com.google.scp.operator.cpio.jobclient.model.GetJobRequest;
 import com.google.scp.operator.cpio.jobclient.model.Job;
-import com.google.scp.operator.cpio.jobclient.testing.FakeJobGenerator;
 import com.google.scp.operator.protos.shared.backend.JobKeyProto.JobKey;
 import com.google.scp.operator.protos.shared.backend.JobStatusProto.JobStatus;
 import com.google.scp.operator.protos.shared.backend.RequestInfoProto.RequestInfo;
@@ -75,7 +74,7 @@ public class WorkerPullWorkServiceTest {
   private NoOpJobProcessor jobProcessor;
   private ServiceManager serviceManager;
   private ParameterClient parameterClient;
-  private StartupConfigProvider startupConfigProvider;
+  @Mock private FeatureFlagProvider mockFeatureFlagProvider;
   @Mock private JobClient mockJobClient;
 
   @Captor ArgumentCaptor<GetJobRequest> getJobRequestArgumentCaptor;
@@ -95,44 +94,10 @@ public class WorkerPullWorkServiceTest {
                     bind(JobClient.class).toInstance(mockJobClient);
                     bind(JobProcessor.class).toInstance(jobProcessor);
                     bind(Integer.class).annotatedWith(JobQueueRetryDelaySec.class).toInstance(10);
+                    bind(FeatureFlagProvider.class).toInstance(mockFeatureFlagProvider);
                   }
                 })
             .getServiceManager();
-    startupConfigProvider = new StartupConfigProviderImpl(parameterClient);
-  }
-
-  @Test
-  public void startAsync_emptyApplicationId_notificationTopicIdFuncReturnsEmptyTopic()
-      throws JobClientException {
-    Job job = FakeJobGenerator.generate("foo");
-    when(mockJobClient.getJob(any())).thenReturn(Optional.of(job)).thenReturn(Optional.empty());
-
-    runWorker();
-
-    verify(mockJobClient, times(2)).getJob(getJobRequestArgumentCaptor.capture());
-    for (GetJobRequest getJobRequest : getJobRequestArgumentCaptor.getAllValues()) {
-      assertThat(getJobRequest.getJobCompletionNotificationTopicIdFunc()).isPresent();
-      var getTopicIdFunc = getJobRequest.getJobCompletionNotificationTopicIdFunc();
-      assertThat(getTopicIdFunc.get().apply(jobProcessor.getMostRecentProcessedJob().get()))
-          .isEmpty();
-    }
-  }
-
-  @Test
-  public void startAsync_customerMatchJob_notificationTopicIdFuncReturnsEmptyTopic()
-      throws JobClientException {
-    Job job = generateJob("foo", "customer_match");
-    when(mockJobClient.getJob(any())).thenReturn(Optional.of(job)).thenReturn(Optional.empty());
-
-    runWorker();
-
-    verify(mockJobClient, times(2)).getJob(getJobRequestArgumentCaptor.capture());
-    for (GetJobRequest getJobRequest : getJobRequestArgumentCaptor.getAllValues()) {
-      assertThat(getJobRequest.getJobCompletionNotificationTopicIdFunc()).isPresent();
-      var getTopicIdFunc = getJobRequest.getJobCompletionNotificationTopicIdFunc();
-      assertThat(getTopicIdFunc.get().apply(jobProcessor.getMostRecentProcessedJob().get()))
-          .isEmpty();
-    }
   }
 
   @Test
@@ -140,6 +105,7 @@ public class WorkerPullWorkServiceTest {
       throws JobClientException {
     Job job = generateJob("foo", "mic");
     when(mockJobClient.getJob(any())).thenReturn(Optional.of(job)).thenReturn(Optional.empty());
+    when(mockFeatureFlagProvider.getFeatureFlags()).thenReturn(FeatureFlags.builder().build());
 
     runWorker();
 

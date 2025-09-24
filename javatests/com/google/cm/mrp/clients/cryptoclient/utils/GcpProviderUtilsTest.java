@@ -16,6 +16,7 @@
 
 package com.google.cm.mrp.clients.cryptoclient.utils;
 
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_DECRYPTION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_KEK;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.KEK_PERMISSION_DENIED;
 import static com.google.common.truth.Truth.assertThat;
@@ -72,6 +73,7 @@ public class GcpProviderUtilsTest {
   public void handleGcpKmsException_invalidKek() {
     var details = new GoogleJsonError();
     details.setCode(400);
+    details.setMessage("");
     var ex =
         new GeneralSecurityException(
             new GoogleJsonResponseException(
@@ -87,9 +89,29 @@ public class GcpProviderUtilsTest {
   }
 
   @Test
+  public void handleGcpKmsException_invalidDek() {
+    var details = new GoogleJsonError();
+    details.setCode(400);
+    details.setMessage("Decryption failed: the ciphertext is invalid");
+    var ex =
+        new GeneralSecurityException(
+            new GoogleJsonResponseException(
+                new HttpResponseException.Builder(400, "error", new HttpHeaders()), details));
+
+    var result = GcpProviderUtils.tryParseGcpKmsException(ex);
+
+    assertThat(result).isPresent();
+    assertThat(result.get().getJobResultCode()).isEqualTo(DEK_DECRYPTION_ERROR);
+    assertThat(result.get())
+        .hasMessageThat()
+        .isEqualTo("Cloud KMS marked DEK as invalid and cannot be decrypted.");
+  }
+
+  @Test
   public void handleGcpKmsException_kekPermissionDenied() {
     var details = new GoogleJsonError();
     details.setCode(403);
+    details.setMessage("");
     var ex =
         new GeneralSecurityException(
             new GoogleJsonResponseException(

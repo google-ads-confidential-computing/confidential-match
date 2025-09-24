@@ -19,6 +19,7 @@ package com.google.cm.mrp;
 import com.google.cm.mrp.backend.ApplicationProto.ApplicationId;
 import com.google.scp.shared.clients.configclient.ParameterClient;
 import com.google.scp.shared.clients.configclient.ParameterClient.ParameterClientException;
+import java.util.Locale;
 import java.util.Optional;
 import javax.inject.Inject;
 import org.slf4j.Logger;
@@ -45,21 +46,41 @@ public final class StartupConfigProviderImpl implements StartupConfigProvider {
     boolean conscryptEnabled =
         getValue(Parameter.CONSCRYPT_ENABLED.name()).map(Boolean::parseBoolean).orElse(false);
     builder.setConscryptEnabled(conscryptEnabled);
-
     builder.setLoggingLevel(getValue(Parameter.LOGGING_LEVEL.name()));
 
-    // Get notification topics
+    addNotificationTopics(builder);
+    addApplicationIdWorkgroups(builder);
+    return builder.build();
+  }
+
+  private void addNotificationTopics(StartupConfig.Builder builder) {
     for (ApplicationId applicationId : ApplicationId.values()) {
       if (applicationId == ApplicationId.APPLICATION_ID_UNSPECIFIED) {
         continue;
       }
       Optional<String> notificationTopic =
-          getValue(Parameter.NOTIFICATION_TOPIC_PREFIX + applicationId.name().toUpperCase());
-      if (notificationTopic.isPresent() && !notificationTopic.get().isEmpty()) {
-        builder.addNotificationTopic(applicationId.name().toLowerCase(), notificationTopic.get());
-      }
+          getValue(
+              Parameter.NOTIFICATION_TOPIC_PREFIX + applicationId.name().toUpperCase(Locale.US));
+      notificationTopic
+          .filter(topic -> !topic.isEmpty())
+          .ifPresent(
+              topic ->
+                  builder.addNotificationTopic(applicationId.name().toLowerCase(Locale.US), topic));
     }
-    return builder.build();
+  }
+
+  private void addApplicationIdWorkgroups(StartupConfig.Builder builder) {
+    for (ApplicationId applicationId : ApplicationId.values()) {
+      if (applicationId == ApplicationId.APPLICATION_ID_UNSPECIFIED) {
+        continue;
+      }
+      String applicationIdName = applicationId.name().toLowerCase(Locale.US);
+      Optional<String> workgroupName =
+          getValue(Parameter.ASSIGNED_WORKGROUP_PREFIX + applicationIdName);
+      workgroupName
+          .filter(name -> !name.isEmpty())
+          .ifPresent(name -> builder.addWorkgroupApplicationId(applicationIdName, name));
+    }
   }
 
   private Optional<String> getValue(String parameter) {

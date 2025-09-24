@@ -41,11 +41,9 @@ import org.mockito.junit.MockitoRule;
 @RunWith(JUnit4.class)
 public class StartupConfigProviderImplTest {
 
-  @Rule
-  public final MockitoRule mockito = MockitoJUnit.rule();
+  @Rule public final MockitoRule mockito = MockitoJUnit.rule();
 
-  @Mock
-  private ParameterClient mockParameterClient;
+  @Mock private ParameterClient mockParameterClient;
   private StartupConfigProvider configProvider;
 
   @Before
@@ -54,7 +52,7 @@ public class StartupConfigProviderImplTest {
   }
 
   @Test
-  public void getStartupConfig_noParametersReturnDefault() throws Exception {
+  public void getStartupConfig_noParametersReturnDefault() {
     StartupConfig startupConfig = configProvider.getStartupConfig();
 
     assertThat(startupConfig.conscryptEnabled()).isEqualTo(false);
@@ -65,29 +63,45 @@ public class StartupConfigProviderImplTest {
   @Test
   public void getStartupConfig_nonEmptyTopicsReturnsExpectedMap() throws Exception {
     when(mockParameterClient.getParameter(
-        Parameter.NOTIFICATION_TOPIC_PREFIX + ApplicationId.MIC.name(),
-        Optional.of(Parameter.CFM_PREFIX),
-        true))
+            Parameter.NOTIFICATION_TOPIC_PREFIX + ApplicationId.MIC.name(),
+            Optional.of(Parameter.CFM_PREFIX),
+            true))
         .thenReturn(Optional.of("fake_mic_topic"));
     when(mockParameterClient.getParameter(
-        Parameter.NOTIFICATION_TOPIC_PREFIX + ApplicationId.CUSTOMER_MATCH.name(),
-        Optional.of(Parameter.CFM_PREFIX),
-        true))
+            Parameter.NOTIFICATION_TOPIC_PREFIX + ApplicationId.CUSTOMER_MATCH.name(),
+            Optional.of(Parameter.CFM_PREFIX),
+            true))
         .thenReturn(Optional.of("fake_customer_match_topic"));
 
     StartupConfig startupConfig = configProvider.getStartupConfig();
 
-    assertThat(startupConfig.notificationTopics()).isEqualTo(
-        ImmutableMap.of(
-            "mic", "fake_mic_topic", "customer_match", "fake_customer_match_topic"));
+    assertThat(startupConfig.notificationTopics())
+        .isEqualTo(
+            ImmutableMap.of(
+                "mic", "fake_mic_topic", "customer_match", "fake_customer_match_topic"));
+  }
+
+  @Test
+  public void getStartupConfig_returnsAssignedWorkgroups() throws Exception {
+    when(mockParameterClient.getParameter(
+            Parameter.ASSIGNED_WORKGROUP_PREFIX + "mic", Optional.of(Parameter.CFM_PREFIX), true))
+        .thenReturn(Optional.of("fake_mic_group"));
+    when(mockParameterClient.getParameter(
+            Parameter.ASSIGNED_WORKGROUP_PREFIX + "customer_match",
+            Optional.of(Parameter.CFM_PREFIX),
+            true))
+        .thenReturn(Optional.of("fake_cm_group"));
+
+    StartupConfig startupConfig = configProvider.getStartupConfig();
+
+    assertThat(startupConfig.applicationIdWorkgroups())
+        .isEqualTo(ImmutableMap.of("mic", "fake_mic_group", "customer_match", "fake_cm_group"));
   }
 
   @Test
   public void getStartupConfig_returnsLoggingParameter() throws Exception {
     when(mockParameterClient.getParameter(
-        Parameter.LOGGING_LEVEL.name(),
-        Optional.of(Parameter.CFM_PREFIX),
-        true))
+            Parameter.LOGGING_LEVEL.name(), Optional.of(Parameter.CFM_PREFIX), true))
         .thenReturn(Optional.of("WARN"));
 
     StartupConfig startupConfig = configProvider.getStartupConfig();
@@ -104,21 +118,23 @@ public class StartupConfigProviderImplTest {
         verify(mockParameterClient, times(1))
             .getParameter(
                 Parameter.NOTIFICATION_TOPIC_PREFIX + applicationId.name(),
-                Optional.of(Parameter.CFM_PREFIX), true);
+                Optional.of(Parameter.CFM_PREFIX),
+                true);
       }
     }
     verify(mockParameterClient, never())
         .getParameter(
             Parameter.NOTIFICATION_TOPIC_PREFIX + ApplicationId.APPLICATION_ID_UNSPECIFIED,
-            Optional.of(Parameter.CFM_PREFIX), true);
+            Optional.of(Parameter.CFM_PREFIX),
+            true);
   }
 
   @Test
   public void getStartupConfig_parameterClientThrowsException() throws Exception {
     when(mockParameterClient.getParameter(
-        Parameter.NOTIFICATION_TOPIC_PREFIX + ApplicationId.MIC.name(),
-        Optional.of(Parameter.CFM_PREFIX),
-        true))
+            Parameter.NOTIFICATION_TOPIC_PREFIX + ApplicationId.MIC.name(),
+            Optional.of(Parameter.CFM_PREFIX),
+            true))
         .thenThrow(new ParameterClientException("Parameter Client Error", ErrorReason.FETCH_ERROR));
 
     var ex = assertThrows(RuntimeException.class, () -> configProvider.getStartupConfig());

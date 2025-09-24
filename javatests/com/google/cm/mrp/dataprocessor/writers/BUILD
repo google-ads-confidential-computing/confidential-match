@@ -47,6 +47,7 @@ java_test(
     ],
     deps = [
         "//java/com/google/cm/mrp:exceptions",
+        "//java/com/google/cm/mrp:featureFlags",
         "//java/com/google/cm/mrp:match_config_provider",
         "//java/com/google/cm/mrp/dataprocessor/common",
         "//java/com/google/cm/mrp/dataprocessor/destinations",
@@ -55,6 +56,7 @@ java_test(
         "//java/com/google/cm/mrp/models",
         "//java/com/google/cm/util",
         "//java/external:google_truth",
+        "//java/external:google_truth8",
         "//java/external:guava",
         "//java/external:mockito",
         "//protos/mrp/api:java_proto",

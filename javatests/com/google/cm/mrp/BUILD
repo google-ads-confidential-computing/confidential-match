@@ -31,6 +31,22 @@ java_test(
 )
 
 java_test(
+    name = "JobRequestProviderTest",
+    srcs = ["JobRequestProviderTest.java"],
+    deps = [
+        "//java/com/google/cm/mrp:matchworker_runner",
+        "//java/external:clients_jobclient_model",
+        "//java/external:google_truth",
+        "//java/external:google_truth8",
+        "//java/external:guava",
+        "//java/external:guice",
+        "//java/external:mockito",
+        "//java/external:operator_backend_protos",
+        "//protos/mrp/api:java_proto",
+    ],
+)
+
+java_test(
     name = "StartupConfigProviderImplTest",
     srcs = ["StartupConfigProviderImplTest.java"],
     deps = [

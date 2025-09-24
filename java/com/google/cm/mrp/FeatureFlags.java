@@ -26,7 +26,9 @@ public abstract class FeatureFlags {
   public static Builder builder() {
     return new AutoValue_FeatureFlags.Builder()
         .setEnableMIC(false)
-        .setCoordinatorBatchEncryptionEnabled(false);
+        .setWorkgroupsEnabled(false)
+        .setCoordinatorBatchEncryptionEnabled(false)
+        .setMaxRecordsPerProtoOutputFile(100000);
   }
 
   /** Returns the flag for MIC feature. */
@@ -34,6 +36,12 @@ public abstract class FeatureFlags {
 
   /** Returns the coordinator batch encryption feature. */
   public abstract boolean coordinatorBatchEncryptionEnabled();
+
+  /** Returns the multiple workgroups feature. */
+  public abstract boolean workgroupsEnabled();
+
+  /** Returns the max records to output for proto files. */
+  public abstract int maxRecordsPerProtoOutputFile();
 
   /** Builder for {@link FeatureFlags}. */
   @AutoValue.Builder
@@ -48,5 +56,11 @@ public abstract class FeatureFlags {
     /** Sets the coordinator batch encryption feature flag. */
     public abstract Builder setCoordinatorBatchEncryptionEnabled(
         boolean coordinatorBatchEncryptionEnabled);
+
+    /** Sets the multiple workgroups feature flag. */
+    public abstract Builder setWorkgroupsEnabled(boolean workgroupsEnabled);
+
+    /** Sets the max records to output for proto files. */
+    public abstract Builder setMaxRecordsPerProtoOutputFile(int maxRecordsPerProtoOutputFile);
   }
 }

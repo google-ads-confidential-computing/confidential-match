@@ -27,6 +27,7 @@ public enum Parameter {
   ORCHESTRATOR_ENDPOINT,
   LOOKUP_SERVICE_AUDIENCE,
   MAX_RECORDS_PER_OUTPUT_FILE,
+  MAX_RECORDS_PER_PROTO_OUTPUT_FILE,
   LOOKUP_PROTO_FORMAT,
   JOB_PROCESSOR_MAX_RETRIES,
   JOB_QUEUE_RETRY_DELAY_SEC,
@@ -40,7 +41,9 @@ public enum Parameter {
   // MRP add-on feature flags
   MIC_FEATURE_ENABLED,
   // Coordinator batch encryption feature flag
-  COORDINATOR_BATCH_ENCRYPTION_ENABLED;
+  COORDINATOR_BATCH_ENCRYPTION_ENABLED,
+  // Workgroups feature flag
+  WORKGROUPS_ENABLED;
 
   /** String to prefix the parameters. */
   public static final String CFM_PREFIX = "CFM";
@@ -50,4 +53,10 @@ public enum Parameter {
    * format: CFM-{environment}-NOTIFICATION_TOPIC_{APPLICATION_ID}
    */
   public static final String NOTIFICATION_TOPIC_PREFIX = "NOTIFICATION_TOPIC_";
+
+  /**
+   * Application specific flag for workgroup group assignment for application IDs, stored in the
+   * format CFM-{environment}-ASSIGNED_WORKGROUP_{APPLICATION_ID}
+   */
+  public static final String ASSIGNED_WORKGROUP_PREFIX = "ASSIGNED_WORKGROUP_";
 }

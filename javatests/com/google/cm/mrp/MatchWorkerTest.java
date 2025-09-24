@@ -19,6 +19,7 @@ package com.google.cm.mrp;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth8.assertThat;
 import static com.google.common.util.concurrent.Service.State.TERMINATED;
+import static org.mockito.Mockito.when;
 
 import com.google.cm.mrp.Annotations.JobQueueRetryDelaySec;
 import com.google.cm.mrp.selectors.MetricClientSelector;
@@ -48,6 +49,7 @@ public final class MatchWorkerTest {
   private ConstantJobClient jobClient;
   private NoOpJobProcessor jobProcessor;
   private ServiceManager serviceManager;
+  @Mock private FeatureFlagProvider mockFeatureFlagProvider;
   @Mock private ParameterClient mockParameterClient;
 
   @Before
@@ -65,6 +67,7 @@ public final class MatchWorkerTest {
                     bind(JobClient.class).toInstance(jobClient);
                     bind(JobProcessor.class).toInstance(jobProcessor);
                     bind(Integer.class).annotatedWith(JobQueueRetryDelaySec.class).toInstance(10);
+                    bind(FeatureFlagProvider.class).toInstance(mockFeatureFlagProvider);
                   }
                 })
             .getServiceManager();
@@ -72,6 +75,7 @@ public final class MatchWorkerTest {
 
   @Test
   public void startAsync_jobIsProcessed() {
+    when(mockFeatureFlagProvider.getFeatureFlags()).thenReturn(FeatureFlags.builder().build());
     Job job = FakeJobGenerator.generate("foo");
     JobResult jobResult = FakeJobResultGenerator.fromJob(job);
     jobClient.setReturnConstant(job);
@@ -86,6 +90,7 @@ public final class MatchWorkerTest {
 
   @Test
   public void startAsync_jobClientGetJobException_jobIsNotProcessed() {
+    when(mockFeatureFlagProvider.getFeatureFlags()).thenReturn(FeatureFlags.builder().build());
     jobClient.setReturnEmpty();
     jobClient.setShouldThrowOnGetJob(true);
 
@@ -98,6 +103,7 @@ public final class MatchWorkerTest {
 
   @Test
   public void startAsync_jobClientMarkJobCompletedException_jobIsProcessed() {
+    when(mockFeatureFlagProvider.getFeatureFlags()).thenReturn(FeatureFlags.builder().build());
     Job job = FakeJobGenerator.generate("foo");
     jobClient.setReturnConstant(job);
     jobClient.setShouldThrowOnMarkJobCompleted(true);
@@ -110,6 +116,7 @@ public final class MatchWorkerTest {
 
   @Test
   public void startAsync_jobProcessorException_noJobResultReturned() {
+    when(mockFeatureFlagProvider.getFeatureFlags()).thenReturn(FeatureFlags.builder().build());
     Job job = FakeJobGenerator.generate("foo");
     jobClient.setReturnConstant(job);
     jobProcessor.setShouldThrowException(true);

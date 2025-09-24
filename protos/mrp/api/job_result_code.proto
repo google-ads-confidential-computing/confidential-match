@@ -55,6 +55,7 @@ enum JobResultCode {
   PARTIAL_SUCCESS = 200;
   DECRYPTION_ERROR = 201; // DEK could not decrypt data record
   DEK_DECRYPTION_ERROR = 202; // KEK could not decrypt DEK
+  INVALID_DEK = 226; // DEK cannot be decrypted because it is invalid
   INVALID_WIP_PARAMETER = 224; // WIP is formatted incorrectly or WIP does not exist
   WIP_AUTH_FAILED = 225;  // The WIP could not be used because it was rejected by its attestation condition
   INVALID_ROLE_FORMAT = 216; // AWS Role does not exist or no permission

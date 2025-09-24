@@ -21,12 +21,14 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.SUCCESS;
 import static com.google.cm.mrp.dataprocessor.common.Constants.ROW_MARKER_COLUMN_NAME;
 import static com.google.common.truth.Truth.assertThat;
+import static com.google.common.truth.Truth8.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.MatchConfigProvider;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeChildField;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeField;
@@ -63,11 +65,13 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.Before;
 import org.junit.Rule;
@@ -79,6 +83,9 @@ import org.mockito.junit.MockitoRule;
 
 @RunWith(JUnit4.class)
 public final class SerializedProtoDataWriterTest {
+
+  private static final FeatureFlags DEFAULT_FEATURE_FLAGS =
+      FeatureFlags.builder().setMaxRecordsPerProtoOutputFile(1000).build();
 
   @Rule public final MockitoRule mockito = MockitoJUnit.rule();
 
@@ -155,7 +162,7 @@ public final class SerializedProtoDataWriterTest {
     // Run the write method
     SerializedProtoDataWriter dataWriter =
         new SerializedProtoDataWriter(
-            1000,
+            DEFAULT_FEATURE_FLAGS,
             DEFAULT_PARAMS,
             testDataDestination,
             "proto_writer_test.txt",
@@ -205,6 +212,46 @@ public final class SerializedProtoDataWriterTest {
   }
 
   @Test
+  public void write_multipleFiles() throws Exception {
+    TestDataDestination testDataDestination = new TestDataDestination();
+    Schema schema = getSchema("testdata/proto_schema_hashed.json");
+    var dataChunkBuilder = DataChunk.builder();
+    int limit = 1000;
+    for (int i = 0; i < limit; i++) {
+      // One MatchKey using row level wrapped key encryption
+      List<Entry<String, Optional<String>>> keyValues = new ArrayList<>();
+      keyValues.add(Map.entry("email", Optional.of("email@google.com" + i)));
+      keyValues.add(Map.entry("phone", Optional.of("111-111-" + i)));
+      keyValues.add(Map.entry("first_name", Optional.of("fn-" + i)));
+      keyValues.add(Map.entry("last_name", Optional.of("ln-" + i)));
+      keyValues.add(Map.entry("zip_code", Optional.of("9" + i)));
+      keyValues.add(Map.entry("country_code", Optional.of("us")));
+      keyValues.add(Map.entry(ROW_MARKER_COLUMN_NAME, Optional.of(i + "")));
+      dataChunkBuilder.addRecord(getDataRecord(keyValues).build());
+    }
+    var dataChunk = dataChunkBuilder.setSchema(schema).build();
+
+    // Run the write method
+    SerializedProtoDataWriter dataWriter =
+        new SerializedProtoDataWriter(
+            FeatureFlags.builder().setMaxRecordsPerProtoOutputFile(100).build(),
+            DEFAULT_PARAMS,
+            testDataDestination,
+            "proto_writer_test.txt",
+            schema,
+            matchConfig);
+    dataWriter.write(dataChunk);
+    dataWriter.close();
+
+    // Validate the written out files
+    assertThat(testDataDestination.fileList.stream().filter(File::exists).findAny())
+        .isEmpty(); // All temp files should've been deleted
+    Set<String> names = new HashSet<>(testDataDestination.fileNames);
+    assertThat(names).hasSize(10);
+    assertThat(testDataDestination.fileLines).hasSize(1000);
+  }
+
+  @Test
   public void write_withWrappedKey() throws Exception {
     TestDataDestination testDataDestination = new TestDataDestination();
     Schema schema = getSchema("testdata/proto_schema_wrapped_key.json");
@@ -221,7 +268,7 @@ public final class SerializedProtoDataWriterTest {
     // Run the write method
     SerializedProtoDataWriter dataWriter =
         new SerializedProtoDataWriter(
-            1000,
+            DEFAULT_FEATURE_FLAGS,
             GCP_ENCRYPTION_PARAMS,
             testDataDestination,
             "proto_writer_test.txt",
@@ -271,7 +318,7 @@ public final class SerializedProtoDataWriterTest {
     // Run the write method
     SerializedProtoDataWriter dataWriter =
         new SerializedProtoDataWriter(
-            1000,
+            DEFAULT_FEATURE_FLAGS,
             GCP_ENCRYPTION_PARAMS,
             testDataDestination,
             "proto_writer_test.txt",
@@ -322,7 +369,7 @@ public final class SerializedProtoDataWriterTest {
     // Run the write method
     SerializedProtoDataWriter dataWriter =
         new SerializedProtoDataWriter(
-            1000,
+            DEFAULT_FEATURE_FLAGS,
             AWS_ENCRYPTION_PARAMS,
             testDataDestination,
             "proto_writer_test.txt",
@@ -462,7 +509,7 @@ public final class SerializedProtoDataWriterTest {
     DataChunk dataChunk = DataChunk.builder().setRecords(dataRecords).setSchema(schema).build();
     SerializedProtoDataWriter dataWriter =
         new SerializedProtoDataWriter(
-            1000,
+            DEFAULT_FEATURE_FLAGS,
             DEFAULT_PARAMS,
             testDataDestination,
             "proto_writer_test.txt",
@@ -593,7 +640,7 @@ public final class SerializedProtoDataWriterTest {
     // Run the write method
     SerializedProtoDataWriter dataWriter =
         new SerializedProtoDataWriter(
-            1000,
+            DEFAULT_FEATURE_FLAGS,
             JOIN_MODE_PARAMS,
             testDataDestination,
             "proto_writer_test.txt",
@@ -760,7 +807,7 @@ public final class SerializedProtoDataWriterTest {
     // Run the write method
     SerializedProtoDataWriter dataWriter =
         new SerializedProtoDataWriter(
-            1000,
+            DEFAULT_FEATURE_FLAGS,
             JOIN_MODE_PARAMS,
             testDataDestination,
             "proto_writer_test.txt",
@@ -1068,11 +1115,16 @@ public final class SerializedProtoDataWriterTest {
     private List<String> fileLines;
     private File file;
     private String name;
+    private List<String> fileNames;
+    private List<File> fileList;
 
     private final boolean throwException;
 
     TestDataDestination() {
       throwException = false;
+      fileList = new ArrayList<>();
+      fileLines = new ArrayList<>();
+      fileNames = new ArrayList<>();
     }
 
     TestDataDestination(boolean throwException) {
@@ -1086,7 +1138,9 @@ public final class SerializedProtoDataWriterTest {
       if (throwException) {
         throw new RuntimeException("Test write exception");
       }
-      fileLines = Files.readAllLines(file.toPath());
+      fileNames.add(name);
+      fileList.add(file);
+      fileLines.addAll(Files.readAllLines(file.toPath()));
     }
   }
 }

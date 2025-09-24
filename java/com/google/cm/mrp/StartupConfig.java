@@ -30,6 +30,7 @@ public abstract class StartupConfig {
   public static Builder builder() {
     return new AutoValue_StartupConfig.Builder()
         .setNotificationTopics(ImmutableMap.of())
+        .setApplicationIdWorkgroups(ImmutableMap.of())
         .setConscryptEnabled(false);
   }
 
@@ -38,6 +39,9 @@ public abstract class StartupConfig {
    * application)
    */
   public abstract ImmutableMap<String, String> notificationTopics();
+
+  /** Returns a mapping of: applicationId -> workgroupName, if set for the application */
+  public abstract ImmutableMap<String, String> applicationIdWorkgroups();
 
   /** Returns if conscrypt is enabled. */
   public abstract boolean conscryptEnabled();
@@ -59,6 +63,16 @@ public abstract class StartupConfig {
     public abstract StartupConfig.Builder setNotificationTopics(
         Map<String, String> notificationTopics);
 
+    /** Adds a pair of (applicationId, workgroupName) to the applicationIdWorkgroups map */
+    public final Builder addWorkgroupApplicationId(String applicationId, String workgroupName) {
+      applicationIdWorkgroupsBuilder().put(applicationId, workgroupName);
+      return this;
+    }
+
+    /** Set the applicationIdWorkgroups map */
+    public abstract StartupConfig.Builder setApplicationIdWorkgroups(
+        Map<String, String> applicationIdWorkgroups);
+
     /** Sets conscrypt enabled. */
     public abstract StartupConfig.Builder setConscryptEnabled(boolean conscryptEnabled);
 
@@ -70,5 +84,8 @@ public abstract class StartupConfig {
 
     /** Builder for notificationTopics map */
     public abstract ImmutableMap.Builder<String, String> notificationTopicsBuilder();
+
+    /** Builder for applicationIdWorkgroups map */
+    public abstract ImmutableMap.Builder<String, String> applicationIdWorkgroupsBuilder();
   }
 }

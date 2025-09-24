@@ -16,6 +16,7 @@
 
 package com.google.cm.mrp.clients.cryptoclient.utils;
 
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_DECRYPTION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_KEK;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_WIP_FORMAT;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_WIP_PARAMETER;
@@ -38,6 +39,7 @@ public final class GcpProviderUtils {
   private static final String INVALID_WIP_FORMAT_CODE = "invalid_request";
   private static final String INVALID_WIP_CODE = "invalid_target";
   private static final String WIP_CONDITION_FAILED_CODE = "unauthorized_client";
+  private static final String INVALID_CYPHERTEXT = "ciphertext is invalid";
 
   private GcpProviderUtils() {}
 
@@ -55,9 +57,16 @@ public final class GcpProviderUtils {
       var apiResponse = (GoogleJsonResponseException) rootEx;
       int statusCode = apiResponse.getDetails().getCode();
       if (statusCode == 400) {
-        String msg = "KEK could not decrypt data, most likely incorrect KEK.";
-        logger.warn(msg, rootEx);
-        return Optional.of(new AeadProviderException(msg, rootEx, INVALID_KEK));
+        if (apiResponse.getDetails().getMessage() != null
+            && apiResponse.getDetails().getMessage().contains(INVALID_CYPHERTEXT)) {
+          String msg = "Cloud KMS marked DEK as invalid and cannot be decrypted.";
+          logger.warn(msg, rootEx);
+          return Optional.of(new AeadProviderException(msg, rootEx, DEK_DECRYPTION_ERROR));
+        } else {
+          String msg = "KEK could not decrypt data, most likely incorrect KEK.";
+          logger.warn(msg, rootEx);
+          return Optional.of(new AeadProviderException(msg, rootEx, INVALID_KEK));
+        }
       } else if (statusCode == 403) {
         String msg = "Permission denied when trying to use KEK.";
         logger.warn(msg, rootEx);

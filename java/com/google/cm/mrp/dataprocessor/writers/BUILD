@@ -21,6 +21,7 @@ java_library(
     ]),
     deps = [
         "//java/com/google/cm/mrp:exceptions",
+        "//java/com/google/cm/mrp:featureFlags",
         "//java/com/google/cm/mrp/dataprocessor/common",
         "//java/com/google/cm/mrp/dataprocessor/converters",
         "//java/com/google/cm/mrp/dataprocessor/destinations",

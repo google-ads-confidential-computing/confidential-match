@@ -218,6 +218,7 @@ public final class DataProcessorImpl implements DataProcessor {
                         : getOutputSchema(matchConfig, dataReader.getSchema());
                 final DataWriter dataWriter =
                     getDataWriter(
+                        featureFlags,
                         jobParameters,
                         outputSchema,
                         dataDestination,
@@ -304,6 +305,7 @@ public final class DataProcessorImpl implements DataProcessor {
   }
 
   private DataWriter getDataWriter(
+      FeatureFlags featureFlags,
       JobParameters jobParameters,
       Schema schema,
       DataDestination dataDestination,
@@ -311,7 +313,7 @@ public final class DataProcessorImpl implements DataProcessor {
       MatchConfig matchConfig) {
     return schema.getDataFormat() == SERIALIZED_PROTO
         ? dataWriterFactory.createSerializedProtoDataWriter(
-            jobParameters, dataDestination, dataReaderName, schema, matchConfig)
+            featureFlags, jobParameters, dataDestination, dataReaderName, schema, matchConfig)
         : dataWriterFactory.createCsvDataWriter(
             dataDestination,
             dataReaderName,

@@ -31,6 +31,7 @@ import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Map.entry;
 
+import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.JobProcessorException;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeChildField;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeField;
@@ -59,7 +60,6 @@ import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.SuccessConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.SuccessConfig.PartialSuccessAttributes;
 import com.google.cm.mrp.backend.SchemaProto.Schema;
 import com.google.cm.mrp.backend.SchemaProto.Schema.Column;
-import com.google.cm.mrp.dataprocessor.common.Annotations.MaxRecordsPerOutputFile;
 import com.google.cm.mrp.dataprocessor.destinations.DataDestination;
 import com.google.cm.mrp.dataprocessor.models.DataChunk;
 import com.google.cm.mrp.models.JobParameters;
@@ -127,14 +127,15 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
   /** Constructor for {@link DataWriter}. */
   @AssistedInject
   public SerializedProtoDataWriter(
-      @MaxRecordsPerOutputFile Integer maxRecordsPerOutputFile,
+      @Assisted FeatureFlags featureFlags,
       @Assisted JobParameters jobParameters,
       @Assisted DataDestination dataDestination,
       @Assisted String name,
       @Assisted Schema schema,
       @Assisted MatchConfig matchConfig) {
     this.jobParameters = jobParameters;
-    this.maxRecordsPerOutputFile = maxRecordsPerOutputFile;
+    this.maxRecordsPerOutputFile =
+        featureFlags.maxRecordsPerProtoOutputFile();
     this.dataDestination = dataDestination;
     this.name = name;
     numberOfRecords = 0;

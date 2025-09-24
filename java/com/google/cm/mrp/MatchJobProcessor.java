@@ -620,7 +620,12 @@ public final class MatchJobProcessor implements JobProcessor {
     ImmutableMap<String, String> notificationTopics =
         startupConfigProvider.getStartupConfig().notificationTopics();
     String applicationId =
-        job.requestInfo().getJobParametersMap().get(APPLICATION_ID).toLowerCase();
-    return Optional.ofNullable(notificationTopics.get(applicationId));
+        job.requestInfo().getJobParametersMap().get(APPLICATION_ID);
+    if (applicationId == null) {
+      String message = "Application ID is missing.";
+      logger.warn(message);
+      throw new JobProcessorException(message, INVALID_PARAMETERS);
+    }
+    return Optional.ofNullable(notificationTopics.get(applicationId.toLowerCase()));
   }
 }

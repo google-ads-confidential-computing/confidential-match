@@ -24,10 +24,8 @@ import com.google.cm.mrp.Annotations.JobQueueRetryDelaySec;
 import com.google.cm.mrp.api.JobResultCodeProto;
 import com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode;
 import com.google.cm.mrp.dataprocessor.converters.JobResultCodeConverter;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.util.concurrent.AbstractExecutionThreadService;
 import com.google.scp.operator.cpio.jobclient.JobClient;
-import com.google.scp.operator.cpio.jobclient.model.GetJobRequest;
 import com.google.scp.operator.cpio.jobclient.model.Job;
 import com.google.scp.operator.cpio.jobclient.model.JobResult;
 import com.google.scp.operator.cpio.jobclient.model.JobRetryRequest;
@@ -44,9 +42,10 @@ import org.slf4j.LoggerFactory;
 public class WorkerPullWorkService extends AbstractExecutionThreadService {
 
   private static final Logger logger = LoggerFactory.getLogger(WorkerPullWorkService.class);
-  private static final String APPLICATION_ID = "application_id";
   private final JobClient jobClient;
   private final JobProcessor jobProcessor;
+  private final JobRequestProvider jobRequestProvider;
+
   private final int jobRetryDelaySec;
   private final StartupConfigProvider startupConfigProvider;
   private final DynamicLogProvider dynamicLogProvider;
@@ -56,11 +55,13 @@ public class WorkerPullWorkService extends AbstractExecutionThreadService {
   WorkerPullWorkService(
       JobClient jobClient,
       JobProcessor jobProcessor,
+      JobRequestProvider jobRequestProvider,
       @JobQueueRetryDelaySec int jobRetryDelaySec,
       StartupConfigProvider startupConfigProvider,
       DynamicLogProvider dynamicLogProvider) {
     this.jobClient = jobClient;
     this.jobProcessor = jobProcessor;
+    this.jobRequestProvider = jobRequestProvider;
     this.jobRetryDelaySec = jobRetryDelaySec;
     this.startupConfigProvider = startupConfigProvider;
     this.dynamicLogProvider = dynamicLogProvider;
@@ -83,7 +84,7 @@ public class WorkerPullWorkService extends AbstractExecutionThreadService {
 
     while (isRunning) {
       try {
-        Optional<Job> job = jobClient.getJob(buildGetJobRequest(startupConfigProvider));
+        Optional<Job> job = jobClient.getJob(jobRequestProvider.getJobRequest());
         if (job.isEmpty()) {
           // This is only reached when the job client backoff is exhausted
           logger.info("No job pulled.");
@@ -132,22 +133,6 @@ public class WorkerPullWorkService extends AbstractExecutionThreadService {
     }
 
     logger.info("Worker shutting down.");
-  }
-
-  private GetJobRequest buildGetJobRequest(StartupConfigProvider configProvider) {
-    GetJobRequest.Builder getJobRequest = GetJobRequest.builder();
-    getJobRequest.setJobCompletionNotificationTopicIdFunc(
-        (Job job) -> {
-          ImmutableMap<String, String> notificationTopics =
-              configProvider.getStartupConfig().notificationTopics();
-          Optional<String> applicationId =
-              Optional.ofNullable(job.requestInfo().getJobParametersMap().get(APPLICATION_ID))
-                  .map(String::toLowerCase);
-          return applicationId
-              .flatMap(id -> Optional.ofNullable(notificationTopics.get(id)))
-              .orElse("");
-        });
-    return getJobRequest.build();
   }
 
   /* Adds previous error to errorSummary   */

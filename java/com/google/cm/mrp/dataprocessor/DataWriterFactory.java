@@ -16,6 +16,7 @@
 
 package com.google.cm.mrp.dataprocessor;
 
+import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.SchemaProto.Schema;
 import com.google.cm.mrp.dataprocessor.destinations.DataDestination;
@@ -39,6 +40,7 @@ public interface DataWriterFactory {
   /** Factory method for constructing {@link SerializedProtoDataWriter} objects. */
   @Named("serializedProto")
   DataWriter createSerializedProtoDataWriter(
+      FeatureFlags featureFlags,
       JobParameters jobParameters,
       DataDestination dataDestination,
       String name,

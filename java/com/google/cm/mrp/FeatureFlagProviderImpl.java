@@ -29,9 +29,13 @@ import javax.inject.Inject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** Concrete class implementing {@link FeatureFlagProvider} interface. */
+/**
+ * Concrete class implementing {@link FeatureFlagProvider} interface. TODO(b/352391448): consider
+ * renaming to signify runtime parameter provider
+ */
 public final class FeatureFlagProviderImpl implements FeatureFlagProvider {
   private static final String FEATURE_FLAGS = "FEATURE_FLAGS";
+  private static final int DEFAULT_MAX_RECORDS_PER_PROTO_FILE = 100_000;
   private static final int MAX_CACHE_SIZE = 1;
   private static final long CACHE_TIME_TO_LIVE = 60 * 5;
   private static final int CONCURRENCY_LEVEL = Runtime.getRuntime().availableProcessors();
@@ -61,9 +65,19 @@ public final class FeatureFlagProviderImpl implements FeatureFlagProvider {
                       getValue(Parameter.COORDINATOR_BATCH_ENCRYPTION_ENABLED)
                           .map(Boolean::parseBoolean)
                           .orElse(false);
+                  boolean workgroupsEnabled =
+                      getValue(Parameter.WORKGROUPS_ENABLED)
+                          .map(Boolean::parseBoolean)
+                          .orElse(false);
+                  int maxRecordsPerProtoOutputFile =
+                      getValue(Parameter.MAX_RECORDS_PER_PROTO_OUTPUT_FILE)
+                          .map(Integer::parseInt)
+                          .orElse(DEFAULT_MAX_RECORDS_PER_PROTO_FILE);
                   return FeatureFlags.builder()
                       .setEnableMIC(micFeatureEnabled)
+                      .setWorkgroupsEnabled(workgroupsEnabled)
                       .setCoordinatorBatchEncryptionEnabled(coordinatorBatchEncryptionEnabled)
+                      .setMaxRecordsPerProtoOutputFile(maxRecordsPerProtoOutputFile)
                       .build();
                 }
               });
