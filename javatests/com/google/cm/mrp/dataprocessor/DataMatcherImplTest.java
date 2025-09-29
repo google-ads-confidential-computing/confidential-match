@@ -19,6 +19,7 @@ package com.google.cm.mrp.dataprocessor;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DECRYPTION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_DECRYPTION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PARTIAL_SUCCESS_CONFIG_ERROR;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.SUCCESS;
 import static com.google.cm.mrp.dataprocessor.common.Constants.ROW_MARKER_COLUMN_NAME;
 import static com.google.common.hash.Hashing.sha256;
 import static com.google.common.truth.Truth.assertThat;
@@ -37,6 +38,7 @@ import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord.KeyValue;
 import com.google.cm.mrp.backend.FieldMatchProto.FieldMatch.MatchedOutputField;
 import com.google.cm.mrp.backend.FieldMatchProto.FieldMatch.MatchedOutputField.Field;
+import com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.ModeConfigs;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.ModeConfigs.RedactModeConfig;
@@ -1855,6 +1857,46 @@ public final class DataMatcherImplTest {
   }
 
   @Test
+  public void match_dataRecordsWithRowMarker_errorRowsAreCountedCorrectly() {
+    List<String> ds1Fields = ImmutableList.of("email", ROW_MARKER_COLUMN_NAME);
+    FieldParser ds1FieldParser = new FieldParser(ds1Fields);
+    var ds1Records =
+        ImmutableList.of(
+            ds1FieldParser.getDataRecord(DECRYPTION_ERROR, /*email*/ "fake.email0@google.com", /*row_marker*/ "rm0"),
+            ds1FieldParser.getDataRecord(/*email*/ "fake.email2@google.com", /*row_marker*/ "rm1"));
+    DataChunk dataChunk1 =
+        DataChunk.builder()
+            .setSchema(getSchemaFromFields(ds1Fields))
+            .setRecords(ds1Records)
+            .build();
+    List<String> ds2Fields = ImmutableList.of("pii_value");
+    FieldParser ds2FieldParser = new FieldParser(ds2Fields);
+    DataChunk dataChunk2 =
+        DataChunk.builder()
+            .setSchema(getSchemaFromFields(ds2Fields))
+            .addRecord(ds2FieldParser.getDataRecord(/*pii_value*/ "fake.email2@google.com"))
+            .build();
+
+    DataMatchResult dataMatchResult = dataMatcherWithPartialSuccess.match(dataChunk1, dataChunk2);
+
+    var matchStats = dataMatchResult.matchStatistics();
+    assertThat(matchStats.numDataRecords()).isEqualTo(2);
+    assertThat(matchStats.numDataRecordsWithMatch()).isEqualTo(1);
+    Map<String, Long> datasource1Errors = matchStats.datasource1Errors();
+    assertThat(datasource1Errors).hasSize(1);
+    // assert condition matches for completeness
+    Map<String, Long> conditionMatchCounts = matchStats.conditionMatches();
+    assertThat(conditionMatchCounts).containsExactly("email", 1L);
+    Map<String, Long> conditionValidCounts = matchStats.validConditionChecks();
+    assertThat(conditionValidCounts).hasSize(3);
+    assertThat(conditionValidCounts).containsEntry("address", 0L);
+    assertThat(conditionValidCounts).containsEntry("phone", 0L);
+    assertThat(conditionValidCounts).containsEntry("email", 1L);
+    Map<String, Long> datasource2ConditionMatchCounts = matchStats.datasource2ConditionMatches();
+    assertThat(datasource2ConditionMatchCounts).containsExactly("email", 1L);
+  }
+
+  @Test
   public void match_joinModeWhenMatchFound_keepsAndReturns() {
     String[][] testData = {
       {"email", "email", "fake.email@google.com"},
@@ -3203,9 +3245,16 @@ public final class DataMatcherImplTest {
     }
 
     DataRecord getDataRecord(String... values) {
+      return getDataRecord(SUCCESS, values);
+    }
+
+    DataRecord getDataRecord(JobResultCode errorCode, String... values) {
       DataRecord.Builder builder = DataRecord.newBuilder();
       for (int i = 0; i < fields.size(); i++) {
         builder.addKeyValues(KeyValue.newBuilder().setKey(fields.get(i)).setStringValue(values[i]));
+      }
+      if (errorCode != SUCCESS) {
+        builder.setErrorCode(errorCode);
       }
       return builder.build();
     }

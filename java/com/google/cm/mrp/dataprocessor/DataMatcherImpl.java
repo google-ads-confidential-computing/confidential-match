@@ -196,7 +196,15 @@ public final class DataMatcherImpl implements DataMatcher {
 
       if (shouldAppendRecordStatus() && dataRecord.hasErrorCode()) {
         // errored-out row does not have matches but still needs to be counted
-        dataRecordsCounter.incrementRecordsCount(/* hasMatch= */ false);
+        if (rowMarkerIndex.isPresent()) {
+          // Row marker exists, try to get its value from internal data record
+          String rowMarkerVal = dataRecord.getKeyValues(rowMarkerIndex.get()).getStringValue();
+          // Add to map of rowMarkerValue -> hasMatch
+          dataRecordsCounter.addMatchForRow(rowMarkerVal, /* hasMatch= */ false);
+        } else {
+          // simply add to counter
+          dataRecordsCounter.incrementRecordsCount(/* hasMatch= */ false);
+        }
         String errorCode = dataRecord.getErrorCode().name();
         outputRecord =
             redact(

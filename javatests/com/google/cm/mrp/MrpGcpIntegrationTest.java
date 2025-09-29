@@ -83,6 +83,8 @@ import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeChildFiel
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeField;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.ConfidentialMatchDataRecord;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.ConfidentialMatchOutputDataRecord;
+import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.EncryptionKey;
+import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.EncryptionKey.GcpWrappedKey;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.Field;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.KeyValue;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.MatchKey;
@@ -207,6 +209,25 @@ public final class MrpGcpIntegrationTest {
           + "{\"columnName\":\"CountryCode1\",\"columnAlias\":\"country_code\","
           + "\"columnType\":\"STRING\",\"columnGroup\":1}"
           + "],\"dataFormat\":\"SERIALIZED_PROTO\",\"skipHeaderRecord\":true}";
+
+  private static final String PROTO_SCHEMA_WRAPPED_KEY_JSON =
+      "{\"columns\":["
+          + "{\"columnName\":\"Email\",\"columnAlias\":\"email\","
+          + "\"columnType\":\"STRING\",\"encrypted\":true},"
+          + "{\"columnName\":\"Phone\",\"columnAlias\":\"phone\","
+          + "\"columnType\":\"STRING\",\"encrypted\":true},"
+          + "{\"columnName\":\"FirstName\",\"columnAlias\":\"first_name\","
+          + "\"columnType\":\"STRING\",\"columnGroup\":1,\"encrypted\":true},"
+          + "{\"columnName\":\"LastName\",\"columnAlias\":\"last_name\","
+          + "\"columnType\":\"STRING\",\"columnGroup\":1,\"encrypted\":true},"
+          + "{\"columnName\":\"ZipCode\",\"columnAlias\":\"zip_code\","
+          + "\"columnType\":\"STRING\",\"columnGroup\":1},"
+          + "{\"columnName\":\"CountryCode\",\"columnAlias\":\"country_code\","
+          + "\"columnType\":\"STRING\",\"columnGroup\":1},"
+          + "{\"column_name\":\"DEK\",\"column_alias\":\"encrypted_dek\"},"
+          + "{\"column_name\":\"KEK\",\"column_alias\":\"kek_uri\"}"
+          + "],\"dataFormat\":\"SERIALIZED_PROTO\",\"skipHeaderRecord\":true}";
+
   private static final String GENERIC_DATA_CSV =
       "Email1,Phone1,FirstName1,LastName1,ZipCode1,CountryCode1\n"
           + "pqdztlrf8u1aUn1zsgkvO2aIoyxsNulsLAdO8CltRv0=,"
@@ -1177,6 +1198,81 @@ public final class MrpGcpIntegrationTest {
   }
 
   @Test
+  public void createAndGet_partialSuccessSerializedProto_success() throws Exception {
+    String gcsFolder = "createAndGet_partialSuccessSerializedProto_success";
+    HttpRequest schemeRequest = getMockServerRequest("GET", GET_SCHEME_API_PATH, HTTP_1_1);
+    String schemeResponseJson = getJsonFromProto(createSchemeResponse());
+    mockClient.when(schemeRequest).respond(getMockServerResponse(200, schemeResponseJson));
+    HttpRequest lookupRequest = getMockServerRequest("POST", LOOKUP_API_PATH, HTTP_2);
+    var lookupResponse =
+        createResponseWithMatchedKeys(ImmutableList.of(wrappedKeyEncryptedEmails.get(1)));
+    mockClient
+        .when(lookupRequest)
+        .respond(getMockServerResponse(200, getJsonFromProto(lookupResponse)));
+    createGcsSchemaFile(gcsFolder, PROTO_SCHEMA_WRAPPED_KEY_JSON);
+    createGcsDataFiles(
+        gcsFolder, ImmutableList.of(setupWrappedKeySerializedProtoData(/*error*/ true)));
+
+    GetJobResponse response = createAndGet(createWrappedKeyEncryptedJobRequest(gcsFolder, "mic"));
+
+    mockClient.verify(schemeRequest, atMost(1));
+    mockClient.verify(lookupRequest, atLeast(1));
+    assertThat(response.getResultInfo().getReturnCode()).isEqualTo(PARTIAL_SUCCESS.name());
+    assertThat(response.getResultInfo().getErrorSummary().getErrorCountsCount()).isEqualTo(2);
+    assertThat(
+            response.getResultInfo().getErrorSummary().getErrorCountsList().stream()
+                .anyMatch(
+                    errorCount ->
+                        errorCount.getCategory().equals("TOTAL_ERRORS")
+                            && errorCount.getCount() == 2))
+        .isTrue();
+    assertThat(
+            response.getResultInfo().getErrorSummary().getErrorCountsList().stream()
+                .anyMatch(
+                    errorCount ->
+                        errorCount.getCategory().equals("DECRYPTION_ERROR")
+                            && errorCount.getCount() == 2))
+        .isTrue();
+    List<String> outputFiles = getGcsOutputFileContents(gcsFolder);
+    assertThat(outputFiles).hasSize(1);
+    var outputProtos =
+        Arrays.stream(outputFiles.get(0).split("\n"))
+            .map(this::base64DecodeProto)
+            .collect(Collectors.toList());
+    assertThat(outputProtos).hasSize(4);
+    Set<String> nonmatchKeyset =
+        outputProtos.stream()
+            .map(cfmProto -> getAllMatchKeys(cfmProto, false))
+            .flatMap(Collection::stream)
+            .map(
+                mk ->
+                    mk.hasField()
+                        ? mk.getField().getKeyValue().getKey()
+                        : mk.getCompositeField().getKey())
+            .collect(Collectors.toSet());
+    // only one row expected to have valid data. 1 email match, rest unmatched
+    assertThat(nonmatchKeyset).containsExactlyElementsIn(ImmutableList.of("Phone", "address"));
+    var errorRecords =
+        outputProtos.stream()
+            .filter(cfmProto -> !cfmProto.getStatus().equals(SUCCESS.name()))
+            .collect(Collectors.toList());
+    assertThat(errorRecords).hasSize(2);
+    assertThat(errorRecords.get(0).getStatus()).isEqualTo(DECRYPTION_ERROR.name());
+    assertThat(errorRecords.get(1).getStatus()).isEqualTo(DECRYPTION_ERROR.name());
+    // verify record stats
+    var metadataMap = response.getResultInfo().getResultMetadataMap();
+    assertThat(metadataMap).containsEntry("numdatarecords", "4");
+    assertThat(metadataMap).containsEntry("numdatarecordswithmatch", "1");
+
+    // Verify that requests to the lookup service contain the expected encryption info
+    HttpRequest[] actualLookupRequests = mockClient.retrieveRecordedRequests(lookupRequest);
+    assertThat(actualLookupRequests).hasLength(1);
+    LookupRequest actualLookupRequest =
+        getProtoFromJson(actualLookupRequests[0].getBodyAsString(), LookupRequest.class);
+    assertThat(actualLookupRequest.hasEncryptionKeyInfo()).isTrue();
+  }
+
+  @Test
   public void createAndGet_partialSuccessFromLookupServiceNotAllowed_retryThenFailure()
       throws Exception {
     String gcsFolder = "FailedJobLookupServicePartialSuccessNotAllowed";
@@ -2008,6 +2104,54 @@ public final class MrpGcpIntegrationTest {
     return String.join("\n", protoLines);
   }
 
+  private static String setupWrappedKeySerializedProtoData(boolean halfError) {
+    String[] lines = wrappedEncryptedFieldsCsv.split("\n");
+    String[] columnHeaders = lines[0].split(",");
+    List<String> protoLines = new ArrayList<>(lines.length);
+
+    // verify there are even number of lines (plus header)
+    assertThat(lines.length % 2).isEqualTo(1);
+    for (int i = 1; i < lines.length; i++) {
+      String line = lines[i];
+      String[] columns = line.split(",");
+      List<MatchKey> matchKeys = new ArrayList<>(columns.length);
+      var cfmRecordBldr =
+          ConfidentialMatchDataRecord.newBuilder()
+              .setEncryptionKey(
+                  EncryptionKey.newBuilder()
+                      .setWrappedKey(
+                          GcpWrappedKey.newBuilder()
+                              .setEncryptedDek(columns[6])
+                              .setKekUri(columns[7])));
+
+      if (halfError && i % 2 == 1) {
+        String invalid = base64().encode("123".getBytes());
+        matchKeys.add(buildSingleField(columnHeaders[0], invalid));
+        matchKeys.add(buildSingleField(columnHeaders[1], invalid));
+        String[][] addressValues = {
+          {columnHeaders[2], invalid},
+          {columnHeaders[3], invalid},
+          {columnHeaders[4], invalid},
+          {columnHeaders[5], invalid}
+        };
+        matchKeys.add(buildCompositeField("address", addressValues));
+      } else {
+        matchKeys.add(buildSingleField(columnHeaders[0], columns[0]));
+        matchKeys.add(buildSingleField(columnHeaders[1], columns[1]));
+        String[][] addressValues = {
+          {columnHeaders[2], columns[2]},
+          {columnHeaders[3], columns[3]},
+          {columnHeaders[4], columns[4]},
+          {columnHeaders[5], columns[5]}
+        };
+        matchKeys.add(buildCompositeField("address", addressValues));
+      }
+      var proto = cfmRecordBldr.addAllMatchKeys(matchKeys).build();
+      protoLines.add(base64().encode(proto.toByteArray()));
+    }
+    return String.join("\n", protoLines);
+  }
+
   private static MatchKey buildSingleField(String key, String value) {
     return MatchKey.newBuilder()
         .setField(
@@ -2314,25 +2458,26 @@ public final class MrpGcpIntegrationTest {
     }
   }
 
-  // get all match keys by checking the values to see if it contains "UNMATCHED"
-  private List<MatchKey> getAllMatchKeys(ConfidentialMatchOutputDataRecord proto, boolean matched) {
+  // get all match keys by checking the values to see if it contains "UNMATCHED", else return
+  // original field, which is either matched or error
+  private List<MatchKey> getAllMatchKeys(
+      ConfidentialMatchOutputDataRecord proto, boolean original) {
     return proto.getMatchKeysList().stream()
         .filter(
             matchKey -> {
               if (matchKey.hasField()) {
                 String value = matchKey.getField().getKeyValue().getStringValue();
-                return matched ^ value.equals("UNMATCHED");
+                return original ^ value.equals("UNMATCHED");
               } else {
                 // Create a set of all the child fields. if they were unmatched, the set would only
-                // have 1 value
-                // of "UNMATCHED"
+                // have 1 value of "UNMATCHED"
                 String value =
                     String.join(
                         "",
                         matchKey.getCompositeField().getChildFieldsList().stream()
                             .map(childField -> childField.getKeyValue().getStringValue())
                             .collect(Collectors.toSet()));
-                return matched ^ value.equals("UNMATCHED");
+                return original ^ value.equals("UNMATCHED");
               }
             })
         .collect(Collectors.toList());
