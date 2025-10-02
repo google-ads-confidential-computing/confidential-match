@@ -37,7 +37,7 @@ public final class JobRequestProvider {
 
   private static final String APPLICATION_ID = "application_id";
 
-  private static final String LEGACY_WORKER_KEY = "";
+  private static final String INITIAL_WORKGROUP_KEY = "default";
 
   private final StartupConfigProvider startupConfigProvider;
   private final FeatureFlagProvider featureFlagProvider;
@@ -88,7 +88,7 @@ public final class JobRequestProvider {
       }
 
       String applicationId = applicationIdOpt.get();
-      String workgroupId = LEGACY_WORKER_KEY;
+      String workgroupId = INITIAL_WORKGROUP_KEY;
       if (applicationIdWorkgroups.containsKey(applicationId)) {
         workgroupId = applicationIdWorkgroups.get(applicationId);
       }

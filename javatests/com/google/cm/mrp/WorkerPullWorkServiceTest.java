@@ -40,6 +40,7 @@ import com.google.scp.operator.protos.shared.backend.JobKeyProto.JobKey;
 import com.google.scp.operator.protos.shared.backend.JobStatusProto.JobStatus;
 import com.google.scp.operator.protos.shared.backend.RequestInfoProto.RequestInfo;
 import com.google.scp.shared.clients.configclient.ParameterClient;
+import com.google.scp.shared.clients.configclient.model.GetParameterRequest;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
@@ -143,6 +144,11 @@ public class WorkerPullWorkServiceTest {
         return Optional.empty();
       }
 
+      @Override
+      public Optional<String> getParameter(GetParameterRequest getParameterRequest) {
+        return Optional.empty();
+      }
+
       /** Always returns an empty optional. */
       @Override
       public Optional<String> getLatestParameter(String param) {
@@ -153,6 +159,11 @@ public class WorkerPullWorkServiceTest {
       @Override
       public Optional<String> getEnvironmentName() {
         return Optional.of("LOCAL_ARGS");
+      }
+
+      @Override
+      public Optional<String> getWorkgroupId() {
+        return Optional.empty();
       }
     };
   }

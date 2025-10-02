@@ -44,6 +44,7 @@ public class JobRequestProviderTest {
 
   private static final String JOB_ID = "testJob";
   private static final String TEST_APPLICATION_ID = "mic";
+  private static final String DEFAULT_GROUP = "default";
   private static final ImmutableMap<String, String> APPLICATION_ID_WORKGROUPS =
       ImmutableMap.of(TEST_APPLICATION_ID, "fake_group");
   private static final ImmutableMap<String, String> NOTIFICATION_TOPIC_IDS =
@@ -136,8 +137,8 @@ public class JobRequestProviderTest {
     assertThat(getJobRequest.getJobCompletionNotificationTopicIdFunc()).isPresent();
     var workgroupFunc = getJobRequest.getWorkgroupAllocationFunc();
     var workgroupFunResponse = workgroupFunc.get().apply(createFakeJob(applicationId));
-    // empty string is default workgroup
-    assertThat(workgroupFunResponse.workgroupId().get()).isEmpty();
+    assertThat(workgroupFunResponse.workgroupId()).isPresent();
+    assertThat(workgroupFunResponse.workgroupId().get()).isEqualTo(DEFAULT_GROUP);
     assertThat(workgroupFunResponse.resultInfo()).isEmpty();
   }
 

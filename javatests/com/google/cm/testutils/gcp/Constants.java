@@ -35,6 +35,7 @@ public final class Constants {
               + " RequestReceivedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),"
               + " RequestUpdatedAt TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),"
               + " RequestProcessingStartedAt TIMESTAMP OPTIONS (allow_commit_timestamp=true),"
+              + " TargetWorkgroup STRING(256),"
               + " ResultInfo JSON,"
               + " Ttl TIMESTAMP NOT NULL,"
               + ") PRIMARY KEY (JobKey),"

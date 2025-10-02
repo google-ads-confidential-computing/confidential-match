@@ -19,7 +19,7 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_file"
 # Download all http_archives and git_repositories: Begin
 ################################################################################
 
-SCP_VERSION = "v0.323.0"  # latest as of Thu Aug 14 21:10:42 2025 +0000
+SCP_VERSION = "v0.332.0"  # latest as of Tue Sep 16 01:33:16 2025 -0700
 
 SCP_REPOSITORY = "https://github.com/google-ads-confidential-computing/conf-data-processing-architecture-reference"
 
@@ -425,14 +425,14 @@ load("@rules_oci//oci:pull.bzl", "oci_pull")
 # Base image for the MRP and some tests
 oci_pull(
     name = "java_base",
-    digest = "sha256:0157ad57c3c00a42db2a3d1958abf524058e004e70481cd74577080d4aee9760",
+    digest = "sha256:379b83f022ff660e09976b6680f05dbd4a4e751dc747a122aebd348402f11e4b",
     image = "gcr.io/distroless/java21-debian12",
 )
 
 # Base layer of the lookup server base and builder images
 oci_pull(
     name = "debian12_base",
-    digest = "sha256:0bd74e115685484124d5340406cfc3c883d5e898021111a28b59f3299da147cd",
+    digest = "sha256:57b2a46728f6f1000649671bb3c7b1d66116b92b55cfb97ec6c1394fe5d44709",
     image = "marketplace.gcr.io/google/debian12",
 )
 

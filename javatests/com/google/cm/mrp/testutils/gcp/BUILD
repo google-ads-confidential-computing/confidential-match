@@ -22,6 +22,7 @@ java_library(
         "LocalGcpFrontendHttpFunction.java",
     ],
     deps = [
+        "//java/external:clients_configclient_gcp",
         "//java/external:guava",
         "//java/external:guice",
         "//java/external:jackson_databind",
@@ -41,7 +42,9 @@ java_library(
 java_binary(
     name = "LocalGcpFrontend",
     testonly = True,
-    runtime_deps = [":LocalGcpFrontendHttpFunction"],
+    runtime_deps = [
+        ":LocalGcpFrontendHttpFunction",
+    ],
 )
 
 alias(

@@ -89,6 +89,7 @@ import com.google.scp.shared.clients.configclient.ParameterClient;
 import com.google.scp.shared.clients.configclient.gcp.Annotations.GcpInstanceId;
 import com.google.scp.shared.clients.configclient.gcp.Annotations.GcpProjectId;
 import com.google.scp.shared.clients.configclient.gcp.Annotations.GcpZone;
+import com.google.scp.shared.clients.configclient.model.GetParameterRequest;
 import com.google.scp.shared.crypto.tink.CloudAeadSelector;
 import com.google.scp.shared.mapper.TimeObjectMapper;
 import java.io.IOException;
@@ -262,6 +263,16 @@ public final class LocalGcpWorkerApplication {
         @Override
         public Optional<String> getEnvironmentName() {
           return Optional.of("LOCAL_ARGS");
+        }
+
+        @Override
+        public Optional<String> getParameter(GetParameterRequest getParameterRequest) {
+          return Optional.empty();
+        }
+
+        @Override
+        public Optional<String> getWorkgroupId() {
+          return Optional.empty();
         }
       };
     }

@@ -33,11 +33,11 @@ version: 1
 
 sources:
 - channel: bookworm main contrib
-  url: https://snapshot.debian.org/archive/debian/20250512T203351Z
+  url: https://snapshot.debian.org/archive/debian/20251001T143105Z
 - channel: bookworm-security main
-  url: https://snapshot.debian.org/archive/debian-security/20250512T233325Z
+  url: https://snapshot.debian.org/archive/debian-security/20251001T143105Z
 - channel: bookworm-updates main
-  url: https://snapshot.debian.org/archive/debian/20250512T203351Z
+  url: https://snapshot.debian.org/archive/debian/20251001T143105Z
 
 archs:
 - "amd64"

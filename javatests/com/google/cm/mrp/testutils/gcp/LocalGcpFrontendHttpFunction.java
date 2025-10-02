@@ -30,6 +30,7 @@ import com.google.common.base.Converter;
 import com.google.inject.AbstractModule;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
+import com.google.inject.Singleton;
 import com.google.inject.TypeLiteral;
 import com.google.scp.operator.frontend.service.FrontendService;
 import com.google.scp.operator.frontend.service.FrontendServiceImpl;
@@ -46,7 +47,6 @@ import com.google.scp.operator.frontend.service.gcp.GetJobByIdRequestHandler;
 import com.google.scp.operator.frontend.service.gcp.GetJobRequestHandler;
 import com.google.scp.operator.frontend.service.gcp.PutJobRequestHandler;
 import com.google.scp.operator.frontend.tasks.gcp.GcpTasksModule;
-import com.google.scp.operator.protos.frontend.api.v1.CreateJobRequestProto.CreateJobRequest;
 import com.google.scp.operator.protos.frontend.api.v1.ErrorCountProto;
 import com.google.scp.operator.protos.frontend.api.v1.ErrorSummaryProto;
 import com.google.scp.operator.protos.frontend.api.v1.GetJobResponseProto;
@@ -66,6 +66,8 @@ import com.google.scp.operator.shared.dao.metadatadb.gcp.SpannerJobDbModule;
 import com.google.scp.operator.shared.dao.metadatadb.gcp.SpannerMetadataDb.MetadataDbSpannerTtlDays;
 import com.google.scp.operator.shared.dao.metadatadb.gcp.SpannerMetadataDbConfig;
 import com.google.scp.operator.shared.dao.metadatadb.gcp.SpannerMetadataDbModule;
+import com.google.scp.shared.clients.configclient.ParameterClient;
+import com.google.scp.shared.clients.configclient.model.GetParameterRequest;
 import com.google.scp.shared.mapper.TimeObjectMapper;
 import java.util.Optional;
 
@@ -114,6 +116,7 @@ public final class LocalGcpFrontendHttpFunction extends FrontendServiceHttpFunct
       bind(String.class).annotatedWith(JobDbTableName.class).toInstance(JOB_TABLE_NAME);
       bind(Integer.class).annotatedWith(MetadataDbSpannerTtlDays.class).toInstance(JOB_DB_TTL);
       bind(Integer.class).annotatedWith(JobDbSpannerTtlDays.class).toInstance(JOB_DB_TTL);
+      bind(ParameterClient.class).toInstance(createParameterClient());
       bind(SpannerMetadataDbConfig.class)
           .toInstance(
               SpannerMetadataDbConfig.builder()
@@ -136,6 +139,49 @@ public final class LocalGcpFrontendHttpFunction extends FrontendServiceHttpFunct
       install(new SpannerJobDbModule());
       install(new PubSubJobQueueModule());
       install(new GcpTasksModule());
+    }
+
+    @Singleton
+    private ParameterClient createParameterClient() {
+      return new ParameterClient() {
+        /** Always returns an empty optional. */
+        @Override
+        public Optional<String> getParameter(String param) {
+          return Optional.empty();
+        }
+
+        /** Returns an empty optional except MIC_FEATURE_ENABLED and notification_topic_mic flags */
+        @Override
+        public Optional<String> getParameter(
+            String param,
+            Optional<String> paramPrefix,
+            boolean includeEnvironmentParam,
+            boolean getLatest) {
+          return Optional.empty();
+        }
+
+        /** Always returns an empty optional. */
+        @Override
+        public Optional<String> getLatestParameter(String param) {
+          return Optional.empty();
+        }
+
+        /** Always returns an optional of "LOCAL_ARGS". */
+        @Override
+        public Optional<String> getEnvironmentName() {
+          return Optional.of("LOCAL_ARGS");
+        }
+
+        @Override
+        public Optional<String> getParameter(GetParameterRequest getParameterRequest) {
+          return Optional.empty();
+        }
+
+        @Override
+        public Optional<String> getWorkgroupId() {
+          return Optional.empty();
+        }
+      };
     }
   }
 }

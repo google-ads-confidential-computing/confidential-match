@@ -20,6 +20,7 @@ import com.google.inject.AbstractModule;
 import com.google.inject.Module;
 import com.google.scp.shared.clients.configclient.ParameterClient;
 import com.google.scp.shared.clients.configclient.gcp.GcpParameterModule;
+import com.google.scp.shared.clients.configclient.model.GetParameterRequest;
 import java.util.Optional;
 
 /** Enumerates the modules used for instantiating a parameter client. */
@@ -50,6 +51,11 @@ public enum ParameterClientSelector {
                     }
 
                     @Override
+                    public Optional<String> getParameter(GetParameterRequest getParameterRequest) {
+                      return Optional.empty();
+                    }
+
+                    @Override
                     public Optional<String> getLatestParameter(String param) {
                       return Optional.empty();
                     }
@@ -58,6 +64,11 @@ public enum ParameterClientSelector {
                     @Override
                     public Optional<String> getEnvironmentName() {
                       return Optional.of("LOCAL_ARGS");
+                    }
+
+                    @Override
+                    public Optional<String> getWorkgroupId() {
+                      return Optional.empty();
                     }
                   });
         }
