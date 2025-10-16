@@ -16,7 +16,7 @@ package(default_visibility = ["//visibility:public"])
 
 java_library(
     name = "tinkexample",
-    srcs = glob(["*.java"]),
+    srcs = ["TinkExampleApplication.java"],
     deps = [
         "//java/external:apache_commons_csv",
         "//java/external:jcommander",
@@ -34,4 +34,29 @@ java_binary(
 alias(
     name = "TinkExampleApplicationDeploy",
     actual = ":TinkExampleApplication_deploy.jar",
+)
+
+java_library(
+    name = "tinkexampleaws",
+    srcs = ["TinkExampleApplicationAws.java"],
+    deps = [
+        "//java/external:apache_commons_csv",
+        "//java/external:aws_apache_http",
+        "//java/external:aws_auth",
+        "//java/external:aws_http_client_spi",
+        "//java/external:crypto_awskmsv2",
+        "//java/external:jcommander",
+        "//java/external:tink",
+    ],
+)
+
+java_binary(
+    name = "TinkExampleApplicationAws",
+    main_class = "com.google.cm.diagnostic.tools.tinkexample.TinkExampleApplicationAws",
+    runtime_deps = [":tinkexampleaws"],
+)
+
+alias(
+    name = "TinkExampleApplicationAwsDeploy",
+    actual = ":TinkExampleApplicationAws_deploy.jar",
 )
