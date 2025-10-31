@@ -37,13 +37,18 @@ public enum Parameter {
   // MRP Startup Configs
   LOGGING_LEVEL,
   CONSCRYPT_ENABLED,
+  LARGE_JOB_WORKGROUP_NAME,
 
   // MRP add-on feature flags
   MIC_FEATURE_ENABLED,
   // Coordinator batch encryption feature flag
   COORDINATOR_BATCH_ENCRYPTION_ENABLED,
   // Workgroups feature flag
-  WORKGROUPS_ENABLED;
+  WORKGROUPS_ENABLED,
+  // Comma-separated list of application IDs for which to allocate large jobs to dedicated workgroup
+  LARGE_JOB_APPLICATION_IDS,
+  // Threshold (in bytes) above which jobs are allocated to dedicated workgroup
+  LARGE_JOB_THRESHOLD;
 
   /** String to prefix the parameters. */
   public static final String CFM_PREFIX = "CFM";

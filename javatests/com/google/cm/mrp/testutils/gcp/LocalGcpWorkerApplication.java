@@ -50,6 +50,8 @@ import com.google.cloud.NoCredentials;
 import com.google.cloud.storage.StorageOptions;
 import com.google.cm.mrp.Annotations.JobProcessorMaxRetries;
 import com.google.cm.mrp.Annotations.JobQueueRetryDelaySec;
+import com.google.cm.mrp.BlobStoreDataSourceSizeProvider;
+import com.google.cm.mrp.DataSourceSizeProvider;
 import com.google.cm.mrp.FeatureFlagProvider;
 import com.google.cm.mrp.FeatureFlagProviderImpl;
 import com.google.cm.mrp.JobProcessor;
@@ -58,6 +60,7 @@ import com.google.cm.mrp.MatchWorker;
 import com.google.cm.mrp.StartupConfigProvider;
 import com.google.cm.mrp.StartupConfigProviderImpl;
 import com.google.cm.mrp.WorkerModule;
+import com.google.cm.mrp.clients.blobstoreclient.BlobStoreClientModule;
 import com.google.cm.mrp.clients.cryptoclient.AeadProvider;
 import com.google.cm.mrp.clients.cryptoclient.AeadProviderFactory;
 import com.google.cm.mrp.clients.cryptoclient.HybridEncryptionKeyServiceProvider;
@@ -144,11 +147,13 @@ public final class LocalGcpWorkerApplication {
       bind(ObjectMapper.class).to(TimeObjectMapper.class);
       bind(FeatureFlagProvider.class).to(FeatureFlagProviderImpl.class);
       bind(StartupConfigProvider.class).to(StartupConfigProviderImpl.class);
+      bind(DataSourceSizeProvider.class).to(BlobStoreDataSourceSizeProvider.class);
       install(new WorkerModule(createParameterClient()));
       install(new DataProcessorModule(MRP_THREADS, DATA_CHUNK_SIZE, MAX_RECORDS_PER_OUTPUT_FILE));
       install(LifecycleClientSelector.LOCAL.getLifecycleClientModule());
       install(MetricClientSelector.LOCAL.getMetricClientModule());
       install(JobClientSelector.GCP.getJobClientModule());
+      install(new BlobStoreClientModule());
 
       bind(ParameterClient.class).toInstance(createParameterClient());
       install(

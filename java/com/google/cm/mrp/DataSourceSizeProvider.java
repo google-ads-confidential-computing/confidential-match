@@ -16,24 +16,13 @@
 
 package com.google.cm.mrp;
 
-/** Reusable constants for MRP */
-public interface Constants {
+import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwnerList;
+import java.util.Optional;
 
-  /** Define custom log levels. Must match log4j2 properties file. */
-  enum CustomLogLevel {
-    /** Custom log level name between INFO and DEBUG. */
-    DETAIL(450);
+/** Provides the size of a particular data source before job processing */
+public interface DataSourceSizeProvider {
 
-    public final int value;
-
-    CustomLogLevel(int value) {
-      this.value = value;
-    }
-  }
-
-  /** Default workgroup if workgroups enabled */
-  String INITIAL_WORKGROUP_KEY = "default";
-
-  /** Log prefix to use for MRP log-based alerting. */
-  String INTERNAL_ERROR_ALERT_LOG = "INTERNAL_ERROR";
+  /** Determines whether any one data source location is at least a given size in bytes */
+  boolean isAtLeastSize(
+      long bytesSize, DataOwnerList dataSourceList, Optional<String> accountIdentity);
 }

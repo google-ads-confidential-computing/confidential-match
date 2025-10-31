@@ -50,6 +50,7 @@ public final class MatchWorkerTest {
   private NoOpJobProcessor jobProcessor;
   private ServiceManager serviceManager;
   @Mock private FeatureFlagProvider mockFeatureFlagProvider;
+  @Mock private DataSourceSizeProvider mockDataSourceProvider;
   @Mock private ParameterClient mockParameterClient;
 
   @Before
@@ -68,6 +69,7 @@ public final class MatchWorkerTest {
                     bind(JobProcessor.class).toInstance(jobProcessor);
                     bind(Integer.class).annotatedWith(JobQueueRetryDelaySec.class).toInstance(10);
                     bind(FeatureFlagProvider.class).toInstance(mockFeatureFlagProvider);
+                    bind(DataSourceSizeProvider.class).toInstance(mockDataSourceProvider);
                   }
                 })
             .getServiceManager();

@@ -64,10 +64,12 @@ enum JobResultCode {
   WRITER_MISSING_ROLE_ARN = 37; // Role ARN absent from DataRecord during write phase
   DATA_MATCHER_CONFIG_ERROR = 33; // DataMatcher is not configured properly
   INVALID_DATA_SOURCE_JOIN = 34; // DataSource cannot use join mode (ex, too many match condition columns)
+  DATA_SOURCE_SIZE_PROVIDER_ERROR = 38; // DataSourceSizeProvider error
 
   // Non-retryable (User) errors; 100 <= resultCode < 200
   INVALID_PARAMETERS = 100; // unable to parse job parameters or invalid job parameters
   MISSING_SCHEMA_ERROR = 101; // missing schema file
+  MISSING_BLOBSTORE_FILE_ERROR = 131; // missing blobstore file
   INVALID_SCHEMA_FILE_ERROR = 102; // invalid schema file (ex. invalid JSON)
   INVALID_INPUT_FILE_ERROR = 103; // invalid input file (ex. invalid CSV)
   INVALID_ENCRYPTION_COLUMN = 106; // schema or data file contains invalid dek or kek columns
@@ -76,6 +78,7 @@ enum JobResultCode {
   INVALID_DATA_LOCATION_CONFIGURATION = 110; // invalid data location configuration (ex. input blob prefix and paths specified)
   INVALID_COLUMN_ENCODING = 111; // invalid column encoding
   SCHEMA_PERMISSIONS_ERROR = 112; // cannot access schema file
+  BLOBSTORE_PERMISSIONS_ERROR = 132; // cannot access blobstore file
   JOB_DECRYPTION_ERROR = 114; // Non-retriable job-level error code for decryption-related failures
   FAILED_WITH_ROW_ERRORS = 115; // Entire job failed with different row-level error codes
   RETRIES_EXHAUSTED = 116; // Job reached max retry limit

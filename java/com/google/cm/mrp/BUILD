@@ -30,6 +30,7 @@ java_library(
     ],
     deps = [
         "//java/com/google/cm/mrp/clients/attestation",
+        "//java/com/google/cm/mrp/clients/blobstoreclient",
         "//java/com/google/cm/mrp/clients/cryptoclient",
         "//java/com/google/cm/mrp/clients/cryptoclient/aws",
         "//java/com/google/cm/mrp/clients/cryptoclient/gcp",
@@ -90,6 +91,7 @@ java_library(
     srcs = glob(["FeatureFlags.java"]),
     deps = [
         "//java/external:autovalue",
+        "//java/external:guava",
     ],
 )
 

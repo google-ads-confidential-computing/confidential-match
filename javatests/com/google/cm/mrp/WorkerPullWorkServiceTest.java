@@ -76,6 +76,7 @@ public class WorkerPullWorkServiceTest {
   private ServiceManager serviceManager;
   private ParameterClient parameterClient;
   @Mock private FeatureFlagProvider mockFeatureFlagProvider;
+  @Mock private DataSourceSizeProvider mockDataSourceProvider;
   @Mock private JobClient mockJobClient;
 
   @Captor ArgumentCaptor<GetJobRequest> getJobRequestArgumentCaptor;
@@ -96,6 +97,7 @@ public class WorkerPullWorkServiceTest {
                     bind(JobProcessor.class).toInstance(jobProcessor);
                     bind(Integer.class).annotatedWith(JobQueueRetryDelaySec.class).toInstance(10);
                     bind(FeatureFlagProvider.class).toInstance(mockFeatureFlagProvider);
+                    bind(DataSourceSizeProvider.class).toInstance(mockDataSourceProvider);
                   }
                 })
             .getServiceManager();

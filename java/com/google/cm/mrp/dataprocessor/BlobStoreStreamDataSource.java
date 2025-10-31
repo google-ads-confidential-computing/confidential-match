@@ -220,6 +220,7 @@ public final class BlobStoreStreamDataSource implements StreamDataSource {
           .collect(Collectors.collectingAndThen(Collectors.toList(), ImmutableList::copyOf));
     }
     try {
+      // TODO(b/452813040): refactor to use MRP blob store client
       String inputBucket = dataLocation.getInputDataBucketName();
       String inputPrefix = dataLocation.getInputDataBlobPrefix();
       DataLocation blobsLocation = getLocation(inputBucket, inputPrefix + FOLDER_DELIMITER);

@@ -35,6 +35,7 @@ java_test(
     srcs = ["JobRequestProviderTest.java"],
     deps = [
         "//java/com/google/cm/mrp:matchworker_runner",
+        "//java/com/google/cm/util",
         "//java/external:clients_jobclient_model",
         "//java/external:google_truth",
         "//java/external:google_truth8",
@@ -43,6 +44,7 @@ java_test(
         "//java/external:mockito",
         "//java/external:operator_backend_protos",
         "//protos/mrp/api:java_proto",
+        "//protos/mrp/backend:java_proto",
     ],
 )
 
@@ -59,6 +61,20 @@ java_test(
         "//java/external:guava",
         "//java/external:guice",
         "//java/external:mockito",
+        "//protos/mrp/backend:java_proto",
+    ],
+)
+
+java_test(
+    name = "BlobStoreDataSourceSizeProviderTest",
+    srcs = ["BlobStoreDataSourceSizeProviderTest.java"],
+    deps = [
+        "//java/com/google/cm/mrp:matchworker_runner",
+        "//java/com/google/cm/mrp/clients/blobstoreclient",
+        "//java/external:google_truth",
+        "//java/external:guava",
+        "//java/external:mockito",
+        "//protos/mrp/api:java_proto",
         "//protos/mrp/backend:java_proto",
     ],
 )

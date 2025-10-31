@@ -22,6 +22,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.google.common.collect.ImmutableMap;
 import com.google.scp.shared.clients.configclient.ParameterClient;
 import com.google.scp.shared.clients.configclient.ParameterClient.ParameterClientException;
 import com.google.scp.shared.clients.configclient.model.ErrorReason;
@@ -41,11 +42,11 @@ public class FeatureFlagProviderImplTest {
   @Rule public final MockitoRule mockito = MockitoJUnit.rule();
 
   @Mock private ParameterClient mockParameterClient;
-  private FeatureFlagProvider parameterProvider;
+  private FeatureFlagProvider featureFlagProvider;
 
   @Before
   public void setup() throws Exception {
-    parameterProvider = new FeatureFlagProviderImpl(mockParameterClient);
+    featureFlagProvider = new FeatureFlagProviderImpl(mockParameterClient);
   }
 
   @Test
@@ -54,9 +55,10 @@ public class FeatureFlagProviderImplTest {
             Parameter.MIC_FEATURE_ENABLED.name(), Optional.of(Parameter.CFM_PREFIX), true))
         .thenReturn(Optional.of("true"));
 
-    FeatureFlags option = parameterProvider.getFeatureFlags();
+    FeatureFlags flags = featureFlagProvider.getFeatureFlags();
 
-    assertThat(option.enableMIC()).isEqualTo(true);
+    assertThat(flags.enableMIC()).isEqualTo(true);
+    assertThat(flags.largeJobThresholdBytes()).isEqualTo(1024 * 1024 * 1024);
     verify(mockParameterClient, times(1))
         .getParameter(
             Parameter.MIC_FEATURE_ENABLED.name(), Optional.of(Parameter.CFM_PREFIX), true);
@@ -68,8 +70,8 @@ public class FeatureFlagProviderImplTest {
             Parameter.MIC_FEATURE_ENABLED.name(), Optional.of(Parameter.CFM_PREFIX), true))
         .thenReturn(Optional.of("true"));
 
-    FeatureFlags option1 = parameterProvider.getFeatureFlags();
-    FeatureFlags option2 = parameterProvider.getFeatureFlags();
+    FeatureFlags option1 = featureFlagProvider.getFeatureFlags();
+    FeatureFlags option2 = featureFlagProvider.getFeatureFlags();
 
     assertThat(option1.enableMIC()).isEqualTo(true);
     assertThat(option2.enableMIC()).isEqualTo(true);
@@ -79,12 +81,40 @@ public class FeatureFlagProviderImplTest {
   }
 
   @Test
+  public void getFeatureFlags_returnsAssignedWorkgroups() throws Exception {
+    when(mockParameterClient.getParameter(
+            Parameter.ASSIGNED_WORKGROUP_PREFIX + "mic", Optional.of(Parameter.CFM_PREFIX), true))
+        .thenReturn(Optional.of("fake_mic_group"));
+    when(mockParameterClient.getParameter(
+            Parameter.ASSIGNED_WORKGROUP_PREFIX + "customer_match",
+            Optional.of(Parameter.CFM_PREFIX),
+            true))
+        .thenReturn(Optional.of("fake_cm_group"));
+
+    FeatureFlags featureFlags = featureFlagProvider.getFeatureFlags();
+
+    assertThat(featureFlags.applicationIdWorkgroups())
+        .isEqualTo(ImmutableMap.of("mic", "fake_mic_group", "customer_match", "fake_cm_group"));
+  }
+
+  @Test
+  public void getFeatureFlags_returnsLargeJobApplicationIds() throws Exception {
+    when(mockParameterClient.getParameter(
+            Parameter.LARGE_JOB_APPLICATION_IDS.name(), Optional.of(Parameter.CFM_PREFIX), true))
+        .thenReturn(Optional.of("mic,copla"));
+
+    FeatureFlags featureFlags = featureFlagProvider.getFeatureFlags();
+
+    assertThat(featureFlags.largeJobApplicationIds()).containsExactly("mic", "copla");
+  }
+
+  @Test
   public void getFeatureFlags_parameterClientThrowException() throws Exception {
     when(mockParameterClient.getParameter(
             Parameter.MIC_FEATURE_ENABLED.name(), Optional.of(Parameter.CFM_PREFIX), true))
         .thenThrow(new ParameterClientException("invalid key", ErrorReason.FETCH_ERROR));
 
-    var ex = assertThrows(RuntimeException.class, () -> parameterProvider.getFeatureFlags());
+    var ex = assertThrows(RuntimeException.class, () -> featureFlagProvider.getFeatureFlags());
     assertThat(ex.getMessage()).isEqualTo("Unable to get feature flags from cache");
   }
 }

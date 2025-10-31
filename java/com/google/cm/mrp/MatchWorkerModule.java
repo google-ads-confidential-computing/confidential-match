@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.cm.mrp.Annotations.JobProcessorMaxRetries;
 import com.google.cm.mrp.Annotations.JobQueueRetryDelaySec;
 import com.google.cm.mrp.clients.attestation.AttestationTokenModule;
+import com.google.cm.mrp.clients.blobstoreclient.BlobStoreClientModule;
 import com.google.cm.mrp.clients.cryptoclient.AeadProvider;
 import com.google.cm.mrp.clients.cryptoclient.AeadProviderFactory;
 import com.google.cm.mrp.clients.cryptoclient.HybridEncryptionKeyServiceProvider;
@@ -131,6 +132,7 @@ public final class MatchWorkerModule extends AbstractModule {
     bind(JobProcessor.class).to(MatchJobProcessor.class);
     bind(ObjectMapper.class).to(TimeObjectMapper.class);
     bind(LookupProtoFormatHandler.class).toInstance(getLookupProtoFormat().getFormatHandler());
+    bind(DataSourceSizeProvider.class).to(BlobStoreDataSourceSizeProvider.class);
 
     switch (args.getBlobStorageClientSelector()) {
       case LOCAL_FS:
@@ -143,6 +145,7 @@ public final class MatchWorkerModule extends AbstractModule {
         break;
     }
     install(args.getBlobStorageClientSelector().getBlobStorageClientModule());
+    install(new BlobStoreClientModule());
 
     switch (args.getJobClientSelector()) {
       case LOCAL_FILE:

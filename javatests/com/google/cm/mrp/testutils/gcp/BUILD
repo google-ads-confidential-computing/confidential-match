@@ -61,6 +61,7 @@ java_library(
     ],
     deps = [
         "//java/com/google/cm/mrp:matchworker_runner",
+        "//java/com/google/cm/mrp/clients/blobstoreclient",
         "//java/com/google/cm/mrp/clients/cryptoclient",
         "//java/com/google/cm/mrp/clients/lookupserviceclient",
         "//java/com/google/cm/mrp/clients/lookupserviceclient/gcp",

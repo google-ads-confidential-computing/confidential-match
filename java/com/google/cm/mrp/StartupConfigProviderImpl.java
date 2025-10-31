@@ -16,6 +16,8 @@
 
 package com.google.cm.mrp;
 
+import static com.google.cm.mrp.Constants.INITIAL_WORKGROUP_KEY;
+
 import com.google.cm.mrp.backend.ApplicationProto.ApplicationId;
 import com.google.scp.shared.clients.configclient.ParameterClient;
 import com.google.scp.shared.clients.configclient.ParameterClient.ParameterClientException;
@@ -48,8 +50,17 @@ public final class StartupConfigProviderImpl implements StartupConfigProvider {
     builder.setConscryptEnabled(conscryptEnabled);
     builder.setLoggingLevel(getValue(Parameter.LOGGING_LEVEL.name()));
 
+    String largeJobWorkgroupName =
+        getValue(Parameter.LARGE_JOB_WORKGROUP_NAME.name())
+            .orElseGet(
+                () -> {
+                  logger.warn("LARGE_JOB_WORKGROUP_NAME not set. Falling back to default");
+                  return INITIAL_WORKGROUP_KEY;
+                });
+
+    builder.setLargeJobWorkgroupName(largeJobWorkgroupName);
+
     addNotificationTopics(builder);
-    addApplicationIdWorkgroups(builder);
     return builder.build();
   }
 
@@ -66,20 +77,6 @@ public final class StartupConfigProviderImpl implements StartupConfigProvider {
           .ifPresent(
               topic ->
                   builder.addNotificationTopic(applicationId.name().toLowerCase(Locale.US), topic));
-    }
-  }
-
-  private void addApplicationIdWorkgroups(StartupConfig.Builder builder) {
-    for (ApplicationId applicationId : ApplicationId.values()) {
-      if (applicationId == ApplicationId.APPLICATION_ID_UNSPECIFIED) {
-        continue;
-      }
-      String applicationIdName = applicationId.name().toLowerCase(Locale.US);
-      Optional<String> workgroupName =
-          getValue(Parameter.ASSIGNED_WORKGROUP_PREFIX + applicationIdName);
-      workgroupName
-          .filter(name -> !name.isEmpty())
-          .ifPresent(name -> builder.addWorkgroupApplicationId(applicationIdName, name));
     }
   }
 

@@ -16,11 +16,19 @@
 
 package com.google.cm.mrp;
 
+import static com.google.cm.mrp.api.JobResultCodeProto.JobResultCode.INTERNAL_ERROR;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.BLOBSTORE_PERMISSIONS_ERROR;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_PARAMETERS;
+import static com.google.cm.util.ProtoUtils.getJsonFromProto;
 import static com.google.common.truth.Truth.assertThat;
 import static com.google.common.truth.Truth8.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 
-import com.google.cm.mrp.api.JobResultCodeProto.JobResultCode;
+import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner;
+import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner.DataLocation;
+import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwnerList;
 import com.google.common.collect.ImmutableMap;
 import com.google.scp.operator.cpio.jobclient.model.GetJobRequest;
 import com.google.scp.operator.cpio.jobclient.model.Job;
@@ -45,26 +53,33 @@ public class JobRequestProviderTest {
   private static final String JOB_ID = "testJob";
   private static final String TEST_APPLICATION_ID = "mic";
   private static final String DEFAULT_GROUP = "default";
+  private static final String LARGE_JOB_WORKGROUP = "largeJobs";
   private static final ImmutableMap<String, String> APPLICATION_ID_WORKGROUPS =
       ImmutableMap.of(TEST_APPLICATION_ID, "fake_group");
   private static final ImmutableMap<String, String> NOTIFICATION_TOPIC_IDS =
       ImmutableMap.of(TEST_APPLICATION_ID, "fake_mic_topic");
 
-  @Mock private StartupConfigProvider mockStartupConfigProvider;
+  @Mock private StartupConfigProvider startupConfigProvider;
   @Mock private FeatureFlagProvider featureFlagProvider;
+  @Mock private DataSourceSizeProvider dataSourceSizeProvider;
 
   private JobRequestProvider jobRequestProvider;
 
   @Before
   public void setUp() {
-    when(featureFlagProvider.getFeatureFlags())
-        .thenReturn(FeatureFlags.builder().setWorkgroupsEnabled(true).build());
-    jobRequestProvider = new JobRequestProvider(mockStartupConfigProvider, featureFlagProvider);
+    when(startupConfigProvider.getStartupConfig())
+        .thenReturn(
+            StartupConfig.builder()
+                .setLargeJobWorkgroupName(LARGE_JOB_WORKGROUP)
+                .setNotificationTopics(NOTIFICATION_TOPIC_IDS)
+                .build());
+    jobRequestProvider =
+        new JobRequestProvider(dataSourceSizeProvider, startupConfigProvider, featureFlagProvider);
   }
 
   @Test
   public void getJobRequest_micJob_notificationTopicIdFuncReturnsExpectedTopic() {
-    when(mockStartupConfigProvider.getStartupConfig()).thenReturn(buildStartupConfig());
+    when(featureFlagProvider.getFeatureFlags()).thenReturn(buildFeatureFlags());
 
     GetJobRequest getJobRequest = jobRequestProvider.getJobRequest();
 
@@ -76,7 +91,7 @@ public class JobRequestProviderTest {
 
   @Test
   public void getJobRequest_emptyApplicationId_notificationTopicIdFuncReturnsEmptyTopic() {
-    when(mockStartupConfigProvider.getStartupConfig()).thenReturn(buildStartupConfig());
+    when(featureFlagProvider.getFeatureFlags()).thenReturn(buildFeatureFlags());
     String applicationId = ""; // blank
 
     GetJobRequest getJobRequest = jobRequestProvider.getJobRequest();
@@ -88,7 +103,7 @@ public class JobRequestProviderTest {
 
   @Test
   public void getJobRequest_customerMatchJob_notificationTopicIdFuncReturnsEmptyTopic() {
-    when(mockStartupConfigProvider.getStartupConfig()).thenReturn(buildStartupConfig());
+    when(featureFlagProvider.getFeatureFlags()).thenReturn(buildFeatureFlags());
     String applicationId = "customer_match";
 
     GetJobRequest getJobRequest = jobRequestProvider.getJobRequest();
@@ -100,7 +115,7 @@ public class JobRequestProviderTest {
 
   @Test
   public void getJobRequest_micJob_workgroupFuncReturnsExpectedName() {
-    when(mockStartupConfigProvider.getStartupConfig()).thenReturn(buildStartupConfig());
+    when(featureFlagProvider.getFeatureFlags()).thenReturn(buildFeatureFlags());
 
     GetJobRequest getJobRequest = jobRequestProvider.getJobRequest();
 
@@ -113,7 +128,7 @@ public class JobRequestProviderTest {
 
   @Test
   public void getJobRequest_emptyApplicationId_emptyApplicationIdReturnsError() {
-    when(mockStartupConfigProvider.getStartupConfig()).thenReturn(buildStartupConfig());
+    when(featureFlagProvider.getFeatureFlags()).thenReturn(buildFeatureFlags());
     String applicationId = ""; // blank
 
     GetJobRequest getJobRequest = jobRequestProvider.getJobRequest();
@@ -124,12 +139,12 @@ public class JobRequestProviderTest {
     assertThat(workgroupFunResponse.workgroupId()).isEmpty();
     assertThat(workgroupFunResponse.resultInfo()).isPresent();
     assertThat(workgroupFunResponse.resultInfo().get().getReturnCode())
-        .isEqualTo(JobResultCode.INVALID_PARAMETERS.name());
+        .isEqualTo(INVALID_PARAMETERS.name());
   }
 
   @Test
   public void getJobRequest_customerMatchJob_emptyApplicationIdReturnsEmpty() {
-    when(mockStartupConfigProvider.getStartupConfig()).thenReturn(buildStartupConfig());
+    when(featureFlagProvider.getFeatureFlags()).thenReturn(buildFeatureFlags());
     String applicationId = "customer_match";
 
     GetJobRequest getJobRequest = jobRequestProvider.getJobRequest();
@@ -142,13 +157,164 @@ public class JobRequestProviderTest {
     assertThat(workgroupFunResponse.resultInfo()).isEmpty();
   }
 
+  @Test
+  public void getJobRequest_applicationIdInLargeJobIds_assignedToWorkgroup() throws Exception {
+    long threshold = 1000L;
+    when(featureFlagProvider.getFeatureFlags()).thenReturn(buildFeatureFlagsForLargeJob(threshold));
+    var dataOwners =
+        DataOwnerList.newBuilder()
+            .addDataOwners(
+                DataOwner.newBuilder()
+                    .setDataLocation(
+                        DataLocation.newBuilder()
+                            .setInputDataBucketName("test")
+                            .setInputDataBlobPrefix("testPrefix")
+                            .setIsStreamed(true)))
+            .build();
+    when(dataSourceSizeProvider.isAtLeastSize(eq(threshold), eq(dataOwners), any()))
+        .thenReturn(true);
+
+    GetJobRequest getJobRequest = jobRequestProvider.getJobRequest();
+
+    assertThat(getJobRequest.getWorkgroupAllocationFunc()).isPresent();
+    var workgroupFunc = getJobRequest.getWorkgroupAllocationFunc();
+    var workgroupFunResponse =
+        workgroupFunc.get().apply(createFakeJob(TEST_APPLICATION_ID, getJsonFromProto(dataOwners)));
+    assertThat(workgroupFunResponse.workgroupId().get()).isEqualTo(LARGE_JOB_WORKGROUP);
+    assertThat(workgroupFunResponse.resultInfo()).isEmpty();
+  }
+
+  @Test
+  public void getJobRequest_applicationIdInLargeJobIds_notLeastSizeFallsBackToApplicationWorkgroup()
+      throws Exception {
+    long threshold = 1000L;
+    when(featureFlagProvider.getFeatureFlags()).thenReturn(buildFeatureFlagsForLargeJob(threshold));
+    var dataOwners =
+        DataOwnerList.newBuilder()
+            .addDataOwners(
+                DataOwner.newBuilder()
+                    .setDataLocation(
+                        DataLocation.newBuilder()
+                            .setInputDataBucketName("test")
+                            .setInputDataBlobPrefix("testPrefix")
+                            .setIsStreamed(true)))
+            .build();
+    when(dataSourceSizeProvider.isAtLeastSize(eq(threshold), eq(dataOwners), any()))
+        .thenReturn(false);
+
+    GetJobRequest getJobRequest = jobRequestProvider.getJobRequest();
+
+    assertThat(getJobRequest.getWorkgroupAllocationFunc()).isPresent();
+    var workgroupFunc = getJobRequest.getWorkgroupAllocationFunc();
+    var workgroupFunResponse =
+        workgroupFunc.get().apply(createFakeJob(TEST_APPLICATION_ID, getJsonFromProto(dataOwners)));
+    assertThat(workgroupFunResponse.workgroupId().get()).isEqualTo("fake_group");
+    assertThat(workgroupFunResponse.resultInfo()).isEmpty();
+  }
+
+  @Test
+  public void
+      getJobRequest_applicationIdInLargeJobIds_noDedicatedLargeJobWorkgroupFallBackToApplicationId()
+          throws Exception {
+    long threshold = 1000L;
+    when(featureFlagProvider.getFeatureFlags()).thenReturn(buildFeatureFlagsForLargeJob(threshold));
+    when(startupConfigProvider.getStartupConfig())
+        .thenReturn(
+            StartupConfig.builder()
+                .setLargeJobWorkgroupName("default")
+                .setNotificationTopics(NOTIFICATION_TOPIC_IDS)
+                .build());
+    var dataOwners = DataOwnerList.getDefaultInstance();
+
+    GetJobRequest getJobRequest = jobRequestProvider.getJobRequest();
+
+    assertThat(getJobRequest.getWorkgroupAllocationFunc()).isPresent();
+    var workgroupFunc = getJobRequest.getWorkgroupAllocationFunc();
+    var workgroupFunResponse =
+        workgroupFunc.get().apply(createFakeJob(TEST_APPLICATION_ID, getJsonFromProto(dataOwners)));
+    assertThat(workgroupFunResponse.workgroupId().get()).isEqualTo("fake_group");
+    assertThat(workgroupFunResponse.resultInfo()).isEmpty();
+  }
+
+  @Test
+  public void getJobRequest_applicationIdInLargeJobIds_invalidDataOwners() {
+    long threshold = 1000L;
+    when(featureFlagProvider.getFeatureFlags()).thenReturn(buildFeatureFlagsForLargeJob(threshold));
+
+    GetJobRequest getJobRequest = jobRequestProvider.getJobRequest();
+
+    assertThat(getJobRequest.getWorkgroupAllocationFunc()).isPresent();
+    var workgroupFunc = getJobRequest.getWorkgroupAllocationFunc();
+    var workgroupFunResponse =
+        workgroupFunc.get().apply(createFakeJob(TEST_APPLICATION_ID, "invalid"));
+    assertThat(workgroupFunResponse.workgroupId()).isEmpty();
+    assertThat(workgroupFunResponse.resultInfo()).isPresent();
+    assertThat(workgroupFunResponse.resultInfo().get().getReturnCode())
+        .isEqualTo(INVALID_PARAMETERS.name());
+  }
+
+  @Test
+  public void getJobRequest_applicationIdInLargeJobIds_handlesJobProcessorException()
+      throws Exception {
+    long threshold = 1000L;
+    when(featureFlagProvider.getFeatureFlags()).thenReturn(buildFeatureFlagsForLargeJob(threshold));
+    when(dataSourceSizeProvider.isAtLeastSize(eq(threshold), any(), any()))
+        .thenThrow(new JobProcessorException("error", BLOBSTORE_PERMISSIONS_ERROR));
+    GetJobRequest getJobRequest = jobRequestProvider.getJobRequest();
+
+    assertThat(getJobRequest.getWorkgroupAllocationFunc()).isPresent();
+    var workgroupFunc = getJobRequest.getWorkgroupAllocationFunc();
+    var workgroupFunResponse =
+        workgroupFunc
+            .get()
+            .apply(
+                createFakeJob(
+                    TEST_APPLICATION_ID, getJsonFromProto(DataOwnerList.getDefaultInstance())));
+    assertThat(workgroupFunResponse.workgroupId()).isEmpty();
+    assertThat(workgroupFunResponse.resultInfo()).isPresent();
+    assertThat(workgroupFunResponse.resultInfo().get().getReturnCode())
+        .isEqualTo(BLOBSTORE_PERMISSIONS_ERROR.name());
+  }
+
+  @Test
+  public void getJobRequest_applicationIdInLargeJobIds_handlesRuntimeException() throws Exception {
+    long threshold = 1000L;
+    when(featureFlagProvider.getFeatureFlags()).thenReturn(buildFeatureFlagsForLargeJob(threshold));
+    when(dataSourceSizeProvider.isAtLeastSize(eq(threshold), any(), any()))
+        .thenThrow(new NullPointerException());
+    GetJobRequest getJobRequest = jobRequestProvider.getJobRequest();
+
+    assertThat(getJobRequest.getWorkgroupAllocationFunc()).isPresent();
+    var workgroupFunc = getJobRequest.getWorkgroupAllocationFunc();
+    var workgroupFunResponse =
+        workgroupFunc
+            .get()
+            .apply(
+                createFakeJob(
+                    TEST_APPLICATION_ID, getJsonFromProto(DataOwnerList.getDefaultInstance())));
+    assertThat(workgroupFunResponse.workgroupId()).isEmpty();
+    assertThat(workgroupFunResponse.resultInfo()).isPresent();
+    assertThat(workgroupFunResponse.resultInfo().get().getReturnCode())
+        .isEqualTo(INTERNAL_ERROR.name());
+  }
+
   private static Job createFakeJob(String applicationId) {
+    return createFakeJob(applicationId, "");
+  }
+
+  private static Job createFakeJob(String applicationId, String dataOwnerList) {
+    ImmutableMap.Builder<String, String> jobParamsMap = ImmutableMap.builder();
+    jobParamsMap.put("application_id", applicationId);
+
+    if (!dataOwnerList.isBlank()) {
+      jobParamsMap.put("data_owner_list", dataOwnerList);
+    }
     return Job.builder()
         .setJobKey(JobKey.newBuilder().setJobRequestId(JOB_ID).build())
         .setRequestInfo(
             RequestInfo.newBuilder()
                 .setJobRequestId(JOB_ID)
-                .putAllJobParameters(ImmutableMap.of("application_id", applicationId))
+                .putAllJobParameters(jobParamsMap.build())
                 .build())
         .setJobStatus(JobStatus.RECEIVED)
         .setJobProcessingTimeout(Duration.ofHours(1))
@@ -158,10 +324,19 @@ public class JobRequestProviderTest {
         .build();
   }
 
-  private static StartupConfig buildStartupConfig() {
-    return StartupConfig.builder()
-        .setNotificationTopics(NOTIFICATION_TOPIC_IDS)
+  private static FeatureFlags buildFeatureFlags() {
+    return FeatureFlags.builder()
+        .setWorkgroupsEnabled(true)
         .setApplicationIdWorkgroups(APPLICATION_ID_WORKGROUPS)
+        .build();
+  }
+
+  private static FeatureFlags buildFeatureFlagsForLargeJob(long threshold) {
+    return FeatureFlags.builder()
+        .setWorkgroupsEnabled(true)
+        .setApplicationIdWorkgroups(APPLICATION_ID_WORKGROUPS)
+        .setLargeJobApplicationIds(APPLICATION_ID_WORKGROUPS.keySet())
+        .setLargeJobThresholdBytes(threshold)
         .build();
   }
 }

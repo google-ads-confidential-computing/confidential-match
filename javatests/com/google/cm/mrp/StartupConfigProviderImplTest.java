@@ -82,23 +82,6 @@ public class StartupConfigProviderImplTest {
   }
 
   @Test
-  public void getStartupConfig_returnsAssignedWorkgroups() throws Exception {
-    when(mockParameterClient.getParameter(
-            Parameter.ASSIGNED_WORKGROUP_PREFIX + "mic", Optional.of(Parameter.CFM_PREFIX), true))
-        .thenReturn(Optional.of("fake_mic_group"));
-    when(mockParameterClient.getParameter(
-            Parameter.ASSIGNED_WORKGROUP_PREFIX + "customer_match",
-            Optional.of(Parameter.CFM_PREFIX),
-            true))
-        .thenReturn(Optional.of("fake_cm_group"));
-
-    StartupConfig startupConfig = configProvider.getStartupConfig();
-
-    assertThat(startupConfig.applicationIdWorkgroups())
-        .isEqualTo(ImmutableMap.of("mic", "fake_mic_group", "customer_match", "fake_cm_group"));
-  }
-
-  @Test
   public void getStartupConfig_returnsLoggingParameter() throws Exception {
     when(mockParameterClient.getParameter(
             Parameter.LOGGING_LEVEL.name(), Optional.of(Parameter.CFM_PREFIX), true))
