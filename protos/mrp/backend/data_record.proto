@@ -54,11 +54,31 @@ message DataRecord {
   // All output fields to be joined with the values in this data record
   message FieldMatches {
     // Mapping of all original single fields to FieldMatches
-    // Key: index of original single field. Value: corresponding FieldMatch to field
+    // Key: index of original single field.
+    // Value: FieldMatch corresponding to the single field
     map<uint32, FieldMatch> single_field_record_matches = 1;
     // Mapping of all original composite fields to FieldMatches
-    // Key: original composite field group number. Value: corresponding FieldMatch to composite field
+    // Key: original composite field group number.
+    // Value: FieldMatch corresponding to the composite field
     map<uint32, FieldMatch> composite_field_record_matches = 2;
+  }
+
+  // A list of KeyValue pairs that are metadata in the input
+  // confidential_match_data_record.
+  message Metadata {
+    repeated KeyValue metadata = 1;
+  }
+
+  // Field level metadata that is passed through the system unchanged.
+  message FieldLevelMetadata {
+    // Mapping of all original single fields to Metadata
+    // Key: index of original single field in this DataRecord.
+    // Value: Metadata corresponding to the single field
+    map<uint32, Metadata> single_field_metadata = 1;
+    // Mapping of all original composite fields to Metadata
+    // Key: original composite field group number in this DataRecord.
+    // Value: Metadata corresponding to the composite field
+    map<uint32, Metadata> composite_field_metadata = 2;
   }
 
   repeated KeyValue key_values = 2;
@@ -69,4 +89,10 @@ message DataRecord {
   optional ProcessingMetadata processing_metadata = 5;
   // Field to be joined for Data Record
   optional FieldMatches join_fields = 6;
+  // Row level metadata in the input record that is passed through the system
+  // unchanged.
+  optional Metadata row_level_metadata = 7;
+  // Field level metadata in the input record that is passed through the system
+  // unchanged.
+  optional FieldLevelMetadata field_level_metadata = 8;
 }

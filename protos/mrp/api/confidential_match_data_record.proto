@@ -50,6 +50,9 @@ message MatchKey {
   }
   // If specified, the key overrides the record level encryption key.
   EncryptionKey encryption_key = 3;
+
+  // Matchkey level metadata that is passed through the system unchanged.
+  repeated KeyValue metadata = 4;
 }
 
 message Field {

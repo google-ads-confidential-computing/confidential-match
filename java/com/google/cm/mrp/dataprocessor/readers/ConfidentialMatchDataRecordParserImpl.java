@@ -159,89 +159,93 @@ public final class ConfidentialMatchDataRecordParserImpl
   @Override
   public List<DataRecord> parse(ConfidentialMatchDataRecord cfmDataRecord) {
     String rowId = UUID.randomUUID().toString();
-
-    Map<EncryptionKey, Map<String, List<Field>>> singleFieldMap = new HashMap<>();
-    Map<EncryptionKey, Map<Integer, List<CompositeField>>> compositeFieldMap = new HashMap<>();
-    EncryptionKey rowLevelEncryptionKey = cfmDataRecord.getEncryptionKey();
-    List<DataRecord> internalRecords = new ArrayList<>();
-    ProtoEncryptionLevel encryptionLevel = ProtoEncryptionLevel.UNSPECIFIED_ENCRYPTION_LEVEL;
-
-    // Handle invalid CFM DataRecord without match keys.
-    if (cfmDataRecord.getMatchKeysList().isEmpty()) {
+    try {
+      return internalParse(cfmDataRecord, rowId);
+    } catch (JobProcessorException e) {
       if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS) {
-        logger.info("CFM DataRecord does not contain match keys.");
-        internalRecords.add(generateErrorDataRecord(PROTO_MISSING_MATCH_KEYS, rowId));
-        return internalRecords;
+        logger.info(e.getMessage());
+        return ImmutableList.of(generateErrorDataRecord(e.getErrorCode(), rowId));
       }
+      throw e;
+    }
+  }
+
+  private List<DataRecord> internalParse(ConfidentialMatchDataRecord cfmDataRecord, String rowId) {
+    if (cfmDataRecord.getMatchKeysList().isEmpty()) {
       throw new JobProcessorException(
           "CFM DataRecord does not contain match keys.", PROTO_MISSING_MATCH_KEYS);
     }
 
-    // Put match keys in corresponding map for field or composite field.
+    Map<EncryptionKey, Map<String, List<Field>>> singleFieldMap = new HashMap<>();
+    Map<EncryptionKey, Map<Integer, List<CompositeField>>> compositeFieldMap = new HashMap<>();
+
     for (MatchKey matchKey : cfmDataRecord.getMatchKeysList()) {
-      if (matchKey.hasEncryptionKey() && cfmDataRecord.hasEncryptionKey()) {
-        String message =
-            "Invalid ConfidentialMatchDataRecord with encryption key specified at MatchKey and Row"
-                + " level.";
-        if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS) {
-          logger.info(message);
-          return ImmutableList.of(generateErrorDataRecord(INVALID_ENCRYPTION_COLUMN, rowId));
-        }
-        throw new JobProcessorException(message, INVALID_ENCRYPTION_COLUMN);
-      }
-
-      EncryptionKey encryptionKey = rowLevelEncryptionKey;
-      if (matchKey.hasEncryptionKey()) {
-        encryptionLevel = ProtoEncryptionLevel.MATCH_KEY_LEVEL;
-        encryptionKey = matchKey.getEncryptionKey();
-      } else if (cfmDataRecord.hasEncryptionKey()) {
-        encryptionLevel = ProtoEncryptionLevel.ROW_LEVEL;
-      }
-
-      if (matchKey.hasField()) {
-        singleFieldMap
-            .computeIfAbsent(encryptionKey, key -> new HashMap<>())
-            .computeIfAbsent(matchKey.getField().getKeyValue().getKey(), k -> new ArrayList<>())
-            .add(matchKey.getField());
-      } else if (matchKey.hasCompositeField()) {
-        if (matchKey.getCompositeField().getChildFieldsCount() < 1) {
-          String message =
-              "CFM DataRecord match key composite field does not have any child fields.";
-          if (successMode != SuccessMode.ALLOW_PARTIAL_SUCCESS) {
-            throw new JobProcessorException(message, PROTO_MATCH_KEY_HAS_BAD_CHILD_FIELDS);
-          }
-          logger.info(message);
-          internalRecords.add(generateErrorDataRecord(PROTO_MATCH_KEY_HAS_BAD_CHILD_FIELDS, rowId));
-          return internalRecords;
-        }
-        Optional<Integer> groupNumber = getCompositeFieldGroupNumber(matchKey.getCompositeField());
-        if (groupNumber.isPresent()) {
-          compositeFieldMap
-              .computeIfAbsent(encryptionKey, k -> new HashMap<>())
-              .computeIfAbsent(groupNumber.get(), k -> new ArrayList<>())
-              .add(matchKey.getCompositeField());
-        } else {
-          String message =
-              "CFM DataRecord match key composite field has incorrectly grouped child fields.";
-          if (successMode != SuccessMode.ALLOW_PARTIAL_SUCCESS) {
-            throw new JobProcessorException(message, PROTO_MATCH_KEY_HAS_BAD_CHILD_FIELDS);
-          }
-          logger.info(message);
-          internalRecords.add(generateErrorDataRecord(PROTO_MATCH_KEY_HAS_BAD_CHILD_FIELDS, rowId));
-          return internalRecords;
-        }
-      } else {
-        String message = "CFM DataRecord match key does not contain field or composite field.";
-        if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS) {
-          logger.info(message);
-          internalRecords.add(generateErrorDataRecord(PROTO_MATCH_KEY_MISSING_FIELD, rowId));
-          return internalRecords;
-        }
-        throw new JobProcessorException(message, PROTO_MATCH_KEY_MISSING_FIELD);
-      }
+      EncryptionKey encryptionKey = getEncryptionKey(matchKey, cfmDataRecord);
+      populateFieldMaps(matchKey, encryptionKey, singleFieldMap, compositeFieldMap);
     }
+    Map<String, KeyValue> metadataMap = validateAndExtractMetadata(cfmDataRecord);
+    return buildInternalRecords(
+        cfmDataRecord, rowId, singleFieldMap, compositeFieldMap, metadataMap);
+  }
 
-    // Validate metadata key values to not contain duplicates
+  private EncryptionKey getEncryptionKey(
+      MatchKey matchKey, ConfidentialMatchDataRecord cfmDataRecord) {
+    if (matchKey.hasEncryptionKey() && cfmDataRecord.hasEncryptionKey()) {
+      throw new JobProcessorException(
+          "Invalid ConfidentialMatchDataRecord with encryption key specified at MatchKey and Row"
+              + " level.",
+          INVALID_ENCRYPTION_COLUMN);
+    }
+    return matchKey.hasEncryptionKey()
+        ? matchKey.getEncryptionKey()
+        : cfmDataRecord.getEncryptionKey();
+  }
+
+  private void populateFieldMaps(
+      MatchKey matchKey,
+      EncryptionKey encryptionKey,
+      Map<EncryptionKey, Map<String, List<Field>>> singleFieldMap,
+      Map<EncryptionKey, Map<Integer, List<CompositeField>>> compositeFieldMap) {
+    if (matchKey.hasField()) {
+      singleFieldMap
+          .computeIfAbsent(encryptionKey, key -> new HashMap<>())
+          .computeIfAbsent(matchKey.getField().getKeyValue().getKey(), k -> new ArrayList<>())
+          .add(matchKey.getField());
+    } else if (matchKey.hasCompositeField()) {
+      processCompositeField(matchKey, encryptionKey, compositeFieldMap);
+    } else {
+      throw new JobProcessorException(
+          "CFM DataRecord match key does not contain field or composite field.",
+          PROTO_MATCH_KEY_MISSING_FIELD);
+    }
+  }
+
+  private void processCompositeField(
+      MatchKey matchKey,
+      EncryptionKey encryptionKey,
+      Map<EncryptionKey, Map<Integer, List<CompositeField>>> compositeFieldMap) {
+    if (matchKey.getCompositeField().getChildFieldsCount() < 1) {
+      throw new JobProcessorException(
+          "CFM DataRecord match key composite field does not have any child fields.",
+          PROTO_MATCH_KEY_HAS_BAD_CHILD_FIELDS);
+    }
+    getCompositeFieldGroupNumber(matchKey.getCompositeField())
+        .ifPresentOrElse(
+            groupNumber -> {
+              compositeFieldMap
+                  .computeIfAbsent(encryptionKey, k -> new HashMap<>())
+                  .computeIfAbsent(groupNumber, k -> new ArrayList<>())
+                  .add(matchKey.getCompositeField());
+            },
+            () -> {
+              throw new JobProcessorException(
+                  "CFM DataRecord match key composite field has incorrectly grouped child fields.",
+                  PROTO_MATCH_KEY_HAS_BAD_CHILD_FIELDS);
+            });
+  }
+
+  private Map<String, KeyValue> validateAndExtractMetadata(
+      ConfidentialMatchDataRecord cfmDataRecord) {
     Map<String, KeyValue> metadataMap;
     try {
       metadataMap =
@@ -249,34 +253,37 @@ public final class ConfidentialMatchDataRecordParserImpl
               .filter(keyValue -> columnNameSet.contains(keyValue.getKey()))
               .collect(Collectors.toMap(KeyValue::getKey, Function.identity()));
     } catch (IllegalStateException e) {
-      String message = "Invalid ConfidentialMatchDataRecord with duplicate metadata key.";
-      if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS) {
-        logger.info(message);
-        return ImmutableList.of(generateErrorDataRecord(PROTO_DUPLICATE_METADATA_KEY, rowId));
-      }
-      throw new JobProcessorException(message, PROTO_DUPLICATE_METADATA_KEY);
+      throw new JobProcessorException(
+          "Invalid ConfidentialMatchDataRecord with duplicate metadata key.",
+          PROTO_DUPLICATE_METADATA_KEY);
     }
 
-    // Handle invalid metadata containing match key alias
     for (String metadataName : metadataMap.keySet()) {
       if (singleMatchAliasSet.contains(metadataName)
           || matchAliasToCompositeField.containsKey(metadataName)
           || encryptionKeyAliasesToType.containsKey(metadataName)) {
-        String message =
-            String.format("CFM DataRecord metadata contains restricted name: %s", metadataName);
-        if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS) {
-          logger.info(message);
-          return ImmutableList.of(
-              generateErrorDataRecord(PROTO_METADATA_CONTAINING_RESTRICTED_ALIAS, rowId));
-        }
-        throw new JobProcessorException(message, PROTO_METADATA_CONTAINING_RESTRICTED_ALIAS);
+        throw new JobProcessorException(
+            String.format("CFM DataRecord metadata contains restricted name: %s", metadataName),
+            PROTO_METADATA_CONTAINING_RESTRICTED_ALIAS);
       }
     }
+    return metadataMap;
+  }
 
-    // Generate map and process single/composite/metadata field maps for each encryption key
+  private List<DataRecord> buildInternalRecords(
+      ConfidentialMatchDataRecord cfmDataRecord,
+      String rowId,
+      Map<EncryptionKey, Map<String, List<Field>>> singleFieldMap,
+      Map<EncryptionKey, Map<Integer, List<CompositeField>>> compositeFieldMap,
+      Map<String, KeyValue> metadataMap) {
+
+    List<DataRecord> internalRecords = new ArrayList<>();
     HashSet<EncryptionKey> encryptionKeySet =
         getAllEncryptionKeys(singleFieldMap, compositeFieldMap);
     boolean firstDataRecord = true;
+
+    ProtoEncryptionLevel encryptionLevel = getEncryptionLevel(cfmDataRecord);
+
     for (EncryptionKey encryptionKey : encryptionKeySet) {
       Map<String, List<Field>> protoSingleFields =
           singleFieldMap.getOrDefault(encryptionKey, Collections.emptyMap());
@@ -287,87 +294,143 @@ public final class ConfidentialMatchDataRecordParserImpl
           Integer.max(
               protoSingleFields.values().stream().mapToInt(List::size).max().orElse(0),
               protoCompositeFields.values().stream().mapToInt(List::size).max().orElse(0));
+
       for (int fieldIndex = 0; fieldIndex < maxIndex; fieldIndex++) {
         List<DataRecord.KeyValue> keyValues = new ArrayList<>();
         Optional<JobResultCode> rowLevelErrorCode = Optional.empty();
+
         for (Column column : columnList) {
-          String columnName = column.getColumnName();
-          Optional<String> columnAlias =
-              column.hasColumnAlias() ? Optional.of(column.getColumnAlias()) : Optional.empty();
-          DataRecord.KeyValue defaultKeyValue =
-              DataRecord.KeyValue.newBuilder().setKey(columnName).setStringValue("").build();
-          if (metadataNameSet.contains(columnName)) {
-            // only add metadata to first data record
-            if (metadataMap.containsKey(columnName) && firstDataRecord) {
-              keyValues.add(convertKeyValue(metadataMap.get(columnName)));
+          try {
+            DataRecord.KeyValue keyValue =
+                buildKeyValue(
+                    column,
+                    encryptionKey,
+                    protoSingleFields,
+                    protoCompositeFields,
+                    metadataMap,
+                    fieldIndex,
+                    rowId,
+                    firstDataRecord);
+            keyValues.add(keyValue);
+          } catch (JobProcessorException e) {
+            if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS
+                && isMissingEncryptionKeyColumnError(e.getErrorCode())) {
+              keyValues.add(
+                  DataRecord.KeyValue.newBuilder()
+                      .setKey(column.getColumnName())
+                      .setStringValue("")
+                      .build());
+              rowLevelErrorCode = Optional.of(e.getErrorCode());
             } else {
-              keyValues.add(DataRecord.KeyValue.newBuilder().setKey(columnName).build());
+              throw e;
             }
-          } else if (columnName.equals(ROW_MARKER_COLUMN_NAME)) {
-            keyValues.add(
-                DataRecord.KeyValue.newBuilder()
-                    .setKey(ROW_MARKER_COLUMN_NAME)
-                    .setStringValue(rowId)
-                    .build());
-          } else if (columnAlias.isPresent()
-              && encryptionKeyAliasesToType.containsKey(columnAlias.get())) {
-            AliasType aliasType = encryptionKeyAliasesToType.get(columnAlias.get());
-            try {
-              keyValues.add(getEncryptionKeyColumn(columnName, aliasType, encryptionKey));
-            } catch (JobProcessorException e) {
-              if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS
-                  && isMissingEncryptionKeyColumnError(e.getErrorCode())) {
-                keyValues.add(
-                    DataRecord.KeyValue.newBuilder().setKey(columnName).setStringValue("").build());
-                rowLevelErrorCode = Optional.of(e.getErrorCode());
-              } else {
-                throw e;
-              }
-            }
-          } else if (columnAlias.isPresent()
-              && singleMatchAliasSet.contains(columnAlias.get())
-              && protoSingleFields.containsKey(columnName)
-              && fieldIndex < protoSingleFields.get(columnName).size()) {
-            DataRecord.KeyValue keyValue =
-                convertKeyValue(protoSingleFields.get(columnName).get(fieldIndex).getKeyValue());
-            keyValues.add(keyValue);
-          } else if (columnAlias.isPresent()
-              && matchAliasToCompositeField.containsKey(columnAlias.get())
-              && columnNameToGroupNumber.containsKey(columnName)
-              && protoCompositeFields.containsKey(columnNameToGroupNumber.get(columnName))) {
-            List<CompositeField> compositeFieldList =
-                protoCompositeFields.get(columnNameToGroupNumber.get(columnName));
-            DataRecord.KeyValue keyValue =
-                fieldIndex < compositeFieldList.size()
-                    ? compositeFieldList.get(fieldIndex).getChildFieldsList().stream()
-                        .filter(field -> columnName.equals(field.getKeyValue().getKey()))
-                        .map(filteredField -> convertKeyValue(filteredField.getKeyValue()))
-                        .findAny()
-                        .orElse(defaultKeyValue)
-                    : defaultKeyValue;
-            keyValues.add(keyValue);
-          } else {
-            keyValues.add(
-                DataRecord.KeyValue.newBuilder().setKey(columnName).setStringValue("").build());
           }
         }
-        ProcessingMetadata.Builder processingMetadata = ProcessingMetadata.newBuilder();
-        if (!encryptionKeyAliasesToType.isEmpty()
-            && encryptionLevel != ProtoEncryptionLevel.UNSPECIFIED_ENCRYPTION_LEVEL) {
-          processingMetadata.setProtoEncryptionLevel(encryptionLevel);
-        }
-        DataRecord.Builder dataRecordBuilder =
-            DataRecord.newBuilder()
-                .addAllKeyValues(keyValues)
-                .setProcessingMetadata(processingMetadata.build());
-        if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS && rowLevelErrorCode.isPresent()) {
-          dataRecordBuilder.setErrorCode(rowLevelErrorCode.get());
-        }
-        internalRecords.add(dataRecordBuilder.build());
+        internalRecords.add(createDataRecord(keyValues, rowLevelErrorCode, encryptionLevel));
         firstDataRecord = false;
       }
     }
     return internalRecords;
+  }
+
+  private ProtoEncryptionLevel getEncryptionLevel(ConfidentialMatchDataRecord cfmDataRecord) {
+
+    if (cfmDataRecord.getMatchKeysList().stream()
+        .anyMatch(matchKey -> matchKey.hasEncryptionKey())) {
+      return ProtoEncryptionLevel.MATCH_KEY_LEVEL;
+    } else if (cfmDataRecord.hasEncryptionKey()) {
+      return ProtoEncryptionLevel.ROW_LEVEL;
+    }
+    // TODO(b/455659908): Add and use a new enum value for unencrypted data.
+    return ProtoEncryptionLevel.UNSPECIFIED_ENCRYPTION_LEVEL;
+  }
+
+  private DataRecord.KeyValue buildKeyValue(
+      Column column,
+      EncryptionKey encryptionKey,
+      Map<String, List<Field>> protoSingleFields,
+      Map<Integer, List<CompositeField>> protoCompositeFields,
+      Map<String, KeyValue> metadataMap,
+      int fieldIndex,
+      String rowId,
+      boolean firstDataRecord) {
+
+    String columnName = column.getColumnName();
+    Optional<String> columnAlias =
+        column.hasColumnAlias() ? Optional.of(column.getColumnAlias()) : Optional.empty();
+
+    if (metadataNameSet.contains(columnName)) {
+      return handleMetadata(columnName, metadataMap, firstDataRecord);
+    } else if (columnName.equals(ROW_MARKER_COLUMN_NAME)) {
+      return DataRecord.KeyValue.newBuilder()
+          .setKey(ROW_MARKER_COLUMN_NAME)
+          .setStringValue(rowId)
+          .build();
+    } else if (columnAlias.isPresent()) {
+      if (encryptionKeyAliasesToType.containsKey(columnAlias.get())) {
+        return getEncryptionKeyColumn(columnName, encryptionKey, columnAlias.get());
+      } else if (singleMatchAliasSet.contains(columnAlias.get())) {
+        return handleSingleField(columnName, protoSingleFields, fieldIndex);
+      } else if (matchAliasToCompositeField.containsKey(columnAlias.get())) {
+        return handleCompositeField(columnName, protoCompositeFields, fieldIndex);
+      }
+    }
+    return DataRecord.KeyValue.newBuilder().setKey(columnName).setStringValue("").build();
+  }
+
+  private DataRecord.KeyValue handleMetadata(
+      String columnName, Map<String, KeyValue> metadataMap, boolean firstDataRecord) {
+    if (metadataMap.containsKey(columnName) && firstDataRecord) {
+      return convertKeyValue(metadataMap.get(columnName));
+    }
+    return DataRecord.KeyValue.newBuilder().setKey(columnName).build();
+  }
+
+  private DataRecord.KeyValue handleSingleField(
+      String columnName, Map<String, List<Field>> protoSingleFields, int fieldIndex) {
+    if (protoSingleFields.containsKey(columnName)
+        && fieldIndex < protoSingleFields.get(columnName).size()) {
+      return convertKeyValue(protoSingleFields.get(columnName).get(fieldIndex).getKeyValue());
+    }
+    return DataRecord.KeyValue.newBuilder().setKey(columnName).setStringValue("").build();
+  }
+
+  private DataRecord.KeyValue handleCompositeField(
+      String columnName, Map<Integer, List<CompositeField>> protoCompositeFields, int fieldIndex) {
+    DataRecord.KeyValue defaultKeyValue =
+        DataRecord.KeyValue.newBuilder().setKey(columnName).setStringValue("").build();
+    if (columnNameToGroupNumber.containsKey(columnName)
+        && protoCompositeFields.containsKey(columnNameToGroupNumber.get(columnName))) {
+      List<CompositeField> compositeFieldList =
+          protoCompositeFields.get(columnNameToGroupNumber.get(columnName));
+      return fieldIndex < compositeFieldList.size()
+          ? compositeFieldList.get(fieldIndex).getChildFieldsList().stream()
+              .filter(field -> columnName.equals(field.getKeyValue().getKey()))
+              .map(filteredField -> convertKeyValue(filteredField.getKeyValue()))
+              .findAny()
+              .orElse(defaultKeyValue)
+          : defaultKeyValue;
+    }
+    return defaultKeyValue;
+  }
+
+  private DataRecord createDataRecord(
+      List<DataRecord.KeyValue> keyValues,
+      Optional<JobResultCode> rowLevelErrorCode,
+      ProtoEncryptionLevel encryptionLevel) {
+    ProcessingMetadata.Builder processingMetadata = ProcessingMetadata.newBuilder();
+    if (!encryptionKeyAliasesToType.isEmpty()
+        && encryptionLevel != ProtoEncryptionLevel.UNSPECIFIED_ENCRYPTION_LEVEL) {
+      processingMetadata.setProtoEncryptionLevel(encryptionLevel);
+    }
+    DataRecord.Builder dataRecordBuilder =
+        DataRecord.newBuilder()
+            .addAllKeyValues(keyValues)
+            .setProcessingMetadata(processingMetadata.build());
+    if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS && rowLevelErrorCode.isPresent()) {
+      dataRecordBuilder.setErrorCode(rowLevelErrorCode.get());
+    }
+    return dataRecordBuilder.build();
   }
 
   private HashSet<EncryptionKey> getAllEncryptionKeys(
@@ -442,12 +505,11 @@ public final class ConfidentialMatchDataRecordParserImpl
     ImmutableMap.Builder<String, AliasType> encryptionKeyAliasesToTypeMap = ImmutableMap.builder();
     EncryptionKeyInfo encryptionKeyInfo = encryptionMetadata.getEncryptionKeyInfo();
     switch (encryptionKeyInfo.getKeyInfoCase()) {
-      case COORDINATOR_KEY_INFO:
-        encryptionKeyAliasesToTypeMap.put(
-            encryptionKeyColumns.getCoordinatorKeyColumn().getCoordinatorKeyColumnAlias(),
-            COORDINATOR_KEY);
-        break;
-      case WRAPPED_KEY_INFO:
+      case COORDINATOR_KEY_INFO ->
+          encryptionKeyAliasesToTypeMap.put(
+              encryptionKeyColumns.getCoordinatorKeyColumn().getCoordinatorKeyColumnAlias(),
+              COORDINATOR_KEY);
+      case WRAPPED_KEY_INFO -> {
         WrappedKeyColumns wrappedKeyColumns = encryptionKeyColumns.getWrappedKeyColumns();
         encryptionKeyAliasesToTypeMap.put(
             wrappedKeyColumns.getEncryptedDekColumnAlias(), ENCRYPTED_DEK);
@@ -479,16 +541,18 @@ public final class ConfidentialMatchDataRecordParserImpl
                   .getRoleArnAlias(),
               ROLE_ARN);
         }
-        break;
-      default:
-        throw new JobProcessorException(
-            "Invalid encryption metadata encryption key info.", INVALID_PARAMETERS);
+      }
+      default ->
+          throw new JobProcessorException(
+              "Invalid encryption metadata encryption key info.", INVALID_PARAMETERS);
     }
     return encryptionKeyAliasesToTypeMap.build();
   }
 
   private DataRecord.KeyValue getEncryptionKeyColumn(
-      String columnName, AliasType aliasType, EncryptionKey encryptionKey) {
+      String columnName, EncryptionKey encryptionKey, String columnAlias) {
+
+    AliasType aliasType = encryptionKeyAliasesToType.get(columnAlias);
 
     // Handle simplest case
     if (aliasType == COORDINATOR_KEY) {
@@ -497,52 +561,52 @@ public final class ConfidentialMatchDataRecordParserImpl
           /* encryptionKeyValue= */ encryptionKey.getCoordinatorKey().getKeyId(),
           /* errorCode= */ COORDINATOR_KEY_MISSING_IN_RECORD);
     }
-
     // First check config
     if (requestWrappedKeyInfo.isEmpty()) {
       String msg = "WrappedKeyInfo when reading encryptionKey columns from proto.";
       logger.error(msg);
       throw new JobProcessorException(msg, DATA_READER_CONFIGURATION_ERROR);
     }
-
     WrappedKeyInfo wrappedKeyInfo = requestWrappedKeyInfo.get();
-    if (aliasType == ENCRYPTED_DEK) {
-      String encryptionKeyValue = "";
-      if (wrappedKeyInfo.hasGcpWrappedKeyInfo()) {
-        encryptionKeyValue = encryptionKey.getWrappedKey().getEncryptedDek();
-      } else if (wrappedKeyInfo.hasAwsWrappedKeyInfo()) {
-        encryptionKeyValue = encryptionKey.getAwsWrappedKey().getEncryptedDek();
+    return switch (aliasType) {
+      case ENCRYPTED_DEK ->
+          getKeyValueOrThrow(
+              columnName, getEncryptedDek(encryptionKey, wrappedKeyInfo), DEK_MISSING_IN_RECORD);
+      case KEK_URI ->
+          getKeyValueOrThrow(
+              columnName, getKekUri(encryptionKey, wrappedKeyInfo), KEK_MISSING_IN_RECORD);
+      case WIP_PROVIDER ->
+          getKeyValueOrThrow(
+              columnName, encryptionKey.getWrappedKey().getWip(), WIP_MISSING_IN_RECORD);
+      case ROLE_ARN ->
+          getKeyValueOrThrow(
+              columnName,
+              encryptionKey.getAwsWrappedKey().getRoleArn(),
+              ROLE_ARN_MISSING_IN_RECORD);
+      default -> {
+        String message = String.format("Invalid key column type: %s", aliasType);
+        logger.info(message);
+        throw new JobProcessorException(message, INVALID_ENCRYPTION_COLUMN);
       }
-      return getKeyValueOrThrow(
-          columnName,
-          /* encryptionKeyValue= */ encryptionKeyValue,
-          /* errorCode= */ DEK_MISSING_IN_RECORD);
-    } else if (aliasType == KEK_URI) {
-      String encryptionKeyValue = ""; //
-      if (wrappedKeyInfo.hasGcpWrappedKeyInfo()) {
-        encryptionKeyValue = encryptionKey.getWrappedKey().getKekUri();
-      } else if (wrappedKeyInfo.hasAwsWrappedKeyInfo()) {
-        encryptionKeyValue = encryptionKey.getAwsWrappedKey().getKekUri();
-      }
-      return getKeyValueOrThrow(
-          columnName,
-          /* encryptionKeyValue= */ encryptionKeyValue,
-          /* errorCode= */ KEK_MISSING_IN_RECORD);
-    } else if (aliasType == WIP_PROVIDER) {
-      return getKeyValueOrThrow(
-          columnName,
-          /* encryptionKeyValue= */ encryptionKey.getWrappedKey().getWip(),
-          /* errorCode= */ WIP_MISSING_IN_RECORD);
-    } else if (aliasType == ROLE_ARN) {
-      return getKeyValueOrThrow(
-          columnName,
-          /* encryptionKeyValue= */ encryptionKey.getAwsWrappedKey().getRoleArn(),
-          /* errorCode= */ ROLE_ARN_MISSING_IN_RECORD);
-    } else {
-      String message = String.format("Invalid key column type: %s", aliasType);
-      logger.info(message);
-      throw new JobProcessorException(message, INVALID_ENCRYPTION_COLUMN);
+    };
+  }
+
+  private String getEncryptedDek(EncryptionKey encryptionKey, WrappedKeyInfo wrappedKeyInfo) {
+    if (wrappedKeyInfo.hasGcpWrappedKeyInfo()) {
+      return encryptionKey.getWrappedKey().getEncryptedDek();
+    } else if (wrappedKeyInfo.hasAwsWrappedKeyInfo()) {
+      return encryptionKey.getAwsWrappedKey().getEncryptedDek();
     }
+    return "";
+  }
+
+  private String getKekUri(EncryptionKey encryptionKey, WrappedKeyInfo wrappedKeyInfo) {
+    if (wrappedKeyInfo.hasGcpWrappedKeyInfo()) {
+      return encryptionKey.getWrappedKey().getKekUri();
+    } else if (wrappedKeyInfo.hasAwsWrappedKeyInfo()) {
+      return encryptionKey.getAwsWrappedKey().getKekUri();
+    }
+    return "";
   }
 
   private DataRecord.KeyValue getKeyValueOrThrow(
