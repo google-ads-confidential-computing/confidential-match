@@ -37,6 +37,7 @@ import static com.google.cm.mrp.dataprocessor.readers.ConfidentialMatchDataRecor
 import static com.google.cm.mrp.dataprocessor.readers.ConfidentialMatchDataRecordParserImpl.AliasType.KEK_URI;
 import static com.google.cm.mrp.dataprocessor.readers.ConfidentialMatchDataRecordParserImpl.AliasType.ROLE_ARN;
 import static com.google.cm.mrp.dataprocessor.readers.ConfidentialMatchDataRecordParserImpl.AliasType.WIP_PROVIDER;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 
 import com.google.cm.mrp.JobProcessorException;
@@ -78,6 +79,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -176,16 +178,24 @@ public final class ConfidentialMatchDataRecordParserImpl
           "CFM DataRecord does not contain match keys.", PROTO_MISSING_MATCH_KEYS);
     }
 
-    Map<EncryptionKey, Map<String, List<Field>>> singleFieldMap = new HashMap<>();
-    Map<EncryptionKey, Map<Integer, List<CompositeField>>> compositeFieldMap = new HashMap<>();
+    Map<EncryptionKey, Map<String, List<MatchKey>>> singleFieldMatchKeysMap = new HashMap<>();
+    Map<EncryptionKey, Map<Integer, List<MatchKey>>> compositeFieldMatchKeysMap = new HashMap<>();
 
     for (MatchKey matchKey : cfmDataRecord.getMatchKeysList()) {
       EncryptionKey encryptionKey = getEncryptionKey(matchKey, cfmDataRecord);
-      populateFieldMaps(matchKey, encryptionKey, singleFieldMap, compositeFieldMap);
+      if (matchKey.hasField()) {
+        populateSingleFieldMap(matchKey, encryptionKey, singleFieldMatchKeysMap);
+      } else if (matchKey.hasCompositeField()) {
+        populateCompositeFieldMap(matchKey, encryptionKey, compositeFieldMatchKeysMap);
+      } else {
+        throw new JobProcessorException(
+            "CFM DataRecord match key does not contain field or composite field.",
+            PROTO_MATCH_KEY_MISSING_FIELD);
+      }
     }
     Map<String, KeyValue> metadataMap = validateAndExtractMetadata(cfmDataRecord);
     return buildInternalRecords(
-        cfmDataRecord, rowId, singleFieldMap, compositeFieldMap, metadataMap);
+        cfmDataRecord, rowId, singleFieldMatchKeysMap, compositeFieldMatchKeysMap, metadataMap);
   }
 
   private EncryptionKey getEncryptionKey(
@@ -201,29 +211,20 @@ public final class ConfidentialMatchDataRecordParserImpl
         : cfmDataRecord.getEncryptionKey();
   }
 
-  private void populateFieldMaps(
+  private void populateSingleFieldMap(
       MatchKey matchKey,
       EncryptionKey encryptionKey,
-      Map<EncryptionKey, Map<String, List<Field>>> singleFieldMap,
-      Map<EncryptionKey, Map<Integer, List<CompositeField>>> compositeFieldMap) {
-    if (matchKey.hasField()) {
-      singleFieldMap
-          .computeIfAbsent(encryptionKey, key -> new HashMap<>())
-          .computeIfAbsent(matchKey.getField().getKeyValue().getKey(), k -> new ArrayList<>())
-          .add(matchKey.getField());
-    } else if (matchKey.hasCompositeField()) {
-      processCompositeField(matchKey, encryptionKey, compositeFieldMap);
-    } else {
-      throw new JobProcessorException(
-          "CFM DataRecord match key does not contain field or composite field.",
-          PROTO_MATCH_KEY_MISSING_FIELD);
-    }
+      Map<EncryptionKey, Map<String, List<MatchKey>>> singleFieldMatchKeysMap) {
+    singleFieldMatchKeysMap
+        .computeIfAbsent(encryptionKey, key -> new HashMap<>())
+        .computeIfAbsent(matchKey.getField().getKeyValue().getKey(), k -> new ArrayList<>())
+        .add(matchKey);
   }
 
-  private void processCompositeField(
+  private void populateCompositeFieldMap(
       MatchKey matchKey,
       EncryptionKey encryptionKey,
-      Map<EncryptionKey, Map<Integer, List<CompositeField>>> compositeFieldMap) {
+      Map<EncryptionKey, Map<Integer, List<MatchKey>>> compositeFieldMatchKeysMap) {
     if (matchKey.getCompositeField().getChildFieldsCount() < 1) {
       throw new JobProcessorException(
           "CFM DataRecord match key composite field does not have any child fields.",
@@ -232,10 +233,10 @@ public final class ConfidentialMatchDataRecordParserImpl
     getCompositeFieldGroupNumber(matchKey.getCompositeField())
         .ifPresentOrElse(
             groupNumber -> {
-              compositeFieldMap
+              compositeFieldMatchKeysMap
                   .computeIfAbsent(encryptionKey, k -> new HashMap<>())
                   .computeIfAbsent(groupNumber, k -> new ArrayList<>())
-                  .add(matchKey.getCompositeField());
+                  .add(matchKey);
             },
             () -> {
               throw new JobProcessorException(
@@ -273,64 +274,183 @@ public final class ConfidentialMatchDataRecordParserImpl
   private List<DataRecord> buildInternalRecords(
       ConfidentialMatchDataRecord cfmDataRecord,
       String rowId,
-      Map<EncryptionKey, Map<String, List<Field>>> singleFieldMap,
-      Map<EncryptionKey, Map<Integer, List<CompositeField>>> compositeFieldMap,
+      Map<EncryptionKey, Map<String, List<MatchKey>>> singleFieldMatchKeysMap,
+      Map<EncryptionKey, Map<Integer, List<MatchKey>>> compositeFieldMatchKeysMap,
       Map<String, KeyValue> metadataMap) {
 
     List<DataRecord> internalRecords = new ArrayList<>();
     HashSet<EncryptionKey> encryptionKeySet =
-        getAllEncryptionKeys(singleFieldMap, compositeFieldMap);
+        getAllEncryptionKeys(singleFieldMatchKeysMap, compositeFieldMatchKeysMap);
     boolean firstDataRecord = true;
 
     ProtoEncryptionLevel encryptionLevel = getEncryptionLevel(cfmDataRecord);
 
     for (EncryptionKey encryptionKey : encryptionKeySet) {
-      Map<String, List<Field>> protoSingleFields =
-          singleFieldMap.getOrDefault(encryptionKey, Collections.emptyMap());
-      Map<Integer, List<CompositeField>> protoCompositeFields =
-          compositeFieldMap.getOrDefault(encryptionKey, Collections.emptyMap());
+      // map of column name to list of match keys containing single fields
+      Map<String, List<MatchKey>> columnToSingleFieldMatchKeys =
+          singleFieldMatchKeysMap.getOrDefault(encryptionKey, Collections.emptyMap());
+      // map of column group number to list of match keys containing composite fields
+      Map<Integer, List<MatchKey>> groupNumToCompositeFieldMatchKeys =
+          compositeFieldMatchKeysMap.getOrDefault(encryptionKey, Collections.emptyMap());
 
       int maxIndex =
           Integer.max(
-              protoSingleFields.values().stream().mapToInt(List::size).max().orElse(0),
-              protoCompositeFields.values().stream().mapToInt(List::size).max().orElse(0));
+              columnToSingleFieldMatchKeys.values().stream().mapToInt(List::size).max().orElse(0),
+              groupNumToCompositeFieldMatchKeys.values().stream()
+                  .mapToInt(List::size)
+                  .max()
+                  .orElse(0));
 
       for (int fieldIndex = 0; fieldIndex < maxIndex; fieldIndex++) {
-        List<DataRecord.KeyValue> keyValues = new ArrayList<>();
-        Optional<JobResultCode> rowLevelErrorCode = Optional.empty();
+        DataRecord dataRecord =
+            buildDataRecord(
+                encryptionKey,
+                rowId,
+                columnToSingleFieldMatchKeys,
+                groupNumToCompositeFieldMatchKeys,
+                metadataMap,
+                fieldIndex,
+                firstDataRecord,
+                encryptionLevel);
 
-        for (Column column : columnList) {
-          try {
-            DataRecord.KeyValue keyValue =
-                buildKeyValue(
-                    column,
-                    encryptionKey,
-                    protoSingleFields,
-                    protoCompositeFields,
-                    metadataMap,
-                    fieldIndex,
-                    rowId,
-                    firstDataRecord);
-            keyValues.add(keyValue);
-          } catch (JobProcessorException e) {
-            if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS
-                && isMissingEncryptionKeyColumnError(e.getErrorCode())) {
-              keyValues.add(
-                  DataRecord.KeyValue.newBuilder()
-                      .setKey(column.getColumnName())
-                      .setStringValue("")
-                      .build());
-              rowLevelErrorCode = Optional.of(e.getErrorCode());
-            } else {
-              throw e;
-            }
-          }
-        }
-        internalRecords.add(createDataRecord(keyValues, rowLevelErrorCode, encryptionLevel));
+        internalRecords.add(dataRecord);
         firstDataRecord = false;
       }
     }
     return internalRecords;
+  }
+
+  private DataRecord buildDataRecord(
+      EncryptionKey encryptionKey,
+      String rowId,
+      Map<String, List<MatchKey>> columnToSingleFieldMatchKeys,
+      Map<Integer, List<MatchKey>> groupNumToCompositeFieldMatchKeys,
+      Map<String, KeyValue> metadataMap,
+      int fieldIndex,
+      boolean firstDataRecord,
+      ProtoEncryptionLevel encryptionLevel) {
+
+    // Map of index of single field in the column list to its metadata.
+    Map<Integer, DataRecord.Metadata> singleFieldMetadataMap = new HashMap<>();
+    // Map of composite field group number to its metadata.
+    Map<Integer, DataRecord.Metadata> compositeFieldMetadataMap = new HashMap<>();
+
+    List<DataRecord.KeyValue> keyValues = new ArrayList<>();
+    Optional<JobResultCode> rowLevelErrorCode = Optional.empty();
+
+    for (Column column : columnList) {
+      try {
+        DataRecord.KeyValue keyValue =
+            buildKeyValue(
+                column,
+                encryptionKey,
+                columnToSingleFieldMatchKeys,
+                groupNumToCompositeFieldMatchKeys,
+                metadataMap,
+                fieldIndex,
+                rowId,
+                firstDataRecord);
+        keyValues.add(keyValue);
+
+        // if column corresponds to a match key containing a single field
+        if (singleMatchAliasSet.contains(column.getColumnAlias())) {
+          populateSingleFieldMetadataMap(
+              column, fieldIndex, columnToSingleFieldMatchKeys, singleFieldMetadataMap);
+        } else if (matchAliasToCompositeField.containsKey(column.getColumnAlias())) {
+          // if column corresponds to a match key containing a composite field
+          populateCompositeFieldMetadataMap(
+              column, fieldIndex, groupNumToCompositeFieldMatchKeys, compositeFieldMetadataMap);
+        }
+      } catch (JobProcessorException e) {
+        if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS
+            && isMissingEncryptionKeyColumnError(e.getErrorCode())) {
+          DataRecord.KeyValue defaultKeyValue =
+              DataRecord.KeyValue.newBuilder()
+                  .setKey(column.getColumnName())
+                  .setStringValue("")
+                  .build();
+          keyValues.add(defaultKeyValue);
+          rowLevelErrorCode = Optional.of(e.getErrorCode());
+        } else {
+          throw e;
+        }
+      }
+    }
+    return createDataRecord(
+        keyValues,
+        rowLevelErrorCode,
+        encryptionLevel,
+        singleFieldMetadataMap,
+        compositeFieldMetadataMap);
+  }
+
+  private void populateSingleFieldMetadataMap(
+      Column column,
+      int fieldIndex,
+      Map<String, List<MatchKey>> columnToSingleFieldMatchKeys,
+      Map<Integer, DataRecord.Metadata> singleFieldMetadataMap) {
+
+    String columnName = column.getColumnName();
+
+    if (columnToSingleFieldMatchKeys.containsKey(columnName)
+        && fieldIndex < columnToSingleFieldMatchKeys.get(columnName).size()) {
+
+      MatchKey matchKey = columnToSingleFieldMatchKeys.get(columnName).get(fieldIndex);
+
+      // If the match key has metadata, add it to the single field metadata map.
+      if (matchKey.getMetadataCount() > 0) {
+        Integer columnIndex = columnList.indexOf(column);
+        if (columnIndex == -1) {
+          throw new JobProcessorException(
+              String.format("Unknown column index for column: %s", columnName),
+              INVALID_INPUT_FILE_ERROR);
+        }
+        singleFieldMetadataMap.put(
+            columnIndex,
+            DataRecord.Metadata.newBuilder()
+                .addAllMetadata(
+                    matchKey.getMetadataList().stream()
+                        .map(keyValue -> toDataRecordKeyValue(keyValue))
+                        .collect(toImmutableList()))
+                .build());
+      }
+    }
+  }
+
+  private void populateCompositeFieldMetadataMap(
+      Column column,
+      int fieldIndex,
+      Map<Integer, List<MatchKey>> groupNumToCompositeFieldMatchKeys,
+      Map<Integer, DataRecord.Metadata> compositeFieldMetadataMap) {
+
+    String columnName = column.getColumnName();
+
+    if (columnNameToGroupNumber.containsKey(columnName)
+        // We need to add the composite field metadata to the map only once per
+        // composite field i.e. once per column group. So check whether the
+        // column group number corresponding to the column is already present in
+        // the compositeFieldMetadataMap before adding it.
+        && !compositeFieldMetadataMap.containsKey(columnNameToGroupNumber.get(columnName))) {
+      Integer groupNumber = columnNameToGroupNumber.get(columnName);
+
+      if (groupNumToCompositeFieldMatchKeys.containsKey(groupNumber)
+          && fieldIndex < groupNumToCompositeFieldMatchKeys.get(groupNumber).size()) {
+
+        MatchKey matchKey = groupNumToCompositeFieldMatchKeys.get(groupNumber).get(fieldIndex);
+
+        // If the match key has metadata, add it to the composite field metadata map.
+        if (matchKey.getMetadataCount() > 0) {
+          compositeFieldMetadataMap.put(
+              groupNumber,
+              DataRecord.Metadata.newBuilder()
+                  .addAllMetadata(
+                      matchKey.getMetadataList().stream()
+                          .map(keyValue -> toDataRecordKeyValue(keyValue))
+                          .collect(toImmutableList()))
+                  .build());
+        }
+      }
+    }
   }
 
   private ProtoEncryptionLevel getEncryptionLevel(ConfidentialMatchDataRecord cfmDataRecord) {
@@ -348,8 +468,8 @@ public final class ConfidentialMatchDataRecordParserImpl
   private DataRecord.KeyValue buildKeyValue(
       Column column,
       EncryptionKey encryptionKey,
-      Map<String, List<Field>> protoSingleFields,
-      Map<Integer, List<CompositeField>> protoCompositeFields,
+      Map<String, List<MatchKey>> columnToSingleFieldMatchKeys,
+      Map<Integer, List<MatchKey>> groupNumToCompositeFieldMatchKeys,
       Map<String, KeyValue> metadataMap,
       int fieldIndex,
       String rowId,
@@ -370,9 +490,9 @@ public final class ConfidentialMatchDataRecordParserImpl
       if (encryptionKeyAliasesToType.containsKey(columnAlias.get())) {
         return getEncryptionKeyColumn(columnName, encryptionKey, columnAlias.get());
       } else if (singleMatchAliasSet.contains(columnAlias.get())) {
-        return handleSingleField(columnName, protoSingleFields, fieldIndex);
+        return handleSingleField(columnName, columnToSingleFieldMatchKeys, fieldIndex);
       } else if (matchAliasToCompositeField.containsKey(columnAlias.get())) {
-        return handleCompositeField(columnName, protoCompositeFields, fieldIndex);
+        return handleCompositeField(columnName, groupNumToCompositeFieldMatchKeys, fieldIndex);
       }
     }
     return DataRecord.KeyValue.newBuilder().setKey(columnName).setStringValue("").build();
@@ -381,32 +501,35 @@ public final class ConfidentialMatchDataRecordParserImpl
   private DataRecord.KeyValue handleMetadata(
       String columnName, Map<String, KeyValue> metadataMap, boolean firstDataRecord) {
     if (metadataMap.containsKey(columnName) && firstDataRecord) {
-      return convertKeyValue(metadataMap.get(columnName));
+      return convertSchemaColumnKeyValue(metadataMap.get(columnName));
     }
     return DataRecord.KeyValue.newBuilder().setKey(columnName).build();
   }
 
   private DataRecord.KeyValue handleSingleField(
-      String columnName, Map<String, List<Field>> protoSingleFields, int fieldIndex) {
-    if (protoSingleFields.containsKey(columnName)
-        && fieldIndex < protoSingleFields.get(columnName).size()) {
-      return convertKeyValue(protoSingleFields.get(columnName).get(fieldIndex).getKeyValue());
+      String columnName, Map<String, List<MatchKey>> columnToSingleFieldMatchKeys, int fieldIndex) {
+    if (columnToSingleFieldMatchKeys.containsKey(columnName)
+        && fieldIndex < columnToSingleFieldMatchKeys.get(columnName).size()) {
+      return convertSchemaColumnKeyValue(
+          columnToSingleFieldMatchKeys.get(columnName).get(fieldIndex).getField().getKeyValue());
     }
     return DataRecord.KeyValue.newBuilder().setKey(columnName).setStringValue("").build();
   }
 
   private DataRecord.KeyValue handleCompositeField(
-      String columnName, Map<Integer, List<CompositeField>> protoCompositeFields, int fieldIndex) {
+      String columnName,
+      Map<Integer, List<MatchKey>> groupNumToCompositeFieldMatchKeys,
+      int fieldIndex) {
     DataRecord.KeyValue defaultKeyValue =
         DataRecord.KeyValue.newBuilder().setKey(columnName).setStringValue("").build();
     if (columnNameToGroupNumber.containsKey(columnName)
-        && protoCompositeFields.containsKey(columnNameToGroupNumber.get(columnName))) {
-      List<CompositeField> compositeFieldList =
-          protoCompositeFields.get(columnNameToGroupNumber.get(columnName));
-      return fieldIndex < compositeFieldList.size()
-          ? compositeFieldList.get(fieldIndex).getChildFieldsList().stream()
+        && groupNumToCompositeFieldMatchKeys.containsKey(columnNameToGroupNumber.get(columnName))) {
+      List<MatchKey> matchKeyList =
+          groupNumToCompositeFieldMatchKeys.get(columnNameToGroupNumber.get(columnName));
+      return fieldIndex < matchKeyList.size()
+          ? matchKeyList.get(fieldIndex).getCompositeField().getChildFieldsList().stream()
               .filter(field -> columnName.equals(field.getKeyValue().getKey()))
-              .map(filteredField -> convertKeyValue(filteredField.getKeyValue()))
+              .map(filteredField -> convertSchemaColumnKeyValue(filteredField.getKeyValue()))
               .findAny()
               .orElse(defaultKeyValue)
           : defaultKeyValue;
@@ -417,7 +540,9 @@ public final class ConfidentialMatchDataRecordParserImpl
   private DataRecord createDataRecord(
       List<DataRecord.KeyValue> keyValues,
       Optional<JobResultCode> rowLevelErrorCode,
-      ProtoEncryptionLevel encryptionLevel) {
+      ProtoEncryptionLevel encryptionLevel,
+      Map<Integer, DataRecord.Metadata> singleFieldMetadataMap,
+      Map<Integer, DataRecord.Metadata> compositeFieldMetadataMap) {
     ProcessingMetadata.Builder processingMetadata = ProcessingMetadata.newBuilder();
     if (!encryptionKeyAliasesToType.isEmpty()
         && encryptionLevel != ProtoEncryptionLevel.UNSPECIFIED_ENCRYPTION_LEVEL) {
@@ -427,6 +552,17 @@ public final class ConfidentialMatchDataRecordParserImpl
         DataRecord.newBuilder()
             .addAllKeyValues(keyValues)
             .setProcessingMetadata(processingMetadata.build());
+    if (!singleFieldMetadataMap.isEmpty() || !compositeFieldMetadataMap.isEmpty()) {
+      DataRecord.FieldLevelMetadata.Builder fieldLevelMetadata =
+          DataRecord.FieldLevelMetadata.newBuilder();
+      if (!singleFieldMetadataMap.isEmpty()) {
+        fieldLevelMetadata.putAllSingleFieldMetadata(singleFieldMetadataMap);
+      }
+      if (!compositeFieldMetadataMap.isEmpty()) {
+        fieldLevelMetadata.putAllCompositeFieldMetadata(compositeFieldMetadataMap);
+      }
+      dataRecordBuilder.setFieldLevelMetadata(fieldLevelMetadata.build());
+    }
     if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS && rowLevelErrorCode.isPresent()) {
       dataRecordBuilder.setErrorCode(rowLevelErrorCode.get());
     }
@@ -434,11 +570,11 @@ public final class ConfidentialMatchDataRecordParserImpl
   }
 
   private HashSet<EncryptionKey> getAllEncryptionKeys(
-      Map<EncryptionKey, Map<String, List<Field>>> singleFieldMap,
-      Map<EncryptionKey, Map<Integer, List<CompositeField>>> compositeFieldMap) {
+      Map<EncryptionKey, Map<String, List<MatchKey>>> singleFieldMatchKeysMap,
+      Map<EncryptionKey, Map<Integer, List<MatchKey>>> compositeFieldMatchKeysMap) {
     HashSet<EncryptionKey> allKeys =
-        new HashSet<>(singleFieldMap.keySet()); // Start with keys from map1
-    allKeys.addAll(compositeFieldMap.keySet()); // Add keys from map2
+        new HashSet<>(singleFieldMatchKeysMap.keySet()); // Start with keys from map1
+    allKeys.addAll(compositeFieldMatchKeysMap.keySet()); // Add keys from map2
     return allKeys;
   }
 
@@ -635,7 +771,7 @@ public final class ConfidentialMatchDataRecordParserImpl
         .collect(toImmutableSet());
   }
 
-  private DataRecord.KeyValue convertKeyValue(KeyValue keyValue) {
+  private DataRecord.KeyValue convertSchemaColumnKeyValue(KeyValue keyValue) {
     String key = keyValue.getKey();
     DataRecord.KeyValue.Builder keyValueBuilder = DataRecord.KeyValue.newBuilder().setKey(key);
     switch (columnNameToValueTypeMap.get(key)) {
@@ -655,6 +791,29 @@ public final class ConfidentialMatchDataRecordParserImpl
         throw new JobProcessorException("Invalid key value type.", INVALID_INPUT_FILE_ERROR);
     }
     return keyValueBuilder.build();
+  }
+
+  private static DataRecord.KeyValue toDataRecordKeyValue(KeyValue cfmKeyValue) {
+    DataRecord.KeyValue.Builder dataRecordKeyValueBuilder =
+        DataRecord.KeyValue.newBuilder().setKey(cfmKeyValue.getKey());
+
+    switch (cfmKeyValue.getValueCase()) {
+      case STRING_VALUE:
+        dataRecordKeyValueBuilder.setStringValue(cfmKeyValue.getStringValue());
+        break;
+      case INT_VALUE:
+        dataRecordKeyValueBuilder.setIntValue(cfmKeyValue.getIntValue());
+        break;
+      case DOUBLE_VALUE:
+        dataRecordKeyValueBuilder.setDoubleValue(cfmKeyValue.getDoubleValue());
+        break;
+      case BOOL_VALUE:
+        dataRecordKeyValueBuilder.setBoolValue(cfmKeyValue.getBoolValue());
+        break;
+      case VALUE_NOT_SET:
+        throw new JobProcessorException("Value not set in key value.", INVALID_INPUT_FILE_ERROR);
+    }
+    return dataRecordKeyValueBuilder.build();
   }
 
   private boolean isMissingEncryptionKeyColumnError(JobResultCode jobResultCode) {

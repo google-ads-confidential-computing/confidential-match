@@ -1,5 +1,15 @@
 # Confidential Match Source Code Releases
 
+## November 13, 2025
+
+* Version: v1.299.0
+* Lookup Service
+  * Image Digest: sha256:d2fbf04ffc08e30baebecfcb0d67e251d03cb1dbca06607376f770c4c715b70f
+  * [Signature](https://us-docker.pkg.dev/admcloud-cfm-public/docker-repo-signatures/lookup_server_gcp_signature@sha256:11d9bc05169d3cec7aef67161ed2bc35d6bd1b73286423ebf2858d1ae66b1561)
+* Match Request Processor
+  * Image Digest: sha256:8a6b10cdb6e75bf4fc824b25827e02efed62c1b82ed8856fe0f91c4b1022fef8
+  * [Signature](https://us-docker.pkg.dev/admcloud-cfm-public/docker-repo-signatures/mrp_app_gcp_signature@sha256:82dd2e53d527981a941d2b299f32f2c0f15297ae05827ebca4138c5648c20a68)
+
 ## November 6, 2025
 
 * Version: v1.294.0

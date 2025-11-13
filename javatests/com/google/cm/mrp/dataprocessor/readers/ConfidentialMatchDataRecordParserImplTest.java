@@ -27,6 +27,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeChildField;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeField;
@@ -51,6 +52,7 @@ import com.google.cm.mrp.backend.SchemaProto.Schema;
 import com.google.cm.mrp.backend.SchemaProto.Schema.Column;
 import com.google.cm.mrp.backend.SchemaProto.Schema.ColumnType;
 import com.google.cm.util.ProtoUtils;
+import com.google.common.collect.ImmutableList;
 import com.google.common.io.Resources;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -64,6 +66,46 @@ import org.junit.runners.JUnit4;
 @RunWith(JUnit4.class)
 public final class ConfidentialMatchDataRecordParserImplTest {
 
+  private static final String TEST_KEY_ID = "test-key-id";
+  private static final MatchConfig MIC_MATCH_CONFIG = getMatchConfig("mic");
+
+  // Column Keys
+  private static final String METADATA_KEY = "metadata";
+  private static final String EMAIL_KEY = "email";
+  private static final String PHONE_KEY = "phone";
+  private static final String ADDRESS_KEY = "address";
+  private static final String FIRST_NAME_KEY = "first_name";
+  private static final String LAST_NAME_KEY = "last_name";
+  private static final String COUNTRY_CODE_KEY = "country_code";
+  private static final String ZIP_CODE_KEY = "zip_code";
+  private static final String COORDINATOR_KEY_ID_KEY = "coordinator_key_id";
+  private static final String ENCRYPTED_DEK_KEY = "encrypted_dek";
+  private static final String KEK_URI_KEY = "kek_uri";
+  private static final String WIP_PROVIDER_KEY = "wip_provider";
+  private static final String ROLE_ARN_KEY = "role_arn";
+
+  // Field indices based on testdata/mic_proto_schema_encrypted.json
+  private static final int METADATA_INDEX = 0;
+  private static final int COORDINATOR_KEY_ID_INDEX = 1;
+  private static final int EMAIL_INDEX = 2;
+  private static final int PHONE_INDEX = 3;
+  private static final int FIRST_NAME_INDEX = 4;
+  private static final int LAST_NAME_INDEX = 5;
+  private static final int COUNTRY_CODE_INDEX = 6;
+  private static final int ZIP_CODE_INDEX = 7;
+  private static final int ROW_MARKER_INDEX = 8;
+  private static final int ADDRESS_GROUP = 0;
+
+  // Test Values
+  private static final String USER_EMAIL = "user@example.com";
+  private static final String USER_PHONE = "1234567890";
+  private static final String FAKE_METADATA_VALUE = "fake metadata";
+
+  private static final EncryptionKey DEFAULT_COORDINATOR_KEY =
+      EncryptionKey.newBuilder()
+          .setCoordinatorKey(CoordinatorKey.newBuilder().setKeyId(TEST_KEY_ID).build())
+          .build();
+
   private static final EncryptionMetadata TEST_GCP_ENCRYPTION_METADATA =
       EncryptionMetadata.newBuilder()
           .setEncryptionKeyInfo(
@@ -74,179 +116,339 @@ public final class ConfidentialMatchDataRecordParserImplTest {
                               GcpWrappedKeyInfo.newBuilder().setWipProvider("testWip"))))
           .build();
 
-  private static final MatchConfig micMatchConfig = getMatchConfig("mic");
+  private static final EncryptionMetadata TEST_COORDINATOR_ENCRYPTION_METADATA =
+      EncryptionMetadata.newBuilder()
+          .setEncryptionKeyInfo(
+              EncryptionKeyInfo.newBuilder()
+                  .setCoordinatorKeyInfo(CoordinatorKeyInfo.getDefaultInstance()))
+          .build();
+
+  private static final ImmutableList<CompositeChildField> DEFAULT_ADDRESS_FIELDS =
+      ImmutableList.of(
+          createCompositeChildField(FIRST_NAME_KEY, "John"),
+          createCompositeChildField(LAST_NAME_KEY, "Doe"),
+          createCompositeChildField(COUNTRY_CODE_KEY, "US"),
+          createCompositeChildField(ZIP_CODE_KEY, "94043"));
 
   @Test
   public void parse_encryptedMultipleEncryptionKey() throws Exception {
-    EncryptionMetadata encryptionMetadata =
-        EncryptionMetadata.newBuilder()
-            .setEncryptionKeyInfo(
-                EncryptionKeyInfo.newBuilder()
-                    .setCoordinatorKeyInfo(CoordinatorKeyInfo.newBuilder().build()))
-            .build();
-    ConfidentialMatchDataRecordParserImpl confidentialMatchDataRecordParser =
+    ConfidentialMatchDataRecordParserImpl parser =
         getConfidentialMatchDataRecordParserEncrypted(
-            "testdata/mic_proto_schema_encrypted.json", encryptionMetadata);
-
+            "testdata/mic_proto_schema_encrypted.json", TEST_COORDINATOR_ENCRYPTION_METADATA);
     MatchKey email =
         MatchKey.newBuilder()
-            .setEncryptionKey(
-                EncryptionKey.newBuilder()
-                    .setCoordinatorKey(CoordinatorKey.newBuilder().setKeyId("123").build())
-                    .build())
-            .setField(
-                Field.newBuilder()
-                    .setKeyValue(
-                        KeyValue.newBuilder()
-                            .setKey("email")
-                            .setStringValue("fakeemail@fake.com")
-                            .build())
-                    .build())
+            .setEncryptionKey(coordKey("123"))
+            .setField(Field.newBuilder().setKeyValue(kv(EMAIL_KEY, USER_EMAIL)).build())
             .build();
-    List<CompositeChildField> addressFields = new ArrayList<>();
-    addressFields.add(
-        CompositeChildField.newBuilder()
-            .setKeyValue(
-                KeyValue.newBuilder().setKey("first_name").setStringValue("fname1").build())
-            .build());
-    addressFields.add(
-        CompositeChildField.newBuilder()
-            .setKeyValue(KeyValue.newBuilder().setKey("last_name").setStringValue("lname1").build())
-            .build());
-    addressFields.add(
-        CompositeChildField.newBuilder()
-            .setKeyValue(KeyValue.newBuilder().setKey("country_code").setStringValue("usa").build())
-            .build());
-    addressFields.add(
-        CompositeChildField.newBuilder()
-            .setKeyValue(KeyValue.newBuilder().setKey("zip_code").setStringValue("12345").build())
-            .build());
-    CompositeField address =
-        CompositeField.newBuilder().setKey("address").addAllChildFields(addressFields).build();
+    ImmutableList<CompositeChildField> addressFields =
+        ImmutableList.of(
+            createCompositeChildField(FIRST_NAME_KEY, "fname1"),
+            createCompositeChildField(LAST_NAME_KEY, "lname1"),
+            createCompositeChildField(COUNTRY_CODE_KEY, "usa"),
+            createCompositeChildField(ZIP_CODE_KEY, "12345"));
     MatchKey addressKey =
         MatchKey.newBuilder()
-            .setEncryptionKey(
-                EncryptionKey.newBuilder()
-                    .setCoordinatorKey(CoordinatorKey.newBuilder().setKeyId("124").build())
+            .setEncryptionKey(coordKey("124"))
+            .setCompositeField(
+                CompositeField.newBuilder()
+                    .setKey(ADDRESS_KEY)
+                    .addAllChildFields(addressFields)
                     .build())
-            .setCompositeField(address)
             .build();
-    List<MatchKey> matchKeyList = Arrays.asList(email, addressKey);
-    ConfidentialMatchDataRecord testRecord =
+    ConfidentialMatchDataRecord cfmRecord =
         ConfidentialMatchDataRecord.newBuilder()
-            .addAllMatchKeys(matchKeyList)
-            .addMetadata(
-                KeyValue.newBuilder().setKey("metadata").setStringValue("fake metadata").build())
+            .addAllMatchKeys(ImmutableList.of(email, addressKey))
+            .addMetadata(kv(METADATA_KEY, FAKE_METADATA_VALUE))
             .build();
 
-    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(testRecord);
+    List<DataRecord> resultList = parser.parse(cfmRecord);
 
-    assertEquals(2, resultList.size());
-    List<String> rowIds = new ArrayList<>();
-    for (DataRecord dataRecord : resultList) {
-      rowIds.add(dataRecord.getKeyValues(8).getStringValue());
-      // encryption key 123 data record
-      if (dataRecord.getKeyValues(1).getStringValue().equals("123")) {
-        assertEquals("metadata", resultList.get(0).getKeyValues(0).getKey());
-        assertEquals("fake metadata", resultList.get(0).getKeyValues(0).getStringValue());
-        assertEquals("coordinator_key_id", dataRecord.getKeyValues(1).getKey());
-        assertEquals("123", dataRecord.getKeyValues(1).getStringValue());
-        assertEquals("email", dataRecord.getKeyValues(2).getKey());
-        assertEquals("fakeemail@fake.com", dataRecord.getKeyValues(2).getStringValue());
-      } else if (dataRecord.getKeyValues(1).getStringValue().equals("124")) {
-        assertEquals("metadata", resultList.get(1).getKeyValues(0).getKey());
-        assertFalse(resultList.get(1).getKeyValues(0).hasStringValue());
-        assertEquals("coordinator_key_id", dataRecord.getKeyValues(1).getKey());
-        assertEquals("124", dataRecord.getKeyValues(1).getStringValue());
-        assertEquals("first_name", dataRecord.getKeyValues(4).getKey());
-        assertEquals("fname1", dataRecord.getKeyValues(4).getStringValue());
-        assertEquals("last_name", dataRecord.getKeyValues(5).getKey());
-        assertEquals("lname1", dataRecord.getKeyValues(5).getStringValue());
-        assertEquals("country_code", dataRecord.getKeyValues(6).getKey());
-        assertEquals("usa", dataRecord.getKeyValues(6).getStringValue());
-        assertEquals("zip_code", dataRecord.getKeyValues(7).getKey());
-        assertEquals("12345", dataRecord.getKeyValues(7).getStringValue());
-      }
-    }
-    assertEquals(2, rowIds.size());
-    assertEquals(rowIds.get(0), rowIds.get(1));
+    assertThat(resultList).hasSize(2);
+    DataRecord record1 = resultList.get(0);
+    DataRecord record2 = resultList.get(1);
+    // Common expectations
+    assertThat(record1.hasFieldLevelMetadata()).isFalse();
+    assertThat(record2.hasFieldLevelMetadata()).isFalse();
+    assertThat(record1.getKeyValues(ROW_MARKER_INDEX).getStringValue())
+        .isEqualTo(record2.getKeyValues(ROW_MARKER_INDEX).getStringValue());
+    // Find records by key ID
+    DataRecord emailRecord =
+        record1.getKeyValues(COORDINATOR_KEY_ID_INDEX).getStringValue().equals("123")
+            ? record1
+            : record2;
+    DataRecord addressRecord =
+        record1.getKeyValues(COORDINATOR_KEY_ID_INDEX).getStringValue().equals("124")
+            ? record1
+            : record2;
+    // Email Record assertions
+    assertThat(emailRecord.getKeyValues(METADATA_INDEX))
+        .isEqualTo(drKv(METADATA_KEY, FAKE_METADATA_VALUE));
+    assertThat(emailRecord.getKeyValues(COORDINATOR_KEY_ID_INDEX))
+        .isEqualTo(drKv(COORDINATOR_KEY_ID_KEY, "123"));
+    assertThat(emailRecord.getKeyValues(EMAIL_INDEX)).isEqualTo(drKv(EMAIL_KEY, USER_EMAIL));
+    // Address Record assertions
+    assertThat(addressRecord.getKeyValues(METADATA_INDEX).getKey()).isEqualTo(METADATA_KEY);
+    assertThat(addressRecord.getKeyValues(METADATA_INDEX).hasStringValue()).isFalse();
+    assertThat(addressRecord.getKeyValues(COORDINATOR_KEY_ID_INDEX))
+        .isEqualTo(drKv(COORDINATOR_KEY_ID_KEY, "124"));
+    assertThat(addressRecord.getKeyValues(FIRST_NAME_INDEX))
+        .isEqualTo(drKv(FIRST_NAME_KEY, "fname1"));
+    assertThat(addressRecord.getKeyValues(LAST_NAME_INDEX))
+        .isEqualTo(drKv(LAST_NAME_KEY, "lname1"));
+    assertThat(addressRecord.getKeyValues(COUNTRY_CODE_INDEX))
+        .isEqualTo(drKv(COUNTRY_CODE_KEY, "usa"));
+    assertThat(addressRecord.getKeyValues(ZIP_CODE_INDEX)).isEqualTo(drKv(ZIP_CODE_KEY, "12345"));
+  }
+
+  @Test
+  public void parse_singleFieldWithMetadata() throws Exception {
+    ConfidentialMatchDataRecordParserImpl parser =
+        getConfidentialMatchDataRecordParserEncrypted(
+            "testdata/mic_proto_schema_encrypted.json", TEST_COORDINATOR_ENCRYPTION_METADATA);
+    MatchKey emailWithMetadata =
+        createEmailMatchKey(USER_EMAIL, kv("source", "web"), kv("confidence", 0.95));
+    ConfidentialMatchDataRecord cfmRecord =
+        ConfidentialMatchDataRecord.newBuilder().addMatchKeys(emailWithMetadata).build();
+
+    List<DataRecord> resultList = parser.parse(cfmRecord);
+
+    assertThat(resultList).hasSize(1);
+    DataRecord internalRecord = resultList.get(0);
+    assertThat(internalRecord.getKeyValues(EMAIL_INDEX)).isEqualTo(drKv(EMAIL_KEY, USER_EMAIL));
+    // validate email metadata
+    assertThat(internalRecord.hasFieldLevelMetadata()).isTrue();
+    assertEmailMetadata(internalRecord, drKv("source", "web"), drKv("confidence", 0.95));
+  }
+
+  @Test
+  public void parse_compositeFieldWithMetadata() throws Exception {
+    ConfidentialMatchDataRecordParserImpl parser =
+        getConfidentialMatchDataRecordParserEncrypted(
+            "testdata/mic_proto_schema_encrypted.json", TEST_COORDINATOR_ENCRYPTION_METADATA);
+    MatchKey addressKeyWithMetadata =
+        createDefaultAddressMatchKey(kv("type", "home"), kv("confidence", 0.9));
+    ConfidentialMatchDataRecord cfmRecord =
+        ConfidentialMatchDataRecord.newBuilder().addMatchKeys(addressKeyWithMetadata).build();
+
+    List<DataRecord> resultList = parser.parse(cfmRecord);
+
+    assertThat(resultList).hasSize(1);
+    DataRecord internalRecord = resultList.get(0);
+    assertDataRecordKeyValue(internalRecord, FIRST_NAME_INDEX, FIRST_NAME_KEY, "John");
+    assertDataRecordKeyValue(internalRecord, LAST_NAME_INDEX, LAST_NAME_KEY, "Doe");
+    assertDataRecordKeyValue(internalRecord, COUNTRY_CODE_INDEX, COUNTRY_CODE_KEY, "US");
+    assertDataRecordKeyValue(internalRecord, ZIP_CODE_INDEX, ZIP_CODE_KEY, "94043");
+    // validate address metadata
+    assertThat(internalRecord.hasFieldLevelMetadata()).isTrue();
+    assertAddressMetadata(internalRecord, drKv("type", "home"), drKv("confidence", 0.9));
+  }
+
+  @Test
+  public void parse_allFieldsWithMetadata() throws Exception {
+    ConfidentialMatchDataRecordParserImpl parser =
+        getConfidentialMatchDataRecordParserEncrypted(
+            "testdata/mic_proto_schema_encrypted.json", TEST_COORDINATOR_ENCRYPTION_METADATA);
+    ConfidentialMatchDataRecord cfmRecord =
+        ConfidentialMatchDataRecord.newBuilder()
+            .addAllMatchKeys(
+                ImmutableList.of(
+                    createEmailMatchKey(USER_EMAIL, kv("source", "web"), kv("confidence", 0.95)),
+                    createPhoneMatchKey(USER_PHONE, kv("type", "mobile")),
+                    createDefaultAddressMatchKey(kv("type", "home"), kv("confidence", 0.9))))
+            .build();
+
+    List<DataRecord> resultList = parser.parse(cfmRecord);
+
+    assertThat(resultList).hasSize(1);
+    DataRecord internalRecord = resultList.get(0);
+    assertThat(internalRecord.hasFieldLevelMetadata()).isTrue();
+    // validate email and email metadata
+    assertDataRecordKeyValue(internalRecord, EMAIL_INDEX, EMAIL_KEY, USER_EMAIL);
+    assertEmailMetadata(internalRecord, drKv("source", "web"), drKv("confidence", 0.95));
+    // validate phone and phone metadata
+    assertDataRecordKeyValue(internalRecord, PHONE_INDEX, PHONE_KEY, USER_PHONE);
+    assertPhoneMetadata(internalRecord, drKv("type", "mobile"));
+    // validate address and address metadata
+    assertDataRecordKeyValue(internalRecord, FIRST_NAME_INDEX, FIRST_NAME_KEY, "John");
+    assertDataRecordKeyValue(internalRecord, LAST_NAME_INDEX, LAST_NAME_KEY, "Doe");
+    assertDataRecordKeyValue(internalRecord, COUNTRY_CODE_INDEX, COUNTRY_CODE_KEY, "US");
+    assertDataRecordKeyValue(internalRecord, ZIP_CODE_INDEX, ZIP_CODE_KEY, "94043");
+    assertAddressMetadata(internalRecord, drKv("type", "home"), drKv("confidence", 0.9));
+  }
+
+  @Test
+  public void parse_emailMetadata_phoneNoMetadata_addressMetadata() throws Exception {
+    ConfidentialMatchDataRecordParserImpl parser =
+        getConfidentialMatchDataRecordParserEncrypted(
+            "testdata/mic_proto_schema_encrypted.json", TEST_COORDINATOR_ENCRYPTION_METADATA);
+    ConfidentialMatchDataRecord cfmRecord =
+        ConfidentialMatchDataRecord.newBuilder()
+            .addAllMatchKeys(
+                ImmutableList.of(
+                    createEmailMatchKey(USER_EMAIL, kv("source", "web"), kv("confidence", 0.95)),
+                    createPhoneMatchKey(USER_PHONE),
+                    createDefaultAddressMatchKey(kv("type", "home"), kv("confidence", 0.9))))
+            .build();
+
+    List<DataRecord> resultList = parser.parse(cfmRecord);
+
+    assertThat(resultList).hasSize(1);
+    DataRecord internalRecord = resultList.get(0);
+    assertThat(internalRecord.hasFieldLevelMetadata()).isTrue();
+    assertEmailMetadata(internalRecord, drKv("source", "web"), drKv("confidence", 0.95));
+    assertNoPhoneMetadata(internalRecord);
+    assertAddressMetadata(internalRecord, drKv("type", "home"), drKv("confidence", 0.9));
+  }
+
+  @Test
+  public void parse_emailNoMetadata_phoneMetadata_addressMetadata() throws Exception {
+    ConfidentialMatchDataRecordParserImpl parser =
+        getConfidentialMatchDataRecordParserEncrypted(
+            "testdata/mic_proto_schema_encrypted.json", TEST_COORDINATOR_ENCRYPTION_METADATA);
+    ConfidentialMatchDataRecord cfmRecord =
+        ConfidentialMatchDataRecord.newBuilder()
+            .addAllMatchKeys(
+                ImmutableList.of(
+                    createEmailMatchKey(USER_EMAIL),
+                    createPhoneMatchKey(USER_PHONE, kv("type", "mobile")),
+                    createDefaultAddressMatchKey(kv("type", "home"), kv("confidence", 0.9))))
+            .build();
+
+    List<DataRecord> resultList = parser.parse(cfmRecord);
+
+    assertThat(resultList).hasSize(1);
+    DataRecord internalRecord = resultList.get(0);
+    assertThat(internalRecord.hasFieldLevelMetadata()).isTrue();
+    assertNoEmailMetadata(internalRecord);
+    assertPhoneMetadata(internalRecord, drKv("type", "mobile"));
+    assertAddressMetadata(internalRecord, drKv("type", "home"), drKv("confidence", 0.9));
+  }
+
+  @Test
+  public void parse_emailNoMetadata_phoneNoMetadata_addressMetadata() throws Exception {
+    ConfidentialMatchDataRecordParserImpl parser =
+        getConfidentialMatchDataRecordParserEncrypted(
+            "testdata/mic_proto_schema_encrypted.json", TEST_COORDINATOR_ENCRYPTION_METADATA);
+    ConfidentialMatchDataRecord cfmRecord =
+        ConfidentialMatchDataRecord.newBuilder()
+            .addAllMatchKeys(
+                ImmutableList.of(
+                    createEmailMatchKey(USER_EMAIL),
+                    createPhoneMatchKey(USER_PHONE),
+                    createDefaultAddressMatchKey(kv("type", "home"), kv("confidence", 0.9))))
+            .build();
+
+    List<DataRecord> resultList = parser.parse(cfmRecord);
+
+    assertThat(resultList).hasSize(1);
+    DataRecord internalRecord = resultList.get(0);
+    assertThat(internalRecord.hasFieldLevelMetadata()).isTrue();
+    assertNoEmailMetadata(internalRecord);
+    assertNoPhoneMetadata(internalRecord);
+    assertAddressMetadata(internalRecord, drKv("type", "home"), drKv("confidence", 0.9));
+  }
+
+  @Test
+  public void parse_emailMetadata_phoneMetadata_addressNoMetadata() throws Exception {
+    ConfidentialMatchDataRecordParserImpl parser =
+        getConfidentialMatchDataRecordParserEncrypted(
+            "testdata/mic_proto_schema_encrypted.json", TEST_COORDINATOR_ENCRYPTION_METADATA);
+    ConfidentialMatchDataRecord cfmRecord =
+        ConfidentialMatchDataRecord.newBuilder()
+            .addAllMatchKeys(
+                ImmutableList.of(
+                    createEmailMatchKey(USER_EMAIL, kv("source", "web"), kv("confidence", 0.95)),
+                    createPhoneMatchKey(USER_PHONE, kv("type", "mobile")),
+                    createDefaultAddressMatchKey()))
+            .build();
+
+    List<DataRecord> resultList = parser.parse(cfmRecord);
+
+    assertThat(resultList).hasSize(1);
+    DataRecord internalRecord = resultList.get(0);
+    assertThat(internalRecord.hasFieldLevelMetadata()).isTrue();
+    assertEmailMetadata(internalRecord, drKv("source", "web"), drKv("confidence", 0.95));
+    assertPhoneMetadata(internalRecord, drKv("type", "mobile"));
+    assertNoAddressMetadata(internalRecord);
   }
 
   @Test
   public void parse_encryptedMultipleSameMatchKeyType() throws Exception {
-    EncryptionMetadata encryptionMetadata =
-        EncryptionMetadata.newBuilder()
-            .setEncryptionKeyInfo(
-                EncryptionKeyInfo.newBuilder()
-                    .setCoordinatorKeyInfo(CoordinatorKeyInfo.newBuilder().build()))
-            .build();
-    ConfidentialMatchDataRecordParserImpl confidentialMatchDataRecordParser =
+    ConfidentialMatchDataRecordParserImpl parser =
         getConfidentialMatchDataRecordParserEncrypted(
-            "testdata/mic_proto_schema_encrypted.json", encryptionMetadata);
-
-    MatchKey email =
-        MatchKey.newBuilder()
-            .setEncryptionKey(
-                EncryptionKey.newBuilder()
-                    .setCoordinatorKey(CoordinatorKey.newBuilder().setKeyId("123").build())
-                    .build())
-            .setField(
-                Field.newBuilder()
-                    .setKeyValue(
-                        KeyValue.newBuilder()
-                            .setKey("email")
-                            .setStringValue("fakeemail@fake.com")
-                            .build())
-                    .build())
-            .build();
+            "testdata/mic_proto_schema_encrypted.json", TEST_COORDINATOR_ENCRYPTION_METADATA);
+    MatchKey email1 =
+        createEmailMatchKey("user1@example.com", kv("source", "web"), kv("confidence", 0.95));
     MatchKey email2 =
-        MatchKey.newBuilder()
-            .setEncryptionKey(
-                EncryptionKey.newBuilder()
-                    .setCoordinatorKey(CoordinatorKey.newBuilder().setKeyId("123").build())
-                    .build())
-            .setField(
-                Field.newBuilder()
-                    .setKeyValue(
-                        KeyValue.newBuilder()
-                            .setKey("email")
-                            .setStringValue("fakeemail2@fake.com")
-                            .build())
-                    .build())
-            .build();
-
-    List<MatchKey> matchKeyList = Arrays.asList(email, email2);
-    ConfidentialMatchDataRecord testRecord =
+        createEmailMatchKey("user2@example.com", kv("domain", "example.com"), kv("score", 0.80));
+    ConfidentialMatchDataRecord cfmRecord =
         ConfidentialMatchDataRecord.newBuilder()
-            .addAllMatchKeys(matchKeyList)
-            .addMetadata(
-                KeyValue.newBuilder().setKey("metadata").setStringValue("fake metadata").build())
+            .addAllMatchKeys(ImmutableList.of(email1, email2))
+            .addMetadata(kv(METADATA_KEY, FAKE_METADATA_VALUE))
             .build();
 
-    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(testRecord);
+    List<DataRecord> resultList = parser.parse(cfmRecord);
 
-    assertEquals(2, resultList.size());
-    List<String> rowIds = new ArrayList<>();
-    for (int i = 0; i < resultList.size(); i++) {
-      DataRecord dataRecord = resultList.get(i);
-      // encryption key 123 data record
-      assertEquals("coordinator_key_id", dataRecord.getKeyValues(1).getKey());
-      assertEquals("123", dataRecord.getKeyValues(1).getStringValue());
-      assertEquals("email", dataRecord.getKeyValues(2).getKey());
-      rowIds.add(dataRecord.getKeyValues(8).getStringValue());
+    assertThat(resultList).hasSize(2);
+    DataRecord record1 = resultList.get(0);
+    DataRecord record2 = resultList.get(1);
+    // validate coordinator key id
+    assertThat(record1.getKeyValues(COORDINATOR_KEY_ID_INDEX))
+        .isEqualTo(drKv(COORDINATOR_KEY_ID_KEY, TEST_KEY_ID));
+    assertThat(record2.getKeyValues(COORDINATOR_KEY_ID_INDEX))
+        .isEqualTo(drKv(COORDINATOR_KEY_ID_KEY, TEST_KEY_ID));
+    assertThat(record1.getKeyValues(ROW_MARKER_INDEX).getStringValue())
+        .isEqualTo(record2.getKeyValues(ROW_MARKER_INDEX).getStringValue());
+    // validate metadata and email metadata for record 1
+    assertThat(record1.getKeyValues(METADATA_INDEX))
+        .isEqualTo(drKv(METADATA_KEY, FAKE_METADATA_VALUE));
+    assertThat(record1.getKeyValues(EMAIL_INDEX)).isEqualTo(drKv(EMAIL_KEY, "user1@example.com"));
+    assertEmailMetadata(record1, drKv("source", "web"), drKv("confidence", 0.95));
+    // validate metadata and email metadata for record 2
+    assertThat(record2.getKeyValues(METADATA_INDEX).hasStringValue()).isFalse();
+    assertThat(record2.getKeyValues(EMAIL_INDEX)).isEqualTo(drKv(EMAIL_KEY, "user2@example.com"));
+    assertEmailMetadata(record2, drKv("domain", "example.com"), drKv("score", 0.80));
+  }
 
-      if (i == 0) {
-        assertEquals("metadata", dataRecord.getKeyValues(0).getKey());
-        assertEquals("fake metadata", dataRecord.getKeyValues(0).getStringValue());
-        assertEquals("fakeemail@fake.com", dataRecord.getKeyValues(2).getStringValue());
-      } else if (i == 1) {
-        assertEquals("metadata", dataRecord.getKeyValues(0).getKey());
-        assertFalse(dataRecord.getKeyValues(0).hasStringValue());
-        assertEquals("fakeemail2@fake.com", dataRecord.getKeyValues(2).getStringValue());
-      }
-    }
-    assertEquals(2, rowIds.size());
-    assertEquals(rowIds.get(0), rowIds.get(1));
+  @Test
+  public void parse_encryptedSameValuesInMultipleMatchKeys() throws Exception {
+    ConfidentialMatchDataRecordParserImpl parser =
+        getConfidentialMatchDataRecordParserEncrypted(
+            "testdata/mic_proto_schema_encrypted.json", TEST_COORDINATOR_ENCRYPTION_METADATA);
+    MatchKey email1 =
+        createEmailMatchKey("user1@example.com", kv("source", "web"), kv("confidence", 0.95));
+    MatchKey email2 =
+        createEmailMatchKey(
+            "user1@example.com", // duplicate email
+            kv("domain", "example.com"),
+            kv("score", 0.80));
+    ConfidentialMatchDataRecord cfmRecord =
+        ConfidentialMatchDataRecord.newBuilder()
+            .addAllMatchKeys(ImmutableList.of(email1, email2))
+            .addMetadata(kv(METADATA_KEY, FAKE_METADATA_VALUE))
+            .build();
+
+    List<DataRecord> resultList = parser.parse(cfmRecord);
+
+    assertThat(resultList).hasSize(2);
+    DataRecord record1 = resultList.get(0);
+    DataRecord record2 = resultList.get(1);
+    // validate coordinator key id
+    assertThat(record1.getKeyValues(COORDINATOR_KEY_ID_INDEX))
+        .isEqualTo(drKv(COORDINATOR_KEY_ID_KEY, TEST_KEY_ID));
+    assertThat(record2.getKeyValues(COORDINATOR_KEY_ID_INDEX))
+        .isEqualTo(drKv(COORDINATOR_KEY_ID_KEY, TEST_KEY_ID));
+    assertThat(record1.getKeyValues(ROW_MARKER_INDEX).getStringValue())
+        .isEqualTo(record2.getKeyValues(ROW_MARKER_INDEX).getStringValue());
+    // validate metadata and email metadata for record 1
+    assertThat(record1.getKeyValues(METADATA_INDEX))
+        .isEqualTo(drKv(METADATA_KEY, FAKE_METADATA_VALUE));
+    assertThat(record1.getKeyValues(EMAIL_INDEX)).isEqualTo(drKv(EMAIL_KEY, "user1@example.com"));
+    assertEmailMetadata(record1, drKv("source", "web"), drKv("confidence", 0.95));
+    // validate metadata and email metadata for record 2
+    assertThat(record2.getKeyValues(METADATA_INDEX).hasStringValue()).isFalse();
+    assertThat(record2.getKeyValues(EMAIL_INDEX)).isEqualTo(drKv(EMAIL_KEY, "user1@example.com"));
+    assertEmailMetadata(record2, drKv("domain", "example.com"), drKv("score", 0.80));
   }
 
   @Test
@@ -270,20 +472,20 @@ public final class ConfidentialMatchDataRecordParserImplTest {
                     .setKeyValue(
                         KeyValue.newBuilder()
                             .setKey("email")
-                            .setStringValue("fakeemail@fake.com")
+                            .setStringValue("user@example.com")
                             .build())
                     .build())
             .build();
 
     List<MatchKey> matchKeyList = Arrays.asList(email);
-    ConfidentialMatchDataRecord testRecord =
+    ConfidentialMatchDataRecord cfmRecord =
         ConfidentialMatchDataRecord.newBuilder()
             .addAllMatchKeys(matchKeyList)
             .addMetadata(
                 KeyValue.newBuilder().setKey("metadata").setStringValue("fake metadata").build())
             .build();
 
-    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(testRecord);
+    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(cfmRecord);
 
     assertEquals(1, resultList.size());
     assertThat(resultList.get(0).hasErrorCode()).isFalse();
@@ -298,7 +500,7 @@ public final class ConfidentialMatchDataRecordParserImplTest {
       assertEquals("kek_uri", dataRecord.getKeyValues(2).getKey());
       assertEquals("fake.com", dataRecord.getKeyValues(2).getStringValue());
       assertEquals("email", dataRecord.getKeyValues(3).getKey());
-      assertEquals("fakeemail@fake.com", dataRecord.getKeyValues(3).getStringValue());
+      assertEquals("user@example.com", dataRecord.getKeyValues(3).getStringValue());
       rowIds.add(dataRecord.getKeyValues(8).getStringValue());
     }
     assertEquals(1, rowIds.size());
@@ -327,20 +529,20 @@ public final class ConfidentialMatchDataRecordParserImplTest {
                     .setKeyValue(
                         KeyValue.newBuilder()
                             .setKey("email")
-                            .setStringValue("fakeemail@fake.com")
+                            .setStringValue("user@example.com")
                             .build())
                     .build())
             .build();
 
     List<MatchKey> matchKeyList = Arrays.asList(email);
-    ConfidentialMatchDataRecord testRecord =
+    ConfidentialMatchDataRecord cfmRecord =
         ConfidentialMatchDataRecord.newBuilder()
             .addAllMatchKeys(matchKeyList)
             .addMetadata(
                 KeyValue.newBuilder().setKey("metadata").setStringValue("fake metadata").build())
             .build();
 
-    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(testRecord);
+    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(cfmRecord);
 
     assertEquals(1, resultList.size());
     assertThat(resultList.get(0).hasErrorCode()).isFalse();
@@ -357,7 +559,7 @@ public final class ConfidentialMatchDataRecordParserImplTest {
       assertEquals("wip_provider", dataRecord.getKeyValues(3).getKey());
       assertEquals("fakewip", dataRecord.getKeyValues(3).getStringValue());
       assertEquals("email", dataRecord.getKeyValues(4).getKey());
-      assertEquals("fakeemail@fake.com", dataRecord.getKeyValues(4).getStringValue());
+      assertEquals("user@example.com", dataRecord.getKeyValues(4).getStringValue());
       rowIds.add(dataRecord.getKeyValues(8).getStringValue());
     }
     assertEquals(1, rowIds.size());
@@ -393,14 +595,14 @@ public final class ConfidentialMatchDataRecordParserImplTest {
                     .setKeyValue(
                         KeyValue.newBuilder()
                             .setKey("email")
-                            .setStringValue("fakeemail@fake.com")
+                            .setStringValue("user@example.com")
                             .build())
                     .build())
             .build();
-    ConfidentialMatchDataRecord testRecord =
+    ConfidentialMatchDataRecord cfmRecord =
         ConfidentialMatchDataRecord.newBuilder().addMatchKeys(email).build();
 
-    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(testRecord);
+    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(cfmRecord);
 
     assertEquals(1, resultList.size());
     assertThat(resultList.get(0).hasErrorCode()).isFalse();
@@ -415,7 +617,7 @@ public final class ConfidentialMatchDataRecordParserImplTest {
       assertEquals("role_arn", dataRecord.getKeyValues(2).getKey());
       assertEquals("testRole", dataRecord.getKeyValues(2).getStringValue());
       assertEquals("email", dataRecord.getKeyValues(3).getKey());
-      assertEquals("fakeemail@fake.com", dataRecord.getKeyValues(3).getStringValue());
+      assertEquals("user@example.com", dataRecord.getKeyValues(3).getStringValue());
       rowIds.add(dataRecord.getKeyValues(7).getStringValue());
     }
     assertEquals(1, rowIds.size());
@@ -442,11 +644,11 @@ public final class ConfidentialMatchDataRecordParserImplTest {
                     .setKeyValue(
                         KeyValue.newBuilder()
                             .setKey("email")
-                            .setStringValue("fakeemail@fake.com")
+                            .setStringValue("user@example.com")
                             .build())
                     .build())
             .build();
-    ConfidentialMatchDataRecord testRecord =
+    ConfidentialMatchDataRecord cfmRecord =
         ConfidentialMatchDataRecord.newBuilder()
             .addMatchKeys(email)
             .setEncryptionKey(
@@ -460,7 +662,7 @@ public final class ConfidentialMatchDataRecordParserImplTest {
                     .build())
             .build();
 
-    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(testRecord);
+    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(cfmRecord);
 
     assertEquals(1, resultList.size());
     assertThat(resultList.get(0).hasErrorCode()).isFalse();
@@ -475,7 +677,7 @@ public final class ConfidentialMatchDataRecordParserImplTest {
       assertEquals("role_arn", dataRecord.getKeyValues(2).getKey());
       assertEquals("testRole", dataRecord.getKeyValues(2).getStringValue());
       assertEquals("email", dataRecord.getKeyValues(3).getKey());
-      assertEquals("fakeemail@fake.com", dataRecord.getKeyValues(3).getStringValue());
+      assertEquals("user@example.com", dataRecord.getKeyValues(3).getStringValue());
       rowIds.add(dataRecord.getKeyValues(7).getStringValue());
     }
     assertEquals(1, rowIds.size());
@@ -483,25 +685,9 @@ public final class ConfidentialMatchDataRecordParserImplTest {
 
   @Test
   public void parse_unencrypted() throws Exception {
-    Schema schema =
-        ProtoUtils.getProtoFromJson(
-            Resources.toString(
-                Objects.requireNonNull(
-                    getClass().getResource("testdata/mic_proto_schema_unencrypted.json")),
-                UTF_8),
-            Schema.class);
-    schema =
-        schema.toBuilder()
-            .addColumns(
-                Column.newBuilder()
-                    .setColumnType(ColumnType.STRING)
-                    .setColumnName(ROW_MARKER_COLUMN_NAME)
-                    .setColumnAlias(ROW_MARKER_COLUMN_NAME)
-                    .build())
-            .build();
     ConfidentialMatchDataRecordParserImpl confidentialMatchDataRecordParser =
-        new ConfidentialMatchDataRecordParserImpl(
-            micMatchConfig, schema, SuccessMode.ALLOW_PARTIAL_SUCCESS);
+        getConfidentialMatchDataRecordParserUnencrypted(
+            "testdata/mic_proto_schema_unencrypted.json");
 
     MatchKey email =
         MatchKey.newBuilder()
@@ -510,7 +696,7 @@ public final class ConfidentialMatchDataRecordParserImplTest {
                     .setKeyValue(
                         KeyValue.newBuilder()
                             .setKey("email")
-                            .setStringValue("fakeemail@fake.com")
+                            .setStringValue("user@example.com")
                             .build())
                     .build())
             .build();
@@ -536,21 +722,22 @@ public final class ConfidentialMatchDataRecordParserImplTest {
         CompositeField.newBuilder().setKey("address").addAllChildFields(addressFields).build();
     MatchKey addressKey = MatchKey.newBuilder().setCompositeField(address).build();
     List<MatchKey> matchKeyList = Arrays.asList(email, addressKey);
-    ConfidentialMatchDataRecord testRecord =
+    ConfidentialMatchDataRecord cfmRecord =
         ConfidentialMatchDataRecord.newBuilder()
             .addAllMatchKeys(matchKeyList)
             .addMetadata(
                 KeyValue.newBuilder().setKey("metadata").setStringValue("fake metadata").build())
             .build();
 
-    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(testRecord);
+    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(cfmRecord);
 
     assertEquals(1, resultList.size());
     DataRecord dataRecord = resultList.get(0);
+    assertFalse(dataRecord.hasFieldLevelMetadata()); // No field-level metadata
     assertEquals("metadata", dataRecord.getKeyValues(0).getKey());
     assertEquals("fake metadata", dataRecord.getKeyValues(0).getStringValue());
     assertEquals("email", dataRecord.getKeyValues(1).getKey());
-    assertEquals("fakeemail@fake.com", dataRecord.getKeyValues(1).getStringValue());
+    assertEquals("user@example.com", dataRecord.getKeyValues(1).getStringValue());
     assertEquals("first_name", dataRecord.getKeyValues(3).getKey());
     assertEquals("fname1", dataRecord.getKeyValues(3).getStringValue());
     assertEquals("last_name", dataRecord.getKeyValues(4).getKey());
@@ -584,18 +771,18 @@ public final class ConfidentialMatchDataRecordParserImplTest {
                     .setKeyValue(
                         KeyValue.newBuilder()
                             .setKey("email")
-                            .setStringValue("fakeemail@fake.com")
+                            .setStringValue("user@example.com")
                             .build())
                     .build())
             .build();
     List<MatchKey> matchKeyList = Arrays.asList(email);
-    ConfidentialMatchDataRecord testRecord =
+    ConfidentialMatchDataRecord cfmRecord =
         ConfidentialMatchDataRecord.newBuilder()
             .addAllMatchKeys(matchKeyList)
             .addMetadata(KeyValue.newBuilder().setKey("email").setStringValue("fake_email").build())
             .build();
 
-    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(testRecord);
+    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(cfmRecord);
 
     // verify only one DataRecord
     assertEquals(1, resultList.size());
@@ -617,21 +804,21 @@ public final class ConfidentialMatchDataRecordParserImplTest {
             "testdata/mic_proto_schema_encrypted.json", encryptionMetadata);
 
     List<MatchKey> matchKeyList = new ArrayList<>();
-    ConfidentialMatchDataRecord testRecord =
+    ConfidentialMatchDataRecord cfmRecord =
         ConfidentialMatchDataRecord.newBuilder()
             .addAllMatchKeys(matchKeyList)
             .addMetadata(
                 KeyValue.newBuilder().setKey("metadata").setStringValue("fake metadata").build())
             .build();
 
-    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(testRecord);
+    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(cfmRecord);
 
     assertEquals(1, resultList.size());
     assertEquals(PROTO_MISSING_MATCH_KEYS, resultList.get(0).getErrorCode());
   }
 
   @Test
-  public void parse_matchKeyMissingField() throws Exception {
+  public void parse_matchKeyMissingFieldAndCompositeField() throws Exception {
     EncryptionMetadata encryptionMetadata =
         EncryptionMetadata.newBuilder()
             .setEncryptionKeyInfo(
@@ -648,16 +835,17 @@ public final class ConfidentialMatchDataRecordParserImplTest {
                 EncryptionKey.newBuilder()
                     .setCoordinatorKey(CoordinatorKey.newBuilder().setKeyId("123").build())
                     .build())
+            .addMetadata(kv("source", "test"))
             .build();
     List<MatchKey> matchKeyList = Arrays.asList(email);
-    ConfidentialMatchDataRecord testRecord =
+    ConfidentialMatchDataRecord cfmRecord =
         ConfidentialMatchDataRecord.newBuilder()
             .addAllMatchKeys(matchKeyList)
             .addMetadata(
                 KeyValue.newBuilder().setKey("metadata").setStringValue("fake metadata").build())
             .build();
 
-    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(testRecord);
+    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(cfmRecord);
 
     // verify only one DataRecord
     assertEquals(1, resultList.size());
@@ -689,12 +877,12 @@ public final class ConfidentialMatchDataRecordParserImplTest {
                     .setKeyValue(
                         KeyValue.newBuilder()
                             .setKey("email")
-                            .setStringValue("fakeemail@fake.com")
+                            .setStringValue("user@example.com")
                             .build())
                     .build())
             .build();
     List<MatchKey> matchKeyList = Arrays.asList(email);
-    ConfidentialMatchDataRecord testRecord =
+    ConfidentialMatchDataRecord cfmRecord =
         ConfidentialMatchDataRecord.newBuilder()
             .addAllMatchKeys(matchKeyList)
             .addMetadata(
@@ -706,7 +894,7 @@ public final class ConfidentialMatchDataRecordParserImplTest {
                     .build())
             .build();
 
-    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(testRecord);
+    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(cfmRecord);
 
     assertEquals(1, resultList.size());
     assertEquals(PROTO_DUPLICATE_METADATA_KEY, resultList.get(0).getErrorCode());
@@ -733,20 +921,20 @@ public final class ConfidentialMatchDataRecordParserImplTest {
                     .setKeyValue(
                         KeyValue.newBuilder()
                             .setKey("em")
-                            .setStringValue("fakeemail@fake.com")
+                            .setStringValue("user@example.com")
                             .build())
                     .build())
             .build();
 
     List<MatchKey> matchKeyList = Arrays.asList(email);
-    ConfidentialMatchDataRecord testRecord =
+    ConfidentialMatchDataRecord cfmRecord =
         ConfidentialMatchDataRecord.newBuilder()
             .addAllMatchKeys(matchKeyList)
             .addMetadata(
                 KeyValue.newBuilder().setKey("metadata").setStringValue("fake metadata").build())
             .build();
 
-    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(testRecord);
+    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(cfmRecord);
 
     assertEquals(1, resultList.size());
     assertThat(resultList.get(0).hasErrorCode()).isFalse();
@@ -761,7 +949,7 @@ public final class ConfidentialMatchDataRecordParserImplTest {
       assertEquals("kek", dataRecord.getKeyValues(2).getKey());
       assertEquals("fake.com", dataRecord.getKeyValues(2).getStringValue());
       assertEquals("em", dataRecord.getKeyValues(3).getKey());
-      assertEquals("fakeemail@fake.com", dataRecord.getKeyValues(3).getStringValue());
+      assertEquals("user@example.com", dataRecord.getKeyValues(3).getStringValue());
       rowIds.add(dataRecord.getKeyValues(9).getStringValue());
     }
     assertEquals(1, rowIds.size());
@@ -789,7 +977,7 @@ public final class ConfidentialMatchDataRecordParserImplTest {
                     .setKeyValue(
                         KeyValue.newBuilder()
                             .setKey("em1")
-                            .setStringValue("fakeemail1@fake.com")
+                            .setStringValue("user@example.com")
                             .build())
                     .build())
             .build();
@@ -810,7 +998,7 @@ public final class ConfidentialMatchDataRecordParserImplTest {
                     .setKeyValue(
                         KeyValue.newBuilder()
                             .setKey("em2")
-                            .setStringValue("fakeemail2@fake.com")
+                            .setStringValue("user@example.com")
                             .build())
                     .build())
             .build();
@@ -917,14 +1105,14 @@ public final class ConfidentialMatchDataRecordParserImplTest {
     // Intentionally included out of order from the schema
     List<MatchKey> matchKeyList =
         Arrays.asList(email1, email2, addressKey1, addressKey2, addressKey3);
-    ConfidentialMatchDataRecord testRecord =
+    ConfidentialMatchDataRecord cfmRecord =
         ConfidentialMatchDataRecord.newBuilder()
             .addAllMatchKeys(matchKeyList)
             .addMetadata(
                 KeyValue.newBuilder().setKey("metadata").setStringValue("fake metadata").build())
             .build();
 
-    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(testRecord);
+    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(cfmRecord);
 
     assertEquals(2, resultList.size());
 
@@ -960,9 +1148,9 @@ public final class ConfidentialMatchDataRecordParserImplTest {
     assertEquals("", resultList.get(1).getKeyValues(0).getStringValue());
 
     // Evaluate emails
-    assertEquals("fakeemail1@fake.com", resultList.get(0).getKeyValues(3).getStringValue());
+    assertEquals("user@example.com", resultList.get(0).getKeyValues(3).getStringValue());
     assertEquals("", resultList.get(1).getKeyValues(3).getStringValue());
-    assertEquals("fakeemail2@fake.com", resultList.get(0).getKeyValues(4).getStringValue());
+    assertEquals("user@example.com", resultList.get(0).getKeyValues(4).getStringValue());
     assertEquals("", resultList.get(1).getKeyValues(4).getStringValue());
 
     // Evaluate address group 0
@@ -1027,10 +1215,10 @@ public final class ConfidentialMatchDataRecordParserImplTest {
             .build();
 
     List<MatchKey> matchKeyList = Arrays.asList(addressKey);
-    ConfidentialMatchDataRecord testRecord =
+    ConfidentialMatchDataRecord cfmRecord =
         ConfidentialMatchDataRecord.newBuilder().addAllMatchKeys(matchKeyList).build();
 
-    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(testRecord);
+    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(cfmRecord);
 
     assertEquals(1, resultList.size());
     assertThat(resultList.get(0).getErrorCode()).isEqualTo(PROTO_MATCH_KEY_HAS_BAD_CHILD_FIELDS);
@@ -1063,16 +1251,26 @@ public final class ConfidentialMatchDataRecordParserImplTest {
             .build();
 
     List<MatchKey> matchKeyList = Arrays.asList(addressKey);
-    ConfidentialMatchDataRecord testRecord =
+    ConfidentialMatchDataRecord cfmRecord =
         ConfidentialMatchDataRecord.newBuilder().addAllMatchKeys(matchKeyList).build();
 
-    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(testRecord);
+    List<DataRecord> resultList = confidentialMatchDataRecordParser.parse(cfmRecord);
 
     assertEquals(1, resultList.size());
     assertThat(resultList.get(0).getErrorCode()).isEqualTo(PROTO_MATCH_KEY_HAS_BAD_CHILD_FIELDS);
   }
 
+  private ConfidentialMatchDataRecordParserImpl getConfidentialMatchDataRecordParserUnencrypted(
+      String schemaPath) throws IOException {
+    return createParser(schemaPath, null);
+  }
+
   private ConfidentialMatchDataRecordParserImpl getConfidentialMatchDataRecordParserEncrypted(
+      String schemaPath, EncryptionMetadata encryptionMetadata) throws IOException {
+    return createParser(schemaPath, encryptionMetadata);
+  }
+
+  private ConfidentialMatchDataRecordParserImpl createParser(
       String schemaPath, EncryptionMetadata encryptionMetadata) throws IOException {
     Schema schema =
         ProtoUtils.getProtoFromJson(
@@ -1087,7 +1285,131 @@ public final class ConfidentialMatchDataRecordParserImplTest {
                     .setColumnAlias(ROW_MARKER_COLUMN_NAME)
                     .build())
             .build();
-    return new ConfidentialMatchDataRecordParserImpl(
-        micMatchConfig, schema, SuccessMode.ALLOW_PARTIAL_SUCCESS, encryptionMetadata);
+    if (encryptionMetadata == null) {
+      return new ConfidentialMatchDataRecordParserImpl(
+          MIC_MATCH_CONFIG, schema, SuccessMode.ALLOW_PARTIAL_SUCCESS);
+    } else {
+      return new ConfidentialMatchDataRecordParserImpl(
+          MIC_MATCH_CONFIG, schema, SuccessMode.ALLOW_PARTIAL_SUCCESS, encryptionMetadata);
+    }
+  }
+
+  private EncryptionKey coordKey(String keyId) {
+    return EncryptionKey.newBuilder()
+        .setCoordinatorKey(CoordinatorKey.newBuilder().setKeyId(keyId).build())
+        .build();
+  }
+
+  // Helper Methods for creating KeyValue objects
+  private static KeyValue kv(String key, String value) {
+    return KeyValue.newBuilder().setKey(key).setStringValue(value).build();
+  }
+
+  private static KeyValue kv(String key, double value) {
+    return KeyValue.newBuilder().setKey(key).setDoubleValue(value).build();
+  }
+
+  private static DataRecord.KeyValue drKv(String key, String value) {
+    return DataRecord.KeyValue.newBuilder().setKey(key).setStringValue(value).build();
+  }
+
+  private static DataRecord.KeyValue drKv(String key, double value) {
+    return DataRecord.KeyValue.newBuilder().setKey(key).setDoubleValue(value).build();
+  }
+
+  // Helper Methods for creating MatchKey objects
+  private static MatchKey createEmailMatchKey(String value, KeyValue... metadataKeyValues) {
+    return MatchKey.newBuilder()
+        .setEncryptionKey(DEFAULT_COORDINATOR_KEY)
+        .setField(
+            Field.newBuilder()
+                .setKeyValue(KeyValue.newBuilder().setKey(EMAIL_KEY).setStringValue(value).build())
+                .build())
+        .addAllMetadata(Arrays.asList(metadataKeyValues))
+        .build();
+  }
+
+  private static MatchKey createPhoneMatchKey(String value, KeyValue... metadataKeyValues) {
+    return MatchKey.newBuilder()
+        .setEncryptionKey(DEFAULT_COORDINATOR_KEY)
+        .setField(
+            Field.newBuilder()
+                .setKeyValue(KeyValue.newBuilder().setKey(PHONE_KEY).setStringValue(value).build())
+                .build())
+        .addAllMetadata(Arrays.asList(metadataKeyValues))
+        .build();
+  }
+
+  private static MatchKey createAddressMatchKey(
+      ImmutableList<CompositeChildField> childFields, KeyValue... metadataKeyValues) {
+    return MatchKey.newBuilder()
+        .setEncryptionKey(DEFAULT_COORDINATOR_KEY)
+        .setCompositeField(
+            CompositeField.newBuilder().setKey(ADDRESS_KEY).addAllChildFields(childFields).build())
+        .addAllMetadata(Arrays.asList(metadataKeyValues))
+        .build();
+  }
+
+  private static CompositeChildField createCompositeChildField(String key, String value) {
+    return CompositeChildField.newBuilder().setKeyValue(kv(key, value)).build();
+  }
+
+  private static MatchKey createDefaultAddressMatchKey(KeyValue... metadataKeyValues) {
+    return createAddressMatchKey(DEFAULT_ADDRESS_FIELDS, metadataKeyValues);
+  }
+
+  private void assertDataRecordKeyValue(DataRecord record, int index, String key, String value) {
+    assertThat(record.getKeyValues(index)).isEqualTo(drKv(key, value));
+  }
+
+  private void assertEmailMetadata(
+      DataRecord internalRecord, DataRecord.KeyValue... expectedMetadata) {
+    assertThat(internalRecord.getFieldLevelMetadata().containsSingleFieldMetadata(EMAIL_INDEX))
+        .isTrue();
+    assertThat(
+            internalRecord
+                .getFieldLevelMetadata()
+                .getSingleFieldMetadataOrThrow(EMAIL_INDEX)
+                .getMetadataList())
+        .containsExactlyElementsIn(expectedMetadata);
+  }
+
+  private void assertNoEmailMetadata(DataRecord internalRecord) {
+    assertThat(internalRecord.getFieldLevelMetadata().containsSingleFieldMetadata(EMAIL_INDEX))
+        .isFalse();
+  }
+
+  private void assertPhoneMetadata(
+      DataRecord internalRecord, DataRecord.KeyValue... expectedMetadata) {
+    assertThat(internalRecord.getFieldLevelMetadata().containsSingleFieldMetadata(PHONE_INDEX))
+        .isTrue();
+    assertThat(
+            internalRecord
+                .getFieldLevelMetadata()
+                .getSingleFieldMetadataOrThrow(PHONE_INDEX)
+                .getMetadataList())
+        .containsExactlyElementsIn(expectedMetadata);
+  }
+
+  private void assertNoPhoneMetadata(DataRecord internalRecord) {
+    assertThat(internalRecord.getFieldLevelMetadata().containsSingleFieldMetadata(PHONE_INDEX))
+        .isFalse();
+  }
+
+  private void assertAddressMetadata(
+      DataRecord internalRecord, DataRecord.KeyValue... expectedMetadata) {
+    assertThat(internalRecord.getFieldLevelMetadata().containsCompositeFieldMetadata(ADDRESS_GROUP))
+        .isTrue();
+    assertThat(
+            internalRecord
+                .getFieldLevelMetadata()
+                .getCompositeFieldMetadataOrThrow(ADDRESS_GROUP)
+                .getMetadataList())
+        .containsExactlyElementsIn(expectedMetadata);
+  }
+
+  private void assertNoAddressMetadata(DataRecord internalRecord) {
+    assertThat(internalRecord.getFieldLevelMetadata().containsCompositeFieldMetadata(ADDRESS_GROUP))
+        .isFalse();
   }
 }

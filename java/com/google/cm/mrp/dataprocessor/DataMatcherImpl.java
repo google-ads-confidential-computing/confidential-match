@@ -729,6 +729,9 @@ public final class DataMatcherImpl implements DataMatcher {
     if (dataRecord.hasProcessingMetadata()) {
       result.setProcessingMetadata(dataRecord.getProcessingMetadata());
     }
+    if (dataRecord.hasFieldLevelMetadata()) {
+      result.setFieldLevelMetadata(dataRecord.getFieldLevelMetadata());
+    }
     return result.build();
   }
 
@@ -827,6 +830,9 @@ public final class DataMatcherImpl implements DataMatcher {
                     .setStringValue(status)));
     if (dataRecord.hasProcessingMetadata()) {
       result.setProcessingMetadata(dataRecord.getProcessingMetadata());
+    }
+    if (dataRecord.hasFieldLevelMetadata()) {
+      result.setFieldLevelMetadata(dataRecord.getFieldLevelMetadata());
     }
     // Add fields to be joined, if any
     var joinFieldsBuilder = FieldMatches.newBuilder();

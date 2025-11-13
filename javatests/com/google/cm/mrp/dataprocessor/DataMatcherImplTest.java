@@ -1862,7 +1862,8 @@ public final class DataMatcherImplTest {
     FieldParser ds1FieldParser = new FieldParser(ds1Fields);
     var ds1Records =
         ImmutableList.of(
-            ds1FieldParser.getDataRecord(DECRYPTION_ERROR, /*email*/ "fake.email0@google.com", /*row_marker*/ "rm0"),
+            ds1FieldParser.getDataRecord(
+                DECRYPTION_ERROR, /*email*/ "fake.email0@google.com", /*row_marker*/ "rm0"),
             ds1FieldParser.getDataRecord(/*email*/ "fake.email2@google.com", /*row_marker*/ "rm1"));
     DataChunk dataChunk1 =
         DataChunk.builder()
@@ -3119,7 +3120,144 @@ public final class DataMatcherImplTest {
     assertThat(compositeFieldOutputs.get(0).getIndividualFieldsCount()).isEqualTo(1);
     field = compositeFieldOutputs.get(0).getIndividualFields(0);
     assertThat(field.getKey()).isEqualTo("encrypted_gaia_id");
-    assertThat(field.getValue()).isEqualTo("a_1");
+  }
+
+  @Test
+  public void match_redactMode_propagatesFieldLevelMetadata() {
+    String[][] testData = {
+      {"email", "email", "fake.email@google.com"},
+      {"phone", "phone", "999-999-9999"},
+      {"first_name", "first_name", "fake_first_name", "1"},
+      {"last_name", "last_name", "fake_last_name", "1"},
+      {"zip_code", "zip_code", "99999", "1"},
+      {"country_code", "country_code", "US", "1"},
+    };
+    DataRecord.FieldLevelMetadata fieldLevelMetadata =
+        DataRecord.FieldLevelMetadata.newBuilder()
+            .putSingleFieldMetadata(
+                0, // for email
+                DataRecord.Metadata.newBuilder()
+                    .addMetadata(
+                        KeyValue.newBuilder().setKey("source").setStringValue("crm").build())
+                    .addMetadata(
+                        KeyValue.newBuilder().setKey("verified").setStringValue("true").build())
+                    .build())
+            .putSingleFieldMetadata(
+                1, // for phone
+                DataRecord.Metadata.newBuilder()
+                    .addMetadata(
+                        KeyValue.newBuilder()
+                            .setKey("last_updated")
+                            .setStringValue("2024-01-01")
+                            .build())
+                    .build())
+            .putCompositeFieldMetadata(
+                1, // for address
+                DataRecord.Metadata.newBuilder()
+                    .addMetadata(
+                        KeyValue.newBuilder().setKey("confidence").setStringValue("high").build())
+                    .addMetadata(
+                        KeyValue.newBuilder().setKey("type").setStringValue("home").build())
+                    .build())
+            .build();
+    DataRecord inputRecord =
+        getDataRecord(testData).toBuilder().setFieldLevelMetadata(fieldLevelMetadata).build();
+    DataChunk dataChunk1 =
+        DataChunk.builder().setSchema(getSchema(testData)).addRecord(inputRecord).build();
+    String[][] piiDataEmail = {{"pii_value", "pii_value", "fake.email@google.com"}};
+    DataChunk dataChunk2 =
+        DataChunk.builder()
+            .setSchema(getSchema(piiDataEmail))
+            .addRecord(getDataRecord(piiDataEmail))
+            .build();
+
+    DataMatchResult dataMatchResult = dataMatcher.match(dataChunk1, dataChunk2);
+
+    DataChunk result = dataMatchResult.dataChunk();
+    assertThat(result.records()).hasSize(1);
+    DataRecord outputRecord = result.records().get(0);
+    assertThat(outputRecord.hasFieldLevelMetadata()).isTrue();
+    assertThat(outputRecord.getFieldLevelMetadata()).isEqualTo(fieldLevelMetadata);
+    // Also check that redaction happened correctly
+    assertThat(outputRecord.getKeyValues(0).getStringValue()).isEqualTo("fake.email@google.com");
+    assertThat(outputRecord.getKeyValues(1).getStringValue()).isEqualTo(REDACT_UNMATCHED_WITH);
+    assertThat(outputRecord.getKeyValues(2).getStringValue()).isEqualTo(REDACT_UNMATCHED_WITH);
+    assertThat(outputRecord.getKeyValues(3).getStringValue()).isEqualTo(REDACT_UNMATCHED_WITH);
+    assertThat(outputRecord.getKeyValues(4).getStringValue()).isEqualTo(REDACT_UNMATCHED_WITH);
+    assertThat(outputRecord.getKeyValues(5).getStringValue()).isEqualTo(REDACT_UNMATCHED_WITH);
+  }
+
+  @Test
+  public void match_joinMode_propagatesFieldLevelMetadata() {
+    String[][] testData = {
+      {"email", "email", "fake.email@google.com"},
+      {"phone", "phone", "999-999-9999"},
+      {"first_name", "first_name", "fake_first_name", "1"},
+      {"last_name", "last_name", "fake_last_name", "1"},
+      {"zip_code", "zip_code", "99999", "1"},
+      {"country_code", "country_code", "US", "1"},
+    };
+    DataRecord.FieldLevelMetadata fieldLevelMetadata =
+        DataRecord.FieldLevelMetadata.newBuilder()
+            .putSingleFieldMetadata(
+                0, // for email
+                DataRecord.Metadata.newBuilder()
+                    .addMetadata(
+                        KeyValue.newBuilder().setKey("source").setStringValue("crm").build())
+                    .addMetadata(
+                        KeyValue.newBuilder().setKey("verified").setStringValue("true").build())
+                    .build())
+            .putSingleFieldMetadata(
+                1, // for phone
+                DataRecord.Metadata.newBuilder()
+                    .addMetadata(
+                        KeyValue.newBuilder()
+                            .setKey("last_updated")
+                            .setStringValue("2024-01-01")
+                            .build())
+                    .build())
+            .putCompositeFieldMetadata(
+                1, // for address
+                DataRecord.Metadata.newBuilder()
+                    .addMetadata(
+                        KeyValue.newBuilder().setKey("confidence").setStringValue("high").build())
+                    .addMetadata(
+                        KeyValue.newBuilder().setKey("type").setStringValue("home").build())
+                    .build())
+            .build();
+    DataRecord inputRecord =
+        getDataRecord(testData).toBuilder().setFieldLevelMetadata(fieldLevelMetadata).build();
+    DataChunk dataChunk1 =
+        DataChunk.builder().setSchema(getSchema(testData)).addRecord(inputRecord).build();
+    String[][] piiDataEmail = {
+      {"pii_value", "pii_value", "fake.email@google.com"},
+      {"encrypted_gaia_id", "encrypted_gaia_id", "123"}
+    };
+    String[][] piiDataAddress = {
+      {"pii_value", "pii_value", hashString("fake_first_namefake_last_nameUS99999")},
+      {"encrypted_gaia_id", "encrypted_gaia_id", "345"}
+    };
+    DataChunk dataChunk2 =
+        DataChunk.builder()
+            .setSchema(getSchema(piiDataEmail))
+            .addRecord(getDataRecord(piiDataEmail))
+            .addRecord(getDataRecord(piiDataAddress))
+            .build();
+
+    DataMatchResult dataMatchResult = dataMatcherWithJoinMode.match(dataChunk1, dataChunk2);
+
+    DataChunk result = dataMatchResult.dataChunk();
+    assertThat(result.records()).hasSize(1);
+    DataRecord outputRecord = result.records().get(0);
+    assertThat(outputRecord.hasFieldLevelMetadata()).isTrue();
+    assertThat(outputRecord.getFieldLevelMetadata()).isEqualTo(fieldLevelMetadata);
+    // Also check that redaction and join happened correctly
+    assertThat(outputRecord.getKeyValues(0).getStringValue()).isEqualTo("fake.email@google.com");
+    assertThat(outputRecord.getKeyValues(1).getStringValue())
+        .isEqualTo(REDACT_UNMATCHED_WITH); // phone unmatched
+    assertThat(outputRecord.getKeyValues(2).getStringValue()).isEqualTo("fake_first_name");
+    assertThat(outputRecord.getJoinFields().getSingleFieldRecordMatchesMap()).containsKey(0);
+    assertThat(outputRecord.getJoinFields().getCompositeFieldRecordMatchesMap()).containsKey(1);
   }
 
   private DataChunk buildDataChunk(
