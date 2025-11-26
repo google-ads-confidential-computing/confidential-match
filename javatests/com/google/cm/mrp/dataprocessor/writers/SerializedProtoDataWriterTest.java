@@ -38,8 +38,10 @@ import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.KeyValue;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.MatchKey;
 import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner.DataLocation;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
+import com.google.cm.mrp.backend.DataRecordProto.DataRecord.FieldLevelMetadata;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord.FieldMatches;
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord.ProcessingMetadata;
+import com.google.cm.mrp.backend.DataRecordProto.DataRecord.Metadata;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo;
@@ -660,6 +662,7 @@ public final class SerializedProtoDataWriterTest {
     assertThat(returnedRecord.getMatchKeysCount()).isEqualTo(4);
     // check email
     var matchKey = returnedRecord.getMatchKeys(0);
+    assertThat(matchKey.getMetadataList()).isEmpty();
     var field = matchKey.getField();
     assertThat(field.getKeyValue().getKey()).isEqualTo("em");
     assertThat(field.getKeyValue().getStringValue()).isEqualTo("FAKE.1@google.com");
@@ -671,6 +674,7 @@ public final class SerializedProtoDataWriterTest {
     assertThat(keyValue.getStringValue()).isEqualTo("1-1");
     // check phone
     matchKey = returnedRecord.getMatchKeys(1);
+    assertThat(matchKey.getMetadataList()).isEmpty();
     field = matchKey.getField();
     assertThat(field.getKeyValue().getKey()).isEqualTo("ph");
     assertThat(field.getKeyValue().getStringValue()).isEqualTo("999-999-9999");
@@ -687,6 +691,7 @@ public final class SerializedProtoDataWriterTest {
     assertThat(keyValue.getStringValue()).isEqualTo("1-3");
     // check address
     matchKey = returnedRecord.getMatchKeys(2);
+    assertThat(matchKey.getMetadataList()).isEmpty();
     var compositeField = matchKey.getCompositeField();
     assertThat(compositeField.getKey()).isEqualTo("address");
     assertThat(compositeField.getChildFieldsCount()).isEqualTo(4);
@@ -711,6 +716,7 @@ public final class SerializedProtoDataWriterTest {
     assertThat(keyValue.getStringValue()).isEqualTo("1-4");
     // check socials
     matchKey = returnedRecord.getMatchKeys(3);
+    assertThat(matchKey.getMetadataList()).isEmpty();
     compositeField = matchKey.getCompositeField();
     assertThat(compositeField.getKey()).isEqualTo("socials");
     assertThat(compositeField.getChildFieldsCount()).isEqualTo(2);
@@ -732,6 +738,259 @@ public final class SerializedProtoDataWriterTest {
     keyValue = matchedOutputFields.getKeyValue(0);
     assertThat(keyValue.getKey()).isEqualTo("encrypted_gaia_id");
     assertThat(keyValue.getStringValue()).isEqualTo("1-6");
+  }
+
+  @Test
+  public void write_withFieldLevelMetadata_addsToOutput() throws Exception {
+    TestDataDestination testDataDestination = new TestDataDestination();
+    Schema schema = getSchema("testdata/proto_schema_multiple_column_groups.json");
+    List<DataRecord> dataRecords = new ArrayList<>();
+    // Build field level metadata for the DataRecord
+    FieldLevelMetadata fieldLevelMetadata =
+        FieldLevelMetadata.newBuilder()
+            .putSingleFieldMetadata(
+                0, // index for 'em'
+                Metadata.newBuilder()
+                    .addMetadata(
+                        DataRecord.KeyValue.newBuilder().setKey("source").setStringValue("CRM"))
+                    .addMetadata(
+                        DataRecord.KeyValue.newBuilder().setKey("confidence_score").setIntValue(95))
+                    .build())
+            .putSingleFieldMetadata(
+                1, // index for 'ph'
+                Metadata.newBuilder()
+                    .addMetadata(
+                        DataRecord.KeyValue.newBuilder()
+                            .setKey("last_verified_date")
+                            .setStringValue("2025-11-12"))
+                    .build())
+            .putCompositeFieldMetadata(
+                0, // group number for 'address'
+                Metadata.newBuilder()
+                    .addMetadata(
+                        DataRecord.KeyValue.newBuilder()
+                            .setKey("address_type")
+                            .setStringValue("primary"))
+                    .build())
+            .putCompositeFieldMetadata(
+                1, // group number for 'socials'
+                Metadata.newBuilder()
+                    .addMetadata(
+                        DataRecord.KeyValue.newBuilder()
+                            .setKey("has_blue_check")
+                            .setBoolValue(true))
+                    .build())
+            .build();
+    // Build key values for the DataRecord
+    List<Entry<String, Optional<String>>> keyValues = new ArrayList<>();
+    keyValues.add(Map.entry("em", Optional.of("FAKE.1@google.com")));
+    keyValues.add(Map.entry("ph", Optional.of("999-999-9999")));
+    keyValues.add(Map.entry("fn", Optional.of("fakeName")));
+    keyValues.add(Map.entry("ln", Optional.of("fakeLastName")));
+    keyValues.add(Map.entry("zc", Optional.of("99999")));
+    keyValues.add(Map.entry("cc", Optional.of("US")));
+    keyValues.add(Map.entry("insta", Optional.of("test")));
+    keyValues.add(Map.entry("tik", Optional.of("@test")));
+    keyValues.add(Map.entry("coord_key_id", Optional.of("testKey")));
+    keyValues.add(Map.entry("metadata", Optional.empty()));
+    keyValues.add(Map.entry("row_status", Optional.of(SUCCESS.toString())));
+    keyValues.add(Map.entry(ROW_MARKER_COLUMN_NAME, Optional.of("1")));
+    dataRecords.add(getDataRecord(keyValues).setFieldLevelMetadata(fieldLevelMetadata).build());
+    // Build the DataChunk
+    DataChunk dataChunk = DataChunk.builder().setRecords(dataRecords).setSchema(schema).build();
+    MatchConfig testMatchConfig =
+        ProtoUtils.getProtoFromJson(
+            Resources.toString(
+                Objects.requireNonNull(
+                    getClass().getResource("testdata/match_config_multiple_column_groups.json")),
+                UTF_8),
+            MatchConfig.class);
+
+    // Run the write method
+    SerializedProtoDataWriter dataWriter =
+        new SerializedProtoDataWriter(
+            DEFAULT_FEATURE_FLAGS,
+            DEFAULT_PARAMS,
+            testDataDestination,
+            "proto_writer_test.txt",
+            schema,
+            testMatchConfig);
+    dataWriter.write(dataChunk);
+    dataWriter.close();
+
+    // Validate the written out file
+    assertThat(testDataDestination.file.exists()).isFalse(); // the temp file should've been deleted
+    assertThat(testDataDestination.name).isEqualTo("proto_writer_test_1.txt");
+    assertThat(testDataDestination.fileLines).hasSize(1);
+    // Validate the record
+    ConfidentialMatchOutputDataRecord returnedRecord =
+        base64Decode(testDataDestination.fileLines.get(0)).get();
+    assertEquals("SUCCESS", returnedRecord.getStatus());
+    assertThat(returnedRecord.getMatchKeysCount()).isEqualTo(4);
+    // check email
+    var matchKey = returnedRecord.getMatchKeys(0);
+    assertThat(matchKey.getMetadataCount()).isEqualTo(2);
+    assertThat(matchKey.getMetadata(0).getKey()).isEqualTo("source");
+    assertThat(matchKey.getMetadata(0).getStringValue()).isEqualTo("CRM");
+    assertThat(matchKey.getMetadata(1).getKey()).isEqualTo("confidence_score");
+    assertThat(matchKey.getMetadata(1).getIntValue()).isEqualTo(95);
+    // check phone
+    matchKey = returnedRecord.getMatchKeys(1);
+    assertThat(matchKey.getMetadataCount()).isEqualTo(1);
+    assertThat(matchKey.getMetadata(0).getKey()).isEqualTo("last_verified_date");
+    assertThat(matchKey.getMetadata(0).getStringValue()).isEqualTo("2025-11-12");
+    // check address
+    matchKey = returnedRecord.getMatchKeys(2);
+    assertThat(matchKey.getMetadataCount()).isEqualTo(1);
+    assertThat(matchKey.getMetadata(0).getKey()).isEqualTo("address_type");
+    assertThat(matchKey.getMetadata(0).getStringValue()).isEqualTo("primary");
+    // check socials
+    matchKey = returnedRecord.getMatchKeys(3);
+    assertThat(matchKey.getMetadataCount()).isEqualTo(1);
+    assertThat(matchKey.getMetadata(0).getKey()).isEqualTo("has_blue_check");
+    assertThat(matchKey.getMetadata(0).getBoolValue()).isTrue();
+  }
+
+  @Test
+  public void write_fieldLevelMetadata_handlesFannedOutDataRecords() throws Exception {
+    TestDataDestination testDataDestination = new TestDataDestination();
+    Schema schema = getSchema("testdata/proto_schema_multiple_column_groups.json");
+    List<DataRecord> dataRecords = new ArrayList<>();
+    // First DataRecord with row_marker "1"
+    FieldLevelMetadata fieldLevelMetadata1 =
+        FieldLevelMetadata.newBuilder()
+            .putSingleFieldMetadata(
+                0, // index for 'em'
+                Metadata.newBuilder()
+                    .addMetadata(
+                        DataRecord.KeyValue.newBuilder().setKey("primary_email").setBoolValue(true))
+                    .addMetadata(
+                        DataRecord.KeyValue.newBuilder()
+                            .setKey("deliverability_score")
+                            .setDoubleValue(0.98))
+                    .build())
+            .putCompositeFieldMetadata(
+                0, // group number for 'address'
+                Metadata.newBuilder()
+                    .addMetadata(
+                        DataRecord.KeyValue.newBuilder()
+                            .setKey("is_shipping_address")
+                            .setBoolValue(true))
+                    .build())
+            .build();
+    // Build key values for the first DataRecord
+    List<Entry<String, Optional<String>>> keyValues1 = new ArrayList<>();
+    keyValues1.add(Map.entry("em", Optional.of("test1@google.com")));
+    keyValues1.add(Map.entry("ph", Optional.of("111-111-1111")));
+    keyValues1.add(Map.entry("fn", Optional.of("John")));
+    keyValues1.add(Map.entry("ln", Optional.of("Doe")));
+    keyValues1.add(Map.entry("zc", Optional.of("10001")));
+    keyValues1.add(Map.entry("cc", Optional.of("US")));
+    keyValues1.add(Map.entry("insta", Optional.empty()));
+    keyValues1.add(Map.entry("tik", Optional.empty()));
+    keyValues1.add(Map.entry("coord_key_id", Optional.of("key1")));
+    keyValues1.add(Map.entry("metadata", Optional.empty()));
+    keyValues1.add(Map.entry("row_status", Optional.of(SUCCESS.toString())));
+    keyValues1.add(Map.entry(ROW_MARKER_COLUMN_NAME, Optional.of("1")));
+    dataRecords.add(getDataRecord(keyValues1).setFieldLevelMetadata(fieldLevelMetadata1).build());
+    // Second DataRecord with the same row_marker "1"
+    FieldLevelMetadata fieldLevelMetadata2 =
+        FieldLevelMetadata.newBuilder()
+            .putSingleFieldMetadata(
+                1, // index for 'ph'
+                Metadata.newBuilder() // Empty metadata list
+                    .build())
+            .putCompositeFieldMetadata(
+                1, // group number for 'socials'
+                Metadata.newBuilder()
+                    .addMetadata(
+                        DataRecord.KeyValue.newBuilder().setKey("follower_count").setIntValue(1000))
+                    .build())
+            .build();
+    // Build key values for the second DataRecord
+    List<Entry<String, Optional<String>>> keyValues2 = new ArrayList<>();
+    keyValues2.add(Map.entry("em", Optional.of("test2@google.com")));
+    keyValues2.add(Map.entry("ph", Optional.of("222-222-2222")));
+    keyValues2.add(Map.entry("fn", Optional.empty()));
+    keyValues2.add(Map.entry("ln", Optional.empty()));
+    keyValues2.add(Map.entry("zc", Optional.empty()));
+    keyValues2.add(Map.entry("cc", Optional.empty()));
+    keyValues2.add(Map.entry("insta", Optional.of("myinsta")));
+    keyValues2.add(Map.entry("tik", Optional.of("mytiktok")));
+    keyValues2.add(Map.entry("coord_key_id", Optional.of("key1")));
+    keyValues2.add(Map.entry("metadata", Optional.empty()));
+    keyValues2.add(Map.entry("row_status", Optional.of(SUCCESS.toString())));
+    keyValues2.add(Map.entry(ROW_MARKER_COLUMN_NAME, Optional.of("1")));
+    dataRecords.add(getDataRecord(keyValues2).setFieldLevelMetadata(fieldLevelMetadata2).build());
+    // Build the DataChunk with the two DataRecords
+    DataChunk dataChunk = DataChunk.builder().setRecords(dataRecords).setSchema(schema).build();
+    MatchConfig testMatchConfig =
+        ProtoUtils.getProtoFromJson(
+            Resources.toString(
+                Objects.requireNonNull(
+                    getClass().getResource("testdata/match_config_multiple_column_groups.json")),
+                UTF_8),
+            MatchConfig.class);
+
+    // Run the write method
+    SerializedProtoDataWriter dataWriter =
+        new SerializedProtoDataWriter(
+            DEFAULT_FEATURE_FLAGS,
+            DEFAULT_PARAMS,
+            testDataDestination,
+            "proto_writer_test.txt",
+            schema,
+            testMatchConfig);
+    dataWriter.write(dataChunk);
+    dataWriter.close();
+
+    // Validate the written out file
+    assertThat(testDataDestination.file.exists()).isFalse(); // the temp file should've been deleted
+    assertThat(testDataDestination.name).isEqualTo("proto_writer_test_1.txt");
+    assertThat(testDataDestination.fileLines).hasSize(1);
+    // Validate the record
+    ConfidentialMatchOutputDataRecord returnedRecord =
+        base64Decode(testDataDestination.fileLines.get(0)).get();
+    assertEquals("SUCCESS", returnedRecord.getStatus());
+    assertThat(returnedRecord.getMatchKeysCount()).isEqualTo(6);
+    // sort matchKeys for deterministic testing
+    var matchKeys = sortMatchKeys(returnedRecord.getMatchKeysList());
+    // email 'test1@google.com' from record 1
+    var matchKey = matchKeys.get(0);
+    assertThat(matchKey.getField().getKeyValue().getStringValue()).isEqualTo("test1@google.com");
+    assertThat(matchKey.getMetadataCount()).isEqualTo(2);
+    assertThat(matchKey.getMetadata(0).getKey()).isEqualTo("primary_email");
+    assertThat(matchKey.getMetadata(0).getBoolValue()).isTrue();
+    assertThat(matchKey.getMetadata(1).getKey()).isEqualTo("deliverability_score");
+    assertThat(matchKey.getMetadata(1).getDoubleValue()).isEqualTo(0.98);
+    // email 'test2@google.com' from record 2
+    matchKey = matchKeys.get(1);
+    assertThat(matchKey.getField().getKeyValue().getStringValue()).isEqualTo("test2@google.com");
+    assertThat(matchKey.getMetadataCount()).isEqualTo(0);
+    // phone '111-111-1111' from record 1
+    matchKey = matchKeys.get(2);
+    assertThat(matchKey.getField().getKeyValue().getStringValue()).isEqualTo("111-111-1111");
+    assertThat(matchKey.getMetadataCount()).isEqualTo(0);
+    // phone '222-222-2222' from record 2 (with empty metadata)
+    matchKey = matchKeys.get(3);
+    assertThat(matchKey.getField().getKeyValue().getStringValue()).isEqualTo("222-222-2222");
+    assertThat(matchKey.getMetadataCount()).isEqualTo(0);
+    // address for record 1
+    matchKey = matchKeys.get(4);
+    assertThat(matchKey.getCompositeField().getKey()).isEqualTo("address");
+    assertThat(matchKey.getCompositeField().getChildFields(0).getKeyValue().getStringValue())
+        .isEqualTo("John");
+    assertThat(matchKey.getMetadataCount()).isEqualTo(1);
+    assertThat(matchKey.getMetadata(0).getKey()).isEqualTo("is_shipping_address");
+    assertThat(matchKey.getMetadata(0).getBoolValue()).isTrue();
+    // socials for record 2
+    matchKey = matchKeys.get(5);
+    assertThat(matchKey.getCompositeField().getKey()).isEqualTo("socials");
+    assertThat(matchKey.getCompositeField().getChildFields(0).getKeyValue().getStringValue())
+        .isEqualTo("myinsta");
+    assertThat(matchKey.getMetadataCount()).isEqualTo(1);
+    assertThat(matchKey.getMetadata(0).getKey()).isEqualTo("follower_count");
+    assertThat(matchKey.getMetadata(0).getIntValue()).isEqualTo(1000);
   }
 
   @Test

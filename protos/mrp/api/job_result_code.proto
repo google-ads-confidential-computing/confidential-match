@@ -60,6 +60,7 @@ enum JobResultCode {
   INVALID_DEK = 226; // DEK cannot be decrypted because it is invalid
   INVALID_WIP_PARAMETER = 224; // WIP is formatted incorrectly or WIP does not exist
   WIP_AUTH_FAILED = 225;  // The WIP could not be used because it was rejected by its attestation condition
+  INSUFFICIENT_CUSTOMER_QUOTA = 227;  // Not enough quota configured by the external customer for decryption
   INVALID_ROLE_FORMAT = 216; // AWS Role does not exist or no permission
   INVALID_ROLE_PARAMETER = 217; // AWS Role does not exist or no permission
   AWS_AUTH_FAILED = 218; // KEK decrypt operation was rejected by AWS KMS due to attestation

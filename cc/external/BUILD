@@ -32,6 +32,12 @@ alias(
 )
 
 alias(
+    name = "absl_debugging_symbolize",
+    actual = "@com_google_absl//absl/debugging:symbolize",
+    tags = ["manual"],
+)
+
+alias(
     name = "absl_flat_hash_map",
     actual = "@com_google_absl//absl/container:flat_hash_map",
 )
@@ -49,6 +55,12 @@ alias(
 alias(
     name = "absl_log",
     actual = "@com_google_absl//absl/log:absl_log",
+)
+
+alias(
+    name = "absl_log_initialize",
+    actual = "@com_google_absl//absl/log:initialize",
+    tags = ["manual"],
 )
 
 alias(
@@ -99,6 +111,24 @@ alias(
 alias(
     name = "google_protobuf",
     actual = "@com_google_protobuf//:protobuf",
+)
+
+alias(
+    name = "grpc++",
+    actual = "@com_github_grpc_grpc//:grpc++",
+    tags = ["manual"],
+)
+
+alias(
+    name = "grpc++_alts",
+    actual = "@com_github_grpc_grpc//:grpc++_alts",
+    tags = ["manual"],
+)
+
+alias(
+    name = "grpc++_reflection",
+    actual = "@com_github_grpc_grpc//:grpc++_reflection",
+    tags = ["manual"],
 )
 
 alias(
@@ -378,17 +408,17 @@ alias(
 
 alias(
     name = "tink_cc",
-    actual = "@tink_cc//:tink_cc",
+    actual = "@tink_cc//tink:tink_cc",
 )
 
 alias(
     name = "tink_cc_cleartext_keyset_handle",
-    actual = "@tink_cc//:cleartext_keyset_handle",
+    actual = "@tink_cc//tink:cleartext_keyset_handle",
 )
 
 alias(
     name = "tink_cc_mock_aead",
-    actual = "@tink_cc//aead:mock_aead",
+    actual = "@tink_cc//tink/aead:mock_aead",
 )
 
 alias(
@@ -398,25 +428,25 @@ alias(
 
 alias(
     name = "tink_jwt_jwk_set_converter",
-    actual = "@tink_cc//jwt:jwk_set_converter",
+    actual = "@tink_cc//tink/jwt:jwk_set_converter",
 )
 
 alias(
     name = "tink_jwt_public_key_verify",
-    actual = "@tink_cc//jwt:jwt_public_key_verify",
+    actual = "@tink_cc//tink/jwt:jwt_public_key_verify",
 )
 
 alias(
     name = "tink_jwt_signature_config",
-    actual = "@tink_cc//jwt:jwt_signature_config",
+    actual = "@tink_cc//tink/jwt:jwt_signature_config",
 )
 
 alias(
     name = "tink_jwt_validator",
-    actual = "@tink_cc//jwt:jwt_validator",
+    actual = "@tink_cc//tink/jwt:jwt_validator",
 )
 
 alias(
     name = "tink_jwt_verified_jwt",
-    actual = "@tink_cc//jwt:verified_jwt",
+    actual = "@tink_cc//tink/jwt:verified_jwt",
 )

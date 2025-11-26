@@ -86,6 +86,8 @@ public final class FeatureFlagProviderImpl implements FeatureFlagProvider {
                 .orElse(false);
         boolean workgroupsEnabled =
             getValue(Parameter.WORKGROUPS_ENABLED).map(Boolean::parseBoolean).orElse(false);
+        boolean protoPassthroughMetadataEnabled =
+            getValue(Parameter.PROTO_PASSTHROUGH_METADATA_ENABLED).map(Boolean::parseBoolean).orElse(false);
         int maxRecordsPerProtoOutputFile =
             getValue(Parameter.MAX_RECORDS_PER_PROTO_OUTPUT_FILE)
                 .map(Integer::parseInt)
@@ -99,6 +101,7 @@ public final class FeatureFlagProviderImpl implements FeatureFlagProvider {
                 .setEnableMIC(micFeatureEnabled)
                 .setWorkgroupsEnabled(workgroupsEnabled)
                 .setCoordinatorBatchEncryptionEnabled(coordinatorBatchEncryptionEnabled)
+                .setProtoPassthroughMetadataEnabled(protoPassthroughMetadataEnabled)
                 .setMaxRecordsPerProtoOutputFile(maxRecordsPerProtoOutputFile)
                 .setLargeJobThresholdBytes(largeJobThresholdBytes);
 

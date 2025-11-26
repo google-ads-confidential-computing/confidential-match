@@ -35,7 +35,8 @@ public abstract class FeatureFlags {
         .setLargeJobApplicationIds(ImmutableSet.of())
         .setLargeJobThresholdBytes(1000000)
         .setCoordinatorBatchEncryptionEnabled(false)
-        .setMaxRecordsPerProtoOutputFile(100000);
+        .setMaxRecordsPerProtoOutputFile(100000)
+        .setProtoPassthroughMetadataEnabled(false);
   }
 
   /** Returns the flag for MIC feature. */
@@ -46,6 +47,9 @@ public abstract class FeatureFlags {
 
   /** Returns the multiple workgroups feature. */
   public abstract boolean workgroupsEnabled();
+
+  /** Returns the metadata passthrough feature flag for proto format. */
+  public abstract boolean protoPassthroughMetadataEnabled();
 
   /** Returns a mapping of: applicationId -> workgroupName, if set for the application */
   public abstract ImmutableMap<String, String> applicationIdWorkgroups();
@@ -75,6 +79,9 @@ public abstract class FeatureFlags {
 
     /** Sets the multiple workgroups feature flag. */
     public abstract Builder setWorkgroupsEnabled(boolean workgroupsEnabled);
+
+    /** Sets the metadata passthrough feature flag for proto format. */
+    public abstract Builder setProtoPassthroughMetadataEnabled(boolean protoPassthroughMetadataEnabled);
 
     /** Set the applicationIdWorkgroups map */
     public abstract Builder setApplicationIdWorkgroups(Map<String, String> applicationIdWorkgroups);

@@ -17,6 +17,7 @@
 package com.google.cm.mrp.clients.cryptoclient.utils;
 
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_DECRYPTION_ERROR;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INSUFFICIENT_CUSTOMER_QUOTA;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_KEK;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_WIP_FORMAT;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_WIP_PARAMETER;
@@ -25,6 +26,7 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WIP_AUT
 
 import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 import com.google.cm.mrp.clients.cryptoclient.exceptions.AeadProviderException;
+import java.util.Arrays;
 import java.util.Optional;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.slf4j.Logger;
@@ -35,11 +37,14 @@ public final class GcpProviderUtils {
 
   private static final Logger logger = LoggerFactory.getLogger(GcpProviderUtils.class);
 
-  private static final String WIP_AUTH_EXCEPTION = "OAuthException";
+  private static final String WIP_USAGE_EXCEPTION = "OAuthException";
   private static final String INVALID_WIP_FORMAT_CODE = "invalid_request";
   private static final String INVALID_WIP_CODE = "invalid_target";
   private static final String WIP_CONDITION_FAILED_CODE = "unauthorized_client";
   private static final String INVALID_CYPHERTEXT = "ciphertext is invalid";
+  private static final String[] CUSTOMER_QUOTA_MSGS = {
+    "quota_exceeded", "Security Token Service", "Token exchange requests"
+  };
 
   private GcpProviderUtils() {}
 
@@ -81,7 +86,7 @@ public final class GcpProviderUtils {
     Throwable rootEx = ExceptionUtils.getRootCause(e);
     // OAuthException is package private so we cannot explicitly check against it.
     // Checking name as next-best solution
-    if (rootEx.getClass().getSimpleName().equals(WIP_AUTH_EXCEPTION)) {
+    if (rootEx.getClass().getSimpleName().equals(WIP_USAGE_EXCEPTION)) {
       if (rootEx.getMessage().contains(INVALID_WIP_CODE)) {
         String msg = "WIP parameter invalid.";
         logger.warn(msg, rootEx);
@@ -94,6 +99,11 @@ public final class GcpProviderUtils {
         String msg = "WIP conditions failed.";
         logger.warn(msg, rootEx);
         return Optional.of(new AeadProviderException(msg, rootEx, WIP_AUTH_FAILED));
+      } else if (Arrays.stream(CUSTOMER_QUOTA_MSGS)
+          .allMatch(msg -> rootEx.getMessage().contains(msg))) {
+        String msg = "WIP token could not be fetched due to customer quota limits.";
+        logger.warn(msg, rootEx);
+        return Optional.of(new AeadProviderException(msg, rootEx, INSUFFICIENT_CUSTOMER_QUOTA));
       }
     }
     return Optional.empty();

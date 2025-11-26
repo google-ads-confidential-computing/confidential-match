@@ -17,6 +17,7 @@
 package com.google.cm.mrp.clients.cryptoclient.utils;
 
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DEK_DECRYPTION_ERROR;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INSUFFICIENT_CUSTOMER_QUOTA;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.INVALID_KEK;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.KEK_PERMISSION_DENIED;
 import static com.google.common.truth.Truth.assertThat;
@@ -67,6 +68,32 @@ public class GcpProviderUtilsTest {
     assertThat(result).isPresent();
     assertThat(result.get().getJobResultCode()).isEqualTo(JobResultCode.INVALID_WIP_PARAMETER);
     assertThat(result.get()).hasMessageThat().isEqualTo("WIP parameter invalid.");
+  }
+
+  @Test
+  public void handleWipFailure_customerQuota_returnsCustomerErrorCode() {
+    var ex =
+        new GeneralSecurityException(
+            new OAuthException(
+                "Error code quota_exceeded: [Security Token Service] The request was throttled due"
+                    + " to rate limit on the following metrics: 'Token exchange requests'"));
+
+    var result = GcpProviderUtils.tryParseWipException(ex);
+
+    assertThat(result).isPresent();
+    assertThat(result.get().getJobResultCode()).isEqualTo(INSUFFICIENT_CUSTOMER_QUOTA);
+    assertThat(result.get())
+        .hasMessageThat()
+        .isEqualTo("WIP token could not be fetched due to customer quota limits.");
+  }
+
+  @Test
+  public void handleWipFailure_undefinedError_notPresent() {
+    var ex = new GeneralSecurityException(new OAuthException("Error code quota_exceeded: []"));
+
+    var result = GcpProviderUtils.tryParseWipException(ex);
+
+    assertThat(result).isEmpty();
   }
 
   @Test

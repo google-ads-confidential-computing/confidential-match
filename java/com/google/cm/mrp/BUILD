@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+load("@aspect_bazel_lib//lib:tar.bzl", "tar")
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load")
 load("@rules_pkg//:pkg.bzl", "pkg_tar")
 
@@ -144,6 +145,49 @@ alias(
     actual = ":MatchWorkerRunner_deploy.jar",
 )
 
+# A unique dir for the flattened layer, so that Docker only uses our version
+tar(
+    name = "empty_dir",
+    mtree = ["./confidential-match-java_base uid=0 gid=0 time=1672560000 mode=0755 type=dir"],
+    tags = ["manual"],
+)
+
+oci_image(
+    name = "base_image",
+    base = "@java_base",
+    tags = ["manual"],
+    tars = [":empty_dir"],
+)
+
+oci_load(
+    name = "base_image_load",
+    image = ":base_image",
+    repo_tags = [":base_image"],
+    tags = ["manual"],
+)
+
+filegroup(
+    name = "base_image_load.tar",
+    srcs = [":base_image_load"],
+    output_group = "tarball",
+    tags = ["manual"],
+)
+
+filegroup(
+    name = "crane",
+    srcs = ["@oci_crane_toolchains//:current_toolchain"],
+    tags = ["manual"],
+)
+
+genrule(
+    name = "base_layer",
+    srcs = [":base_image_load.tar"],
+    outs = ["base_layer_flattened.tar"],
+    cmd = "./$(location crane) export - $@ < $<",
+    tags = ["manual"],
+    tools = [":crane"],
+)
+
 pkg_tar(
     name = "binary_layer",
     srcs = ["//java/com/google/cm/mrp:MatchWorkerRunnerDeploy"],
@@ -151,9 +195,10 @@ pkg_tar(
     tags = ["manual"],
 )
 
+# Restores base image config values that were removed during flattening
 oci_image(
     name = "mrp_app_gcp_image",
-    base = "@java_base",
+    architecture = "amd64",
     cmd = [
         "MatchWorkerRunner_deploy.jar",
         "--blob_storage_client",
@@ -176,13 +221,25 @@ oci_image(
         "-XX:MaxRAMPercentage=66.0",
         "-jar",
     ],
+    env = {
+        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt",
+        "LANG": "C.UTF-8",
+        "JAVA_VERSION": "21.0.8",
+    },
     labels = {
         "tee.launch_policy.allow_cmd_override": "false",
         "tee.launch_policy.log_redirect": "always",
         "tee.launch_policy.monitoring_memory_allow": "always",
     },
+    os = "linux",
     tags = ["manual"],
-    tars = [":binary_layer"],
+    tars = [
+        ":base_layer",
+        ":binary_layer",
+    ],
+    user = "0",
+    workdir = "/",
 )
 
 oci_load(

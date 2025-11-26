@@ -21,8 +21,8 @@ dependencies:
 * Docker Engine 20.10.24
     * https://docs.docker.com/engine/install/debian/#install-using-the-repository
     * https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user
-* Bazel 6.4.0
-    * https://bazel.build/versions/6.4.0/install/ubuntu
+* Bazel 6.5.0
+    * https://bazel.build/versions/6.5.0/install/ubuntu
     * If installing Bazelisk, it must be callable with the command `bazel`
 * OpenJDK JDK 17
 * Python 3.12.8
@@ -30,6 +30,7 @@ dependencies:
 * Go (golang) 1.19.8
 * Google Cloud SDK (gcloud) 530.0.0
     * https://cloud.google.com/sdk/docs/install
+* Clang 13
 
 ### Google Cloud Platform (GCP) Authentication
 

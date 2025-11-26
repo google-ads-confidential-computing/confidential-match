@@ -1,6 +1,3 @@
-load("@com_google_protobuf//bazel:java_proto_library.bzl", "java_proto_library")
-load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
-
 # Copyright 2025 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,14 +12,14 @@ load("@com_google_protobuf//bazel:proto_library.bzl", "proto_library")
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
+
 package(default_visibility = ["//visibility:public"])
 
-proto_library(
-    name = "proto",
-    srcs = glob(["*.proto"]),
-)
-
-java_proto_library(
-    name = "java_proto",
-    deps = [":proto"],
+cc_library(
+    name = "status_macros",
+    hdrs = ["status_macros.h"],
+    deps = [
+        "//cc/external:absl_status",
+    ],
 )

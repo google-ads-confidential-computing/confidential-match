@@ -98,4 +98,5 @@ message Schema {
   repeated OutputColumn output_columns = 4;
   DataFormat data_format = 2;
   optional bool skip_header_record = 3;
+  optional bool proto_passthrough_metadata_enabled = 5;
 }

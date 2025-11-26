@@ -24,6 +24,7 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WRITER_
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WRITER_MISSING_DEK;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WRITER_MISSING_KEK;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WRITER_MISSING_ROLE_ARN;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WRITER_INVALID_KEY_VALUE;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WRITER_MISSING_WIP;
 import static com.google.cm.mrp.backend.ModeProto.Mode.JOIN;
 import static com.google.cm.mrp.dataprocessor.common.Constants.ROW_MARKER_COLUMN_NAME;
@@ -134,8 +135,7 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
       @Assisted Schema schema,
       @Assisted MatchConfig matchConfig) {
     this.jobParameters = jobParameters;
-    this.maxRecordsPerOutputFile =
-        featureFlags.maxRecordsPerProtoOutputFile();
+    this.maxRecordsPerOutputFile = featureFlags.maxRecordsPerProtoOutputFile();
     this.dataDestination = dataDestination;
     this.name = name;
     numberOfRecords = 0;
@@ -397,24 +397,19 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
     List<MatchKey> matchKeys =
         matchFieldIndices.stream()
             .filter(index -> isValidIndex(dataRecord.getKeyValuesCount(), index))
-            .map(index -> convertSingleField(index, dataRecord, encryptionKey))
+            .map(index -> toMatchKeyWithSingleField(index, dataRecord, encryptionKey))
             .flatMap(Optional::stream)
             .collect(Collectors.toList());
     // Builds MatchKeys with CompositeFields
     matchCompositeFieldGroupToIndices.forEach(
-        (compositeFieldGroupNumber, indices) -> {
-          CompositeField compositeField =
-              convertCompositeField(dataRecord, compositeFieldGroupNumber, indices);
-          var matchKeyBuilder = MatchKey.newBuilder().setCompositeField(compositeField);
-          encryptionKey.ifPresent(matchKeyBuilder::setEncryptionKey);
-          if (matchKeyBuilder.getCompositeField().getChildFieldsCount() > 0) {
-            matchKeys.add(matchKeyBuilder.build());
-          }
-        });
+        (compositeFieldGroupNumber, indices) ->
+            toMatchKeyWithCompositeField(
+                    dataRecord, compositeFieldGroupNumber, indices, encryptionKey)
+                .ifPresent(matchKeys::add));
     return matchKeys;
   }
 
-  private Optional<MatchKey> convertSingleField(
+  private Optional<MatchKey> toMatchKeyWithSingleField(
       int index, DataRecord dataRecord, Optional<EncryptionKey> encryptionKey) {
     Optional<KeyValue> apiFieldOptional = convertToApiResponseField(dataRecord.getKeyValues(index));
     return apiFieldOptional.map(
@@ -434,12 +429,27 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
               fieldBuilder.addAllMatchedOutputFields(convertToApiMatchedOutputFields(joinFields));
             }
           }
-          return matchKeyBuilder.setField(fieldBuilder).build();
+          matchKeyBuilder.setField(fieldBuilder);
+
+          if (dataRecord.hasFieldLevelMetadata()
+              && dataRecord.getFieldLevelMetadata().containsSingleFieldMetadata(index)) {
+            dataRecord
+                .getFieldLevelMetadata()
+                .getSingleFieldMetadataOrThrow(index)
+                .getMetadataList()
+                .stream()
+                .map(SerializedProtoDataWriter::toCfmKeyValue)
+                .forEach(matchKeyBuilder::addMetadata);
+          }
+          return matchKeyBuilder.build();
         });
   }
 
-  private CompositeField convertCompositeField(
-      DataRecord dataRecord, int compositeFieldGroupNumber, Set<Integer> fieldIndices) {
+  private Optional<MatchKey> toMatchKeyWithCompositeField(
+      DataRecord dataRecord,
+      int compositeFieldGroupNumber,
+      Set<Integer> fieldIndices,
+      Optional<EncryptionKey> encryptionKey) {
     var compositeFieldBuilder =
         CompositeField.newBuilder()
             .setKey(groupNumberToGroupAlias.get(compositeFieldGroupNumber))
@@ -463,7 +473,28 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
             convertToApiMatchedOutputFields(joinFields));
       }
     }
-    return compositeFieldBuilder.build();
+    CompositeField compositeField = compositeFieldBuilder.build();
+    if (compositeField.getChildFieldsCount() == 0) {
+      return Optional.empty();
+    }
+
+    var matchKeyBuilder = MatchKey.newBuilder().setCompositeField(compositeField);
+    encryptionKey.ifPresent(matchKeyBuilder::setEncryptionKey);
+
+    if (dataRecord.hasFieldLevelMetadata()
+        && dataRecord
+            .getFieldLevelMetadata()
+            .containsCompositeFieldMetadata(compositeFieldGroupNumber)) {
+      dataRecord
+          .getFieldLevelMetadata()
+          .getCompositeFieldMetadataOrThrow(compositeFieldGroupNumber)
+          .getMetadataList()
+          .stream()
+          .map(SerializedProtoDataWriter::toCfmKeyValue)
+          .forEach(matchKeyBuilder::addMetadata);
+    }
+
+    return Optional.of(matchKeyBuilder.build());
   }
 
   /**
@@ -813,5 +844,28 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
       logger.error(message, ex);
       throw ex;
     }
+  }
+
+  private static KeyValue toCfmKeyValue(DataRecord.KeyValue dataRecordKeyValue) {
+    KeyValue.Builder cfmKeyValueBuilder = KeyValue.newBuilder().setKey(dataRecordKeyValue.getKey());
+    switch (dataRecordKeyValue.getValueCase()) {
+      case STRING_VALUE:
+        cfmKeyValueBuilder.setStringValue(dataRecordKeyValue.getStringValue());
+        break;
+      case INT_VALUE:
+        cfmKeyValueBuilder.setIntValue(dataRecordKeyValue.getIntValue());
+        break;
+      case DOUBLE_VALUE:
+        cfmKeyValueBuilder.setDoubleValue(dataRecordKeyValue.getDoubleValue());
+        break;
+      case BOOL_VALUE:
+        cfmKeyValueBuilder.setBoolValue(dataRecordKeyValue.getBoolValue());
+        break;
+      case VALUE_NOT_SET:
+      default:
+        throw new JobProcessorException(
+            "DataRecord.KeyValue does not have a value set.", WRITER_INVALID_KEY_VALUE);
+    }
+    return cfmKeyValueBuilder.build();
   }
 }
