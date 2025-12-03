@@ -16,6 +16,7 @@
 
 package com.google.cm.mrp.dataprocessor.readers;
 
+import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.SuccessConfig.SuccessMode;
@@ -25,12 +26,16 @@ import com.google.cm.mrp.backend.SchemaProto.Schema;
 public interface ConfidentialMatchDataRecordParserFactory {
   /** Factor method for constructing {@link ConfidentialMatchDataRecordParser}. */
   ConfidentialMatchDataRecordParser create(
-      MatchConfig matchConfig, Schema schema, SuccessMode successMode);
+      MatchConfig matchConfig,
+      Schema schema,
+      SuccessMode successMode,
+      FeatureFlags featureFlags);
 
   /** Factor method for constructing {@link ConfidentialMatchDataRecordParser} with encryption. */
   ConfidentialMatchDataRecordParser create(
       MatchConfig matchConfig,
       Schema schema,
       SuccessMode successMode,
-      EncryptionMetadata encryptionMetadata);
+      EncryptionMetadata encryptionMetadata,
+      FeatureFlags featureFlags);
 }

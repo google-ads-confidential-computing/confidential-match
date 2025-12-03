@@ -29,6 +29,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
+import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeChildField;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeField;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.ConfidentialMatchDataRecord;
@@ -46,6 +47,7 @@ import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.Encr
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.AwsWrappedKeyInfo;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.WrappedKeyInfo.GcpWrappedKeyInfo;
+import com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.SuccessConfig.SuccessMode;
 import com.google.cm.mrp.backend.SchemaProto.Schema;
@@ -59,6 +61,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import javax.annotation.Nullable;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.junit.runners.JUnit4;
@@ -100,6 +103,7 @@ public final class ConfidentialMatchDataRecordParserImplTest {
   private static final String USER_EMAIL = "user@example.com";
   private static final String USER_PHONE = "1234567890";
   private static final String FAKE_METADATA_VALUE = "fake metadata";
+  private static final String FAKE_METADATA_VALUE_2 = "fake metadata 2";
 
   private static final EncryptionKey DEFAULT_COORDINATOR_KEY =
       EncryptionKey.newBuilder()
@@ -180,15 +184,27 @@ public final class ConfidentialMatchDataRecordParserImplTest {
         record1.getKeyValues(COORDINATOR_KEY_ID_INDEX).getStringValue().equals("124")
             ? record1
             : record2;
-    // Email Record assertions
-    assertThat(emailRecord.getKeyValues(METADATA_INDEX))
+
+    // Top-level metadata is only on the first record. Find which record has it.
+    DataRecord recordWithMetadata =
+        record1.getKeyValues(METADATA_INDEX).getStringValue().equals(FAKE_METADATA_VALUE)
+            ? record1
+            : record2;
+    DataRecord recordWithoutMetadata =
+        record1.getKeyValues(METADATA_INDEX).getStringValue().equals(FAKE_METADATA_VALUE)
+            ? record2
+            : record1;
+
+    assertThat(recordWithMetadata.getKeyValues(METADATA_INDEX))
         .isEqualTo(drKv(METADATA_KEY, FAKE_METADATA_VALUE));
+    assertThat(recordWithoutMetadata.getKeyValues(METADATA_INDEX).getKey()).isEqualTo(METADATA_KEY);
+    assertThat(recordWithoutMetadata.getKeyValues(METADATA_INDEX).hasStringValue()).isFalse();
+
+    // Email Record assertions
     assertThat(emailRecord.getKeyValues(COORDINATOR_KEY_ID_INDEX))
         .isEqualTo(drKv(COORDINATOR_KEY_ID_KEY, "123"));
     assertThat(emailRecord.getKeyValues(EMAIL_INDEX)).isEqualTo(drKv(EMAIL_KEY, USER_EMAIL));
     // Address Record assertions
-    assertThat(addressRecord.getKeyValues(METADATA_INDEX).getKey()).isEqualTo(METADATA_KEY);
-    assertThat(addressRecord.getKeyValues(METADATA_INDEX).hasStringValue()).isFalse();
     assertThat(addressRecord.getKeyValues(COORDINATOR_KEY_ID_INDEX))
         .isEqualTo(drKv(COORDINATOR_KEY_ID_KEY, "124"));
     assertThat(addressRecord.getKeyValues(FIRST_NAME_INDEX))
@@ -1260,6 +1276,205 @@ public final class ConfidentialMatchDataRecordParserImplTest {
     assertThat(resultList.get(0).getErrorCode()).isEqualTo(PROTO_MATCH_KEY_HAS_BAD_CHILD_FIELDS);
   }
 
+  @Test
+  public void
+      parse_withMissingChildFieldsError_metadataPassthroughFeatureFlagTrueSchemaFlagTrue_SetsRowLevelMetadata()
+          throws Exception {
+    ConfidentialMatchDataRecordParserImpl parser =
+        getConfidentialMatchDataRecordParserEncrypted(
+            "testdata/mic_proto_schema_encrypted_passthrough_metadata_true.json",
+            TEST_GCP_ENCRYPTION_METADATA,
+            /* passthroughMetadata= */ true);
+    CompositeField address = CompositeField.newBuilder().setKey("address").build();
+    MatchKey addressKey =
+        MatchKey.newBuilder()
+            .setEncryptionKey(
+                EncryptionKey.newBuilder()
+                    .setWrappedKey(
+                        GcpWrappedKey.newBuilder()
+                            .setEncryptedDek("123")
+                            .setKekUri("fake.com")
+                            .build())
+                    .build())
+            .setCompositeField(address)
+            .build();
+    List<MatchKey> matchKeyList = Arrays.asList(addressKey);
+    ConfidentialMatchDataRecord cfmRecord =
+        ConfidentialMatchDataRecord.newBuilder()
+            .addAllMatchKeys(matchKeyList)
+            .addMetadata(kv(METADATA_KEY, FAKE_METADATA_VALUE))
+            .addMetadata(kv(METADATA_KEY, FAKE_METADATA_VALUE_2))
+            .build();
+
+    List<DataRecord> resultList = parser.parse(cfmRecord);
+
+    assertThat(resultList).hasSize(1);
+    DataRecord record = resultList.get(0);
+    assertThat(record.getErrorCode()).isEqualTo(PROTO_MATCH_KEY_HAS_BAD_CHILD_FIELDS);
+    assertThat(record.hasRowLevelMetadata()).isTrue();
+    assertThat(record.getRowLevelMetadata().getMetadataList())
+        .containsExactly(
+            drKv(METADATA_KEY, FAKE_METADATA_VALUE), drKv(METADATA_KEY, FAKE_METADATA_VALUE_2));
+  }
+
+  @Test
+  public void
+      parse_withError_unencrypted_metadataPassthroughFeatureFlagTrueSchemaFlagNotSet_doesNotSetRowLevelMetadata()
+          throws Exception {
+    // proto_passthrough_metadata_enabled flag not set in the schema
+    String schemaPath = "testdata/mic_proto_schema_unencrypted.json";
+    EncryptionMetadata encryptionMetadata = null;
+    boolean passthroughMetadataFlag = true;
+    JobResultCode expectedErrorCode = PROTO_MISSING_MATCH_KEYS;
+    ConfidentialMatchDataRecordParserImpl parser =
+        createParser(schemaPath, encryptionMetadata, passthroughMetadataFlag);
+    ConfidentialMatchDataRecord cfmRecord =
+        ConfidentialMatchDataRecord.newBuilder()
+            .addMetadata(kv(METADATA_KEY, FAKE_METADATA_VALUE))
+            .addMetadata(kv(METADATA_KEY, FAKE_METADATA_VALUE_2))
+            .build();
+
+    List<DataRecord> resultList = parser.parse(cfmRecord);
+
+    assertThat(resultList).hasSize(1);
+    DataRecord record = resultList.get(0);
+    assertThat(record.getErrorCode()).isEqualTo(expectedErrorCode);
+    // If row_level_metadata is not expected, its metadata list should be empty.
+    assertThat(record.getRowLevelMetadata().getMetadataList()).isEmpty();
+  }
+
+  @Test
+  public void
+      parse_withError_metadataPassthroughFeatureFlagFalseSchemaFlagNotSet_doesNotSetRowLevelMetadata()
+          throws Exception {
+    // proto_passthrough_metadata_enabled flag not set in the schema
+    String schemaPath = "testdata/mic_proto_schema_encrypted.json";
+    EncryptionMetadata encryptionMetadata = TEST_GCP_ENCRYPTION_METADATA;
+    boolean passthroughMetadataFlag = false;
+    JobResultCode expectedErrorCode = PROTO_MISSING_MATCH_KEYS;
+    ConfidentialMatchDataRecordParserImpl parser =
+        createParser(schemaPath, encryptionMetadata, passthroughMetadataFlag);
+    ConfidentialMatchDataRecord cfmRecord =
+        ConfidentialMatchDataRecord.newBuilder()
+            .addMetadata(kv(METADATA_KEY, FAKE_METADATA_VALUE))
+            .addMetadata(kv(METADATA_KEY, FAKE_METADATA_VALUE_2))
+            .build();
+
+    List<DataRecord> resultList = parser.parse(cfmRecord);
+
+    assertThat(resultList).hasSize(1);
+    DataRecord record = resultList.get(0);
+    assertThat(record.getErrorCode()).isEqualTo(expectedErrorCode);
+    // If row_level_metadata is not expected, its metadata list should be empty.
+    assertThat(record.getRowLevelMetadata().getMetadataList()).isEmpty();
+  }
+
+  @Test
+  public void
+      parse_withError_metadataPassthroughFeatureFlagTrueSchemaFlagNotSet_doesNotSetRowLevelMetadata()
+          throws Exception {
+    // proto_passthrough_metadata_enabled flag not set in the schema
+    String schemaPath = "testdata/mic_proto_schema_encrypted.json";
+    EncryptionMetadata encryptionMetadata = TEST_GCP_ENCRYPTION_METADATA;
+    boolean passthroughMetadataFlag = true;
+    JobResultCode expectedErrorCode = PROTO_MISSING_MATCH_KEYS;
+    ConfidentialMatchDataRecordParserImpl parser =
+        createParser(schemaPath, encryptionMetadata, passthroughMetadataFlag);
+    ConfidentialMatchDataRecord cfmRecord =
+        ConfidentialMatchDataRecord.newBuilder()
+            .addMetadata(kv(METADATA_KEY, FAKE_METADATA_VALUE))
+            .addMetadata(kv(METADATA_KEY, FAKE_METADATA_VALUE_2))
+            .build();
+
+    List<DataRecord> resultList = parser.parse(cfmRecord);
+
+    assertThat(resultList).hasSize(1);
+    DataRecord record = resultList.get(0);
+    assertThat(record.getErrorCode()).isEqualTo(expectedErrorCode);
+    // If row_level_metadata is not expected, its metadata list should be empty.
+    assertThat(record.getRowLevelMetadata().getMetadataList()).isEmpty();
+  }
+
+  @Test
+  public void
+      parse_withError_metadataPassthroughFeatureFlagTrueSchemaFlagFalse_doesNotSetRowLevelMetadata()
+          throws Exception {
+    // proto_passthrough_metadata_enabled flag is false in the schema
+    String schemaPath = "testdata/mic_proto_schema_encrypted_passthrough_metadata_false.json";
+    EncryptionMetadata encryptionMetadata = TEST_GCP_ENCRYPTION_METADATA;
+    boolean passthroughMetadataFlag = true;
+    JobResultCode expectedErrorCode = PROTO_MISSING_MATCH_KEYS;
+    ConfidentialMatchDataRecordParserImpl parser =
+        createParser(schemaPath, encryptionMetadata, passthroughMetadataFlag);
+    ConfidentialMatchDataRecord cfmRecord =
+        ConfidentialMatchDataRecord.newBuilder()
+            .addMetadata(kv(METADATA_KEY, FAKE_METADATA_VALUE))
+            .addMetadata(kv(METADATA_KEY, FAKE_METADATA_VALUE_2))
+            .build();
+
+    List<DataRecord> resultList = parser.parse(cfmRecord);
+
+    assertThat(resultList).hasSize(1);
+    DataRecord record = resultList.get(0);
+    assertThat(record.getErrorCode()).isEqualTo(expectedErrorCode);
+    // If row_level_metadata is not expected, its metadata list should be empty.
+    assertThat(record.getRowLevelMetadata().getMetadataList()).isEmpty();
+  }
+
+  @Test
+  public void
+      parse_withError_metadataPassthroughFeatureFlagFalseSchemaFlagTrue_doesNotSetRowLevelMetadata()
+          throws Exception {
+    String schemaPath = "testdata/mic_proto_schema_encrypted_passthrough_metadata_true.json";
+    EncryptionMetadata encryptionMetadata = TEST_GCP_ENCRYPTION_METADATA;
+    boolean passthroughMetadataFlag = false;
+    JobResultCode expectedErrorCode = PROTO_MISSING_MATCH_KEYS;
+    ConfidentialMatchDataRecordParserImpl parser =
+        createParser(schemaPath, encryptionMetadata, passthroughMetadataFlag);
+    ConfidentialMatchDataRecord cfmRecord =
+        ConfidentialMatchDataRecord.newBuilder()
+            .addMetadata(kv(METADATA_KEY, FAKE_METADATA_VALUE))
+            .addMetadata(kv(METADATA_KEY, FAKE_METADATA_VALUE_2))
+            .build();
+
+    List<DataRecord> resultList = parser.parse(cfmRecord);
+
+    assertThat(resultList).hasSize(1);
+    DataRecord record = resultList.get(0);
+    assertThat(record.getErrorCode()).isEqualTo(expectedErrorCode);
+    // If row_level_metadata is not expected, its metadata list should be empty.
+    assertThat(record.getRowLevelMetadata().getMetadataList()).isEmpty();
+  }
+
+  @Test
+  public void parse_withError_metadataPassthroughFeatureFlagTrueSchemaFlagTrue_SetsRowLevelMetadata()
+      throws Exception {
+    String schemaPath = "testdata/mic_proto_schema_encrypted_passthrough_metadata_true.json";
+    EncryptionMetadata encryptionMetadata = TEST_GCP_ENCRYPTION_METADATA;
+    boolean passthroughMetadataFlag = true;
+    JobResultCode expectedErrorCode = PROTO_MISSING_MATCH_KEYS;
+    DataRecord.KeyValue[] expectedMetadata =
+        new DataRecord.KeyValue[] {
+          drKv(METADATA_KEY, FAKE_METADATA_VALUE), drKv(METADATA_KEY, FAKE_METADATA_VALUE_2)
+        };
+    ConfidentialMatchDataRecordParserImpl parser =
+        createParser(schemaPath, encryptionMetadata, passthroughMetadataFlag);
+    ConfidentialMatchDataRecord cfmRecord =
+        ConfidentialMatchDataRecord.newBuilder()
+            .addMetadata(kv(METADATA_KEY, FAKE_METADATA_VALUE))
+            .addMetadata(kv(METADATA_KEY, FAKE_METADATA_VALUE_2))
+            .build();
+
+    List<DataRecord> resultList = parser.parse(cfmRecord);
+
+    assertThat(resultList).hasSize(1);
+    DataRecord record = resultList.get(0);
+    assertThat(record.getErrorCode()).isEqualTo(expectedErrorCode);
+    assertThat(record.hasRowLevelMetadata()).isTrue();
+    assertThat(record.getRowLevelMetadata().getMetadataList())
+        .containsExactlyElementsIn(Arrays.asList(expectedMetadata));
+  }
+
   private ConfidentialMatchDataRecordParserImpl getConfidentialMatchDataRecordParserUnencrypted(
       String schemaPath) throws IOException {
     return createParser(schemaPath, null);
@@ -1267,11 +1482,23 @@ public final class ConfidentialMatchDataRecordParserImplTest {
 
   private ConfidentialMatchDataRecordParserImpl getConfidentialMatchDataRecordParserEncrypted(
       String schemaPath, EncryptionMetadata encryptionMetadata) throws IOException {
-    return createParser(schemaPath, encryptionMetadata);
+    return createParser(schemaPath, encryptionMetadata, false);
+  }
+
+  private ConfidentialMatchDataRecordParserImpl getConfidentialMatchDataRecordParserEncrypted(
+      String schemaPath, EncryptionMetadata encryptionMetadata, boolean passthroughMetadata)
+      throws IOException {
+    return createParser(schemaPath, encryptionMetadata, passthroughMetadata);
   }
 
   private ConfidentialMatchDataRecordParserImpl createParser(
       String schemaPath, EncryptionMetadata encryptionMetadata) throws IOException {
+    return createParser(schemaPath, encryptionMetadata, false);
+  }
+
+  private ConfidentialMatchDataRecordParserImpl createParser(
+      String schemaPath, EncryptionMetadata encryptionMetadata, boolean passthroughMetadata)
+      throws IOException {
     Schema schema =
         ProtoUtils.getProtoFromJson(
             Resources.toString(Objects.requireNonNull(getClass().getResource(schemaPath)), UTF_8),
@@ -1287,10 +1514,17 @@ public final class ConfidentialMatchDataRecordParserImplTest {
             .build();
     if (encryptionMetadata == null) {
       return new ConfidentialMatchDataRecordParserImpl(
-          MIC_MATCH_CONFIG, schema, SuccessMode.ALLOW_PARTIAL_SUCCESS);
+          MIC_MATCH_CONFIG,
+          schema,
+          SuccessMode.ALLOW_PARTIAL_SUCCESS,
+          FeatureFlags.builder().setProtoPassthroughMetadataEnabled(passthroughMetadata).build());
     } else {
       return new ConfidentialMatchDataRecordParserImpl(
-          MIC_MATCH_CONFIG, schema, SuccessMode.ALLOW_PARTIAL_SUCCESS, encryptionMetadata);
+          MIC_MATCH_CONFIG,
+          schema,
+          SuccessMode.ALLOW_PARTIAL_SUCCESS,
+          encryptionMetadata,
+          FeatureFlags.builder().setProtoPassthroughMetadataEnabled(passthroughMetadata).build());
     }
   }
 

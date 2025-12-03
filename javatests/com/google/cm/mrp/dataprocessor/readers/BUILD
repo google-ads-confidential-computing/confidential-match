@@ -63,6 +63,8 @@ java_test(
         "testdata/mic_proto_schema_custom_names.json",
         "testdata/mic_proto_schema_duplicate_aliases.json",
         "testdata/mic_proto_schema_encrypted.json",
+        "testdata/mic_proto_schema_encrypted_passthrough_metadata_false.json",
+        "testdata/mic_proto_schema_encrypted_passthrough_metadata_true.json",
         "testdata/mic_proto_schema_unencrypted.json",
         "testdata/mic_proto_schema_wrapped_encrypted.json",
         "testdata/mic_proto_schema_wrapped_with_aws_role_arn_encrypted.json",
@@ -70,6 +72,7 @@ java_test(
     ],
     deps = [
         "//java/com/google/cm/mrp:exceptions",
+        "//java/com/google/cm/mrp:featureFlags",
         "//java/com/google/cm/mrp:match_config_provider",
         "//java/com/google/cm/mrp/clients/cryptoclient",
         "//java/com/google/cm/mrp/dataprocessor",
@@ -107,6 +110,7 @@ java_test(
     ],
     deps = [
         "//java/com/google/cm/mrp:exceptions",
+        "//java/com/google/cm/mrp:featureFlags",
         "//java/com/google/cm/mrp:match_config_provider",
         "//java/com/google/cm/mrp/clients/cryptoclient",
         "//java/com/google/cm/mrp/dataprocessor",

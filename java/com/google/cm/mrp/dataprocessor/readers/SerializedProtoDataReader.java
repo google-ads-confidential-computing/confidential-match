@@ -28,6 +28,7 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.ROLE_AR
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WIP_MISSING_IN_RECORD;
 import static com.google.cm.mrp.dataprocessor.common.Constants.ROW_MARKER_COLUMN_NAME;
 
+import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.JobProcessorException;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.ConfidentialMatchDataRecord;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionColumns;
@@ -89,7 +90,8 @@ public final class SerializedProtoDataReader extends BaseDataReader {
       @Assisted Schema schema,
       @Assisted String name,
       @Assisted MatchConfig matchConfig,
-      @Assisted SuccessMode successMode) {
+      @Assisted SuccessMode successMode,
+      @Assisted FeatureFlags featureFlags) {
     this.dataChunkSize = dataChunkSize;
     this.inputStream = inputStream;
     this.schema = schema;
@@ -99,7 +101,7 @@ public final class SerializedProtoDataReader extends BaseDataReader {
     this.successMode = successMode;
     this.confidentialMatchDataRecordParser =
         confidentialMatchDataRecordParserFactory.create(
-            matchConfig, this.internalSchema, this.successMode);
+            matchConfig, this.internalSchema, this.successMode, featureFlags);
     this.decrypter = Optional.empty();
   }
 
@@ -113,7 +115,8 @@ public final class SerializedProtoDataReader extends BaseDataReader {
       @Assisted MatchConfig matchConfig,
       @Assisted SuccessMode successMode,
       @Assisted EncryptionMetadata encryptionMetadata,
-      @Assisted CryptoClient cryptoClient) {
+      @Assisted CryptoClient cryptoClient,
+      @Assisted FeatureFlags featureFlags) {
     this.dataChunkSize = dataChunkSize;
     this.inputStream = inputStream;
     this.schema = schema;
@@ -131,7 +134,11 @@ public final class SerializedProtoDataReader extends BaseDataReader {
                 internalSchema));
     this.confidentialMatchDataRecordParser =
         confidentialMatchDataRecordParserFactory.create(
-            matchConfig, this.internalSchema, this.successMode, encryptionMetadata);
+            matchConfig,
+            this.internalSchema,
+            this.successMode,
+            encryptionMetadata,
+            featureFlags);
   }
 
   /** Name of the input file. */

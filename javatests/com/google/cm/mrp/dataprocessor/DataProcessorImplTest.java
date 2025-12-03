@@ -177,7 +177,7 @@ public final class DataProcessorImplTest {
 
   @Test
   public void process_readsAndProcessesAllDataChunks() throws Exception {
-    when(mockStreamDataSourceFactory.create(eq(CM_CONFIG), eq(DEFAULT_PARAMS)))
+    when(mockStreamDataSourceFactory.create(eq(CM_CONFIG), eq(DEFAULT_PARAMS), eq(DEFAULT_FEATURE_FLAGS)))
         .thenReturn(mockStreamDataSource);
     when(mockStreamDataSource.getSchema()).thenReturn(DEFAULT_SCHEMA);
     when(mockStreamDataSource.size()).thenReturn(2);
@@ -225,7 +225,7 @@ public final class DataProcessorImplTest {
     verify(mockDataDestinationFactory).create(destinationInfoCaptor.capture());
     verify(mockLookupDataSourceFactory).create(CM_CONFIG, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS);
     verify(mockLookupDataSource, times(2)).lookup(mockDataChunk, Optional.empty());
-    verify(mockStreamDataSourceFactory).create(eq(CM_CONFIG), eq(DEFAULT_PARAMS));
+    verify(mockStreamDataSourceFactory).create(eq(CM_CONFIG), eq(DEFAULT_PARAMS), eq(DEFAULT_FEATURE_FLAGS));
     verify(mockStreamDataSource, times(5)).size();
     verify(mockStreamDataSource, times(2)).next();
     verify(mockStreamDataSource, times(1)).getSchema();
@@ -257,7 +257,7 @@ public final class DataProcessorImplTest {
         .thenReturn(mockDataSourceFormatter);
     when(mockDataSourcePreparerFactory.create(any(), any())).thenReturn(mockDataSourcePreparer);
     when(mockDataSourcePreparer.prepare(any())).thenReturn(mockDataChunk);
-    when(mockStreamDataSourceFactory.create(eq(CM_CONFIG), eq(DEFAULT_PARAMS)))
+    when(mockStreamDataSourceFactory.create(eq(CM_CONFIG), eq(DEFAULT_PARAMS), eq(micFeatureFlag)))
         .thenReturn(mockStreamDataSource);
     when(mockStreamDataSource.size()).thenReturn(2);
     when(mockStreamDataSource.next()).thenReturn(mockDataReader);
@@ -322,7 +322,7 @@ public final class DataProcessorImplTest {
     verify(mockDataDestinationFactory).create(destinationInfoCaptor.capture());
     verify(mockLookupDataSourceFactory).create(CM_CONFIG, micFeatureFlag, DEFAULT_PARAMS);
     verify(mockLookupDataSource, times(2)).lookup(mockDataChunk, Optional.empty());
-    verify(mockStreamDataSourceFactory).create(eq(CM_CONFIG), eq(DEFAULT_PARAMS));
+    verify(mockStreamDataSourceFactory).create(eq(CM_CONFIG), eq(DEFAULT_PARAMS), eq(micFeatureFlag));
     verify(mockStreamDataSource, times(5)).size();
     verify(mockStreamDataSource, times(2)).next();
     verify(mockStreamDataSource, times(5)).getSchema();
@@ -356,7 +356,7 @@ public final class DataProcessorImplTest {
   public void process_adhMatchConfig_readsAndProcessesAllDataChunks() throws Exception {
     MatchConfig matchConfig = MatchConfigProvider.getMatchConfig("adh");
     List<String> outputColumns = newOutputColumnsList(matchConfig);
-    when(mockStreamDataSourceFactory.create(eq(matchConfig), eq(DEFAULT_PARAMS)))
+    when(mockStreamDataSourceFactory.create(eq(matchConfig), eq(DEFAULT_PARAMS), eq(DEFAULT_FEATURE_FLAGS)))
         .thenReturn(mockStreamDataSource);
     when(mockStreamDataSource.getSchema()).thenReturn(DEFAULT_SCHEMA);
     when(mockStreamDataSource.size()).thenReturn(2);
@@ -404,7 +404,7 @@ public final class DataProcessorImplTest {
     verify(mockDataDestinationFactory).create(destinationInfoCaptor.capture());
     verify(mockLookupDataSourceFactory).create(matchConfig, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS);
     verify(mockLookupDataSource, times(2)).lookup(mockDataChunk, Optional.empty());
-    verify(mockStreamDataSourceFactory).create(eq(matchConfig), eq(DEFAULT_PARAMS));
+    verify(mockStreamDataSourceFactory).create(eq(matchConfig), eq(DEFAULT_PARAMS), eq(DEFAULT_FEATURE_FLAGS));
     verify(mockStreamDataSource, times(1)).getSchema();
     verify(mockStreamDataSource, times(5)).size();
     verify(mockStreamDataSource, times(2)).next();
@@ -441,7 +441,7 @@ public final class DataProcessorImplTest {
                     .setColumnType(ColumnType.STRING))
             .build();
     List<String> outputColumns = newOutputColumnsList(matchConfig);
-    when(mockStreamDataSourceFactory.create(eq(matchConfig), eq(DEFAULT_PARAMS)))
+    when(mockStreamDataSourceFactory.create(eq(matchConfig), eq(DEFAULT_PARAMS), eq(DEFAULT_FEATURE_FLAGS)))
         .thenReturn(mockStreamDataSource);
     when(mockStreamDataSource.getSchema()).thenReturn(DEFAULT_SCHEMA);
     when(mockStreamDataSource.size()).thenReturn(2);
@@ -489,7 +489,7 @@ public final class DataProcessorImplTest {
     verify(mockDataDestinationFactory).create(destinationInfoCaptor.capture());
     verify(mockLookupDataSourceFactory).create(matchConfig, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS);
     verify(mockLookupDataSource, times(2)).lookup(mockDataChunk, Optional.empty());
-    verify(mockStreamDataSourceFactory).create(eq(matchConfig), eq(DEFAULT_PARAMS));
+    verify(mockStreamDataSourceFactory).create(eq(matchConfig), eq(DEFAULT_PARAMS), eq(DEFAULT_FEATURE_FLAGS));
     verify(mockStreamDataSource, times(5)).size();
     verify(mockStreamDataSource, times(2)).next();
     verify(mockStreamDataSource, times(1)).getSchema();
@@ -522,7 +522,7 @@ public final class DataProcessorImplTest {
             .setSuccessConfig(
                 SuccessConfig.newBuilder().setSuccessMode(SuccessMode.ALLOW_PARTIAL_SUCCESS))
             .build();
-    when(mockStreamDataSourceFactory.create(eq(matchConfig), eq(DEFAULT_PARAMS)))
+    when(mockStreamDataSourceFactory.create(eq(matchConfig), eq(DEFAULT_PARAMS), eq(DEFAULT_FEATURE_FLAGS)))
         .thenReturn(mockStreamDataSource);
     when(mockStreamDataSource.size()).thenReturn(1);
     when(mockStreamDataSource.next()).thenReturn(mockDataReader);
@@ -563,7 +563,7 @@ public final class DataProcessorImplTest {
     verify(mockDataMatcherFactory).create(matchConfig, DEFAULT_PARAMS);
     verify(mockDataDestinationFactory).create(destinationInfoCaptor.capture());
     verify(mockLookupDataSourceFactory).create(matchConfig, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS);
-    verify(mockStreamDataSourceFactory).create(eq(matchConfig), eq(DEFAULT_PARAMS));
+    verify(mockStreamDataSourceFactory).create(eq(matchConfig), eq(DEFAULT_PARAMS), eq(DEFAULT_FEATURE_FLAGS));
     verify(mockStreamDataSource, times(3)).size();
     verify(mockStreamDataSource).next();
     assertThat(destinationInfoCaptor.getValue().getGcsDestination().getOutputBucket())
@@ -589,7 +589,7 @@ public final class DataProcessorImplTest {
 
   @Test
   public void process_whenStreamDataSourceFailsThenThrows() {
-    when(mockStreamDataSourceFactory.create(eq(CM_CONFIG), eq(DEFAULT_PARAMS)))
+    when(mockStreamDataSourceFactory.create(eq(CM_CONFIG), eq(DEFAULT_PARAMS), eq(DEFAULT_FEATURE_FLAGS) ))
         .thenReturn(mockStreamDataSource);
     when(mockStreamDataSource.size()).thenReturn(1);
     when(mockStreamDataSource.next()).thenThrow(RuntimeException.class);
@@ -613,7 +613,7 @@ public final class DataProcessorImplTest {
     verify(mockDataMatcherFactory).create(CM_CONFIG, DEFAULT_PARAMS);
     verify(mockDataDestinationFactory).create(destinationInfoCaptor.capture());
     verify(mockLookupDataSourceFactory).create(CM_CONFIG, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS);
-    verify(mockStreamDataSourceFactory).create(eq(CM_CONFIG), eq(DEFAULT_PARAMS));
+    verify(mockStreamDataSourceFactory).create(eq(CM_CONFIG), eq(DEFAULT_PARAMS), eq(DEFAULT_FEATURE_FLAGS));
     verify(mockStreamDataSource, times(3)).size();
     verify(mockStreamDataSource).next();
     assertThat(destinationInfoCaptor.getValue().getGcsDestination().getOutputBucket())
@@ -639,7 +639,7 @@ public final class DataProcessorImplTest {
 
   @Test
   public void process_whenDataMatcherFailsThenThrows() throws Exception {
-    when(mockStreamDataSourceFactory.create(eq(CM_CONFIG), eq(DEFAULT_PARAMS)))
+    when(mockStreamDataSourceFactory.create(eq(CM_CONFIG), eq(DEFAULT_PARAMS), eq(DEFAULT_FEATURE_FLAGS) ))
         .thenReturn(mockStreamDataSource);
     when(mockStreamDataSource.size()).thenReturn(1);
     when(mockStreamDataSource.next()).thenReturn(mockDataReader);
@@ -687,7 +687,7 @@ public final class DataProcessorImplTest {
     verify(mockDataDestinationFactory).create(destinationInfoCaptor.capture());
     verify(mockLookupDataSourceFactory).create(CM_CONFIG, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS);
     verify(mockLookupDataSource).lookup(mockDataChunk, Optional.empty());
-    verify(mockStreamDataSourceFactory).create(eq(CM_CONFIG), eq(DEFAULT_PARAMS));
+    verify(mockStreamDataSourceFactory).create(eq(CM_CONFIG), eq(DEFAULT_PARAMS), eq(DEFAULT_FEATURE_FLAGS));
     verify(mockStreamDataSource, times(3)).size();
     verify(mockStreamDataSource).next();
     assertThat(destinationInfoCaptor.getValue().getGcsDestination().getOutputBucket())
@@ -713,7 +713,7 @@ public final class DataProcessorImplTest {
 
   @Test
   public void process_whenDataWriterFailsThenThrows() throws Exception {
-    when(mockStreamDataSourceFactory.create(eq(CM_CONFIG), eq(DEFAULT_PARAMS)))
+    when(mockStreamDataSourceFactory.create(eq(CM_CONFIG), eq(DEFAULT_PARAMS), eq(DEFAULT_FEATURE_FLAGS) ))
         .thenReturn(mockStreamDataSource);
     when(mockStreamDataSource.size()).thenReturn(1);
     when(mockStreamDataSource.next()).thenReturn(mockDataReader);
@@ -764,7 +764,7 @@ public final class DataProcessorImplTest {
     verify(mockDataDestinationFactory).create(destinationInfoCaptor.capture());
     verify(mockLookupDataSourceFactory).create(CM_CONFIG, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS);
     verify(mockLookupDataSource).lookup(mockDataChunk, Optional.empty());
-    verify(mockStreamDataSourceFactory).create(eq(CM_CONFIG), eq(DEFAULT_PARAMS));
+    verify(mockStreamDataSourceFactory).create(eq(CM_CONFIG), eq(DEFAULT_PARAMS), eq(DEFAULT_FEATURE_FLAGS));
     verify(mockStreamDataSource, times(3)).size();
     verify(mockStreamDataSource).next();
     assertThat(destinationInfoCaptor.getValue().getGcsDestination().getOutputBucket())

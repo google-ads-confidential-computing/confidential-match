@@ -16,6 +16,7 @@
 
 package com.google.cm.mrp.dataprocessor;
 
+import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.EncryptionKeyColumns;
@@ -54,7 +55,8 @@ public interface DataReaderFactory {
       Schema schema,
       String name,
       MatchConfig matchConfig,
-      SuccessMode successMode);
+      SuccessMode successMode,
+      FeatureFlags featureFlags);
 
   /** Factory method for constructing {@link SerializedProtoDataReader} objects with encryption. */
   @Named("serializedProtoWithEncryption")
@@ -65,5 +67,6 @@ public interface DataReaderFactory {
       MatchConfig matchConfig,
       SuccessMode successMode,
       EncryptionMetadata encryptionMetadata,
-      CryptoClient cryptoClient);
+      CryptoClient cryptoClient,
+      FeatureFlags featureFlags);
 }

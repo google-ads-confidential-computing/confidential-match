@@ -40,6 +40,7 @@ import static com.google.cm.mrp.dataprocessor.readers.ConfidentialMatchDataRecor
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 
+import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.JobProcessorException;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeChildField;
 import com.google.cm.mrp.api.ConfidentialMatchDataRecordProto.CompositeField;
@@ -106,6 +107,7 @@ public final class ConfidentialMatchDataRecordParserImpl
   private final ImmutableSet<String> metadataNameSet;
   private final SuccessMode successMode;
   private final Optional<WrappedKeyInfo> requestWrappedKeyInfo;
+  private final boolean protoPassthroughMetadataEnabled;
 
   /**
    * Constructs a ConfidentialMatchDataRecordParser without encryption metadata for parsing {@link
@@ -115,7 +117,8 @@ public final class ConfidentialMatchDataRecordParserImpl
   public ConfidentialMatchDataRecordParserImpl(
       @Assisted MatchConfig matchConfig,
       @Assisted Schema schema,
-      @Assisted SuccessMode successMode) {
+      @Assisted SuccessMode successMode,
+      @Assisted FeatureFlags featureFlags) {
     this.columnList = getColumnList(schema);
     this.columnNameSet = getColumnNameSet(schema);
     this.columnNameToGroupNumber = getColumnNameToGroupNumberMap(schema);
@@ -126,6 +129,9 @@ public final class ConfidentialMatchDataRecordParserImpl
     this.metadataNameSet = getMetadataNameSet(schema);
     this.successMode = successMode;
     this.requestWrappedKeyInfo = Optional.empty();
+    this.protoPassthroughMetadataEnabled =
+        featureFlags.protoPassthroughMetadataEnabled()
+            && schema.getProtoPassthroughMetadataEnabled();
   }
 
   /**
@@ -137,7 +143,8 @@ public final class ConfidentialMatchDataRecordParserImpl
       @Assisted MatchConfig matchConfig,
       @Assisted Schema schema,
       @Assisted SuccessMode successMode,
-      @Assisted EncryptionMetadata encryptionMetadata) {
+      @Assisted EncryptionMetadata encryptionMetadata,
+      @Assisted FeatureFlags featureFlags) {
     this.columnList = getColumnList(schema);
     this.columnNameSet = getColumnNameSet(schema);
     this.columnNameToGroupNumber = getColumnNameToGroupNumberMap(schema);
@@ -152,6 +159,9 @@ public final class ConfidentialMatchDataRecordParserImpl
         encryptionMetadata.getEncryptionKeyInfo().hasWrappedKeyInfo()
             ? Optional.of(encryptionMetadata.getEncryptionKeyInfo().getWrappedKeyInfo())
             : Optional.empty();
+    this.protoPassthroughMetadataEnabled =
+        featureFlags.protoPassthroughMetadataEnabled()
+            && schema.getProtoPassthroughMetadataEnabled();
   }
 
   /**
@@ -166,7 +176,7 @@ public final class ConfidentialMatchDataRecordParserImpl
     } catch (JobProcessorException e) {
       if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS) {
         logger.info(e.getMessage());
-        return ImmutableList.of(generateErrorDataRecord(e.getErrorCode(), rowId));
+        return ImmutableList.of(generateErrorDataRecord(cfmDataRecord, e.getErrorCode(), rowId));
       }
       throw e;
     }
@@ -193,7 +203,10 @@ public final class ConfidentialMatchDataRecordParserImpl
             PROTO_MATCH_KEY_MISSING_FIELD);
       }
     }
-    Map<String, KeyValue> metadataMap = validateAndExtractMetadata(cfmDataRecord);
+    Map<String, KeyValue> metadataMap =
+        protoPassthroughMetadataEnabled
+            ? ImmutableMap.of()
+            : validateAndExtractMetadata(cfmDataRecord);
     return buildInternalRecords(
         cfmDataRecord, rowId, singleFieldMatchKeysMap, compositeFieldMatchKeysMap, metadataMap);
   }
@@ -304,6 +317,7 @@ public final class ConfidentialMatchDataRecordParserImpl
       for (int fieldIndex = 0; fieldIndex < maxIndex; fieldIndex++) {
         DataRecord dataRecord =
             buildDataRecord(
+                cfmDataRecord,
                 encryptionKey,
                 rowId,
                 columnToSingleFieldMatchKeys,
@@ -321,6 +335,7 @@ public final class ConfidentialMatchDataRecordParserImpl
   }
 
   private DataRecord buildDataRecord(
+      ConfidentialMatchDataRecord cfmDataRecord,
       EncryptionKey encryptionKey,
       String rowId,
       Map<String, List<MatchKey>> columnToSingleFieldMatchKeys,
@@ -377,11 +392,13 @@ public final class ConfidentialMatchDataRecordParserImpl
       }
     }
     return createDataRecord(
+        cfmDataRecord,
         keyValues,
         rowLevelErrorCode,
         encryptionLevel,
         singleFieldMetadataMap,
-        compositeFieldMetadataMap);
+        compositeFieldMetadataMap,
+        firstDataRecord);
   }
 
   private void populateSingleFieldMetadataMap(
@@ -479,7 +496,7 @@ public final class ConfidentialMatchDataRecordParserImpl
     Optional<String> columnAlias =
         column.hasColumnAlias() ? Optional.of(column.getColumnAlias()) : Optional.empty();
 
-    if (metadataNameSet.contains(columnName)) {
+    if (!protoPassthroughMetadataEnabled && metadataNameSet.contains(columnName)) {
       return handleMetadata(columnName, metadataMap, firstDataRecord);
     } else if (columnName.equals(ROW_MARKER_COLUMN_NAME)) {
       return DataRecord.KeyValue.newBuilder()
@@ -538,11 +555,13 @@ public final class ConfidentialMatchDataRecordParserImpl
   }
 
   private DataRecord createDataRecord(
+      ConfidentialMatchDataRecord cfmDataRecord,
       List<DataRecord.KeyValue> keyValues,
       Optional<JobResultCode> rowLevelErrorCode,
       ProtoEncryptionLevel encryptionLevel,
       Map<Integer, DataRecord.Metadata> singleFieldMetadataMap,
-      Map<Integer, DataRecord.Metadata> compositeFieldMetadataMap) {
+      Map<Integer, DataRecord.Metadata> compositeFieldMetadataMap,
+      boolean firstDataRecord) {
     ProcessingMetadata.Builder processingMetadata = ProcessingMetadata.newBuilder();
     if (!encryptionKeyAliasesToType.isEmpty()
         && encryptionLevel != ProtoEncryptionLevel.UNSPECIFIED_ENCRYPTION_LEVEL) {
@@ -562,6 +581,9 @@ public final class ConfidentialMatchDataRecordParserImpl
         fieldLevelMetadata.putAllCompositeFieldMetadata(compositeFieldMetadataMap);
       }
       dataRecordBuilder.setFieldLevelMetadata(fieldLevelMetadata.build());
+    }
+    if (protoPassthroughMetadataEnabled && firstDataRecord) {
+      dataRecordBuilder.setRowLevelMetadata(toDataRecordMetadata(cfmDataRecord.getMetadataList()));
     }
     if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS && rowLevelErrorCode.isPresent()) {
       dataRecordBuilder.setErrorCode(rowLevelErrorCode.get());
@@ -816,6 +838,24 @@ public final class ConfidentialMatchDataRecordParserImpl
     return dataRecordKeyValueBuilder.build();
   }
 
+  /**
+   * Converts a list of {@link KeyValue} to a {@link DataRecord.Metadata}.
+   *
+   * @param metadataList The list of {@link KeyValue} to convert.
+   * @return A {@link DataRecord.Metadata} object.
+   */
+  private DataRecord.Metadata toDataRecordMetadata(List<KeyValue> metadataList) {
+    if (metadataList.isEmpty()) {
+      return DataRecord.Metadata.getDefaultInstance();
+    }
+    return DataRecord.Metadata.newBuilder()
+        .addAllMetadata(
+            metadataList.stream()
+                .map(cfmKeyValue -> toDataRecordKeyValue(cfmKeyValue))
+                .collect(toImmutableList()))
+        .build();
+  }
+
   private boolean isMissingEncryptionKeyColumnError(JobResultCode jobResultCode) {
     switch (jobResultCode) {
       case COORDINATOR_KEY_MISSING_IN_RECORD:
@@ -829,7 +869,8 @@ public final class ConfidentialMatchDataRecordParserImpl
     }
   }
 
-  private DataRecord generateErrorDataRecord(JobResultCode errorCode, String rowId) {
+  private DataRecord generateErrorDataRecord(
+      ConfidentialMatchDataRecord cfmDataRecord, JobResultCode errorCode, String rowId) {
     DataRecord.Builder errorRecordBuilder = DataRecord.newBuilder().setErrorCode(errorCode);
     for (Column column : columnList) {
       String columnName = column.getColumnName();
@@ -840,6 +881,12 @@ public final class ConfidentialMatchDataRecordParserImpl
         errorRecordBuilder.addKeyValues(
             DataRecord.KeyValue.newBuilder().setKey(columnName).build());
       }
+    }
+    if (protoPassthroughMetadataEnabled) {
+      // We want to pass through row level metadata in the error record so that
+      // the output record has the row level metadata even if parsing the input
+      // record fails.
+      errorRecordBuilder.setRowLevelMetadata(toDataRecordMetadata(cfmDataRecord.getMetadataList()));
     }
     return errorRecordBuilder.build();
   }

@@ -26,6 +26,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
@@ -44,6 +45,7 @@ import com.google.cloud.storage.StorageException;
 import com.google.cm.mrp.JobProcessorException;
 import com.google.cm.mrp.MatchConfigProvider;
 import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner;
+import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.backend.EncodingTypeProto.EncodingType;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo;
@@ -120,6 +122,7 @@ public class BlobStoreStreamDataSourceTest {
           .setEncodingType(EncodingType.BASE64)
           .setEncryptionMetadata(EncryptionMetadata.getDefaultInstance())
           .build();
+  private static final FeatureFlags DEFAULT_FEATURE_FLAGS = FeatureFlags.builder().build();
 
   @Rule public final MockitoRule mockito = MockitoJUnit.rule();
   @Mock private BlobStorageClient mockBlobStorageClient;
@@ -175,7 +178,8 @@ public class BlobStoreStreamDataSourceTest {
             any(Schema.class),
             startsWith(INPUT_PREFIX + FOLDER_DELIMITER + INPUT_FILE),
             eq(matchConfig),
-            any(SuccessMode.class)))
+            any(SuccessMode.class),
+            any(FeatureFlags.class)))
         .thenReturn(fakeSerializedProtoDataReader);
 
     DataReader result = blobStoreStreamDataSource.next();
@@ -189,7 +193,8 @@ public class BlobStoreStreamDataSourceTest {
             any(Schema.class),
             startsWith(INPUT_PREFIX + FOLDER_DELIMITER + INPUT_FILE),
             eq(matchConfig),
-            any(SuccessMode.class));
+            any(SuccessMode.class),
+            any(FeatureFlags.class));
     verifyNoMoreInteractions(mockBlobStorageClient, dataReaderFactory, mockInputStream);
   }
 
@@ -208,7 +213,8 @@ public class BlobStoreStreamDataSourceTest {
             any(Schema.class),
             startsWith(INPUT_PREFIX + FOLDER_DELIMITER + INPUT_FILE),
             eq(matchConfig),
-            any(SuccessMode.class)))
+            any(SuccessMode.class),
+            any(FeatureFlags.class)))
         .thenReturn(fakeSerializedProtoDataReader);
 
     JobProcessorException e =
@@ -331,7 +337,8 @@ public class BlobStoreStreamDataSourceTest {
             dataReaderFactory,
             matchConfig,
             DEFAULT_PARAMS,
-            aeadCryptoClient);
+            aeadCryptoClient,
+            DEFAULT_FEATURE_FLAGS);
 
     DataReader result = blobStoreStreamDataSource.next();
 
@@ -365,7 +372,8 @@ public class BlobStoreStreamDataSourceTest {
                     mockMetricClient,
                     dataReaderFactory,
                     matchConfig,
-                    DEFAULT_PARAMS));
+                    DEFAULT_PARAMS,
+                    DEFAULT_FEATURE_FLAGS));
 
     assertEquals(JobResultCode.MISSING_SCHEMA_ERROR, e.getErrorCode());
     assertFalse(e.isRetriable());
@@ -398,7 +406,8 @@ public class BlobStoreStreamDataSourceTest {
                     mockMetricClient,
                     dataReaderFactory,
                     matchConfig,
-                    DEFAULT_PARAMS));
+                    DEFAULT_PARAMS,
+                    DEFAULT_FEATURE_FLAGS));
 
     assertEquals(JobResultCode.SCHEMA_PERMISSIONS_ERROR, e.getErrorCode());
     assertFalse(e.isRetriable());
@@ -426,7 +435,8 @@ public class BlobStoreStreamDataSourceTest {
                     mockMetricClient,
                     dataReaderFactory,
                     matchConfig,
-                    DEFAULT_PARAMS));
+                    DEFAULT_PARAMS,
+                    DEFAULT_FEATURE_FLAGS));
 
     assertEquals(JobResultCode.SCHEMA_FILE_READ_ERROR, e.getErrorCode());
     assertTrue(e.isRetriable());
@@ -555,7 +565,8 @@ public class BlobStoreStreamDataSourceTest {
                     mockMetricClient,
                     dataReaderFactory,
                     matchConfig,
-                    DEFAULT_PARAMS));
+                    DEFAULT_PARAMS,
+                    DEFAULT_FEATURE_FLAGS));
 
     assertEquals(JobResultCode.INVALID_SCHEMA_FILE_ERROR, e.getErrorCode());
     assertFalse(e.isRetriable());
@@ -625,7 +636,12 @@ public class BlobStoreStreamDataSourceTest {
         .thenReturn(schemaInputStream);
     blobStoreStreamDataSource =
         new BlobStoreStreamDataSource(
-            mockBlobStorageClient, mockMetricClient, dataReaderFactory, matchConfig, parameters);
+            mockBlobStorageClient,
+            mockMetricClient,
+            dataReaderFactory,
+            matchConfig,
+            parameters,
+            DEFAULT_FEATURE_FLAGS);
   }
 
   private InputStream getSchemaStream(DataFormat dataFormat) {
@@ -654,10 +670,13 @@ public class BlobStoreStreamDataSourceTest {
 
   private SerializedProtoDataReader getFakeSerializedProtoReader(String name) throws IOException {
     matchConfig = MatchConfigProvider.getMatchConfig("customer_match");
-    when(mockCfmDataRecordParserFactory.create(any(), any(), any()))
+    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any(FeatureFlags.class)))
         .thenReturn(
             new ConfidentialMatchDataRecordParserImpl(
-                matchConfig, Schema.getDefaultInstance(), SuccessMode.ONLY_COMPLETE_SUCCESS));
+                matchConfig,
+                Schema.getDefaultInstance(),
+                SuccessMode.ONLY_COMPLETE_SUCCESS,
+                DEFAULT_FEATURE_FLAGS));
     return new SerializedProtoDataReader(
         mockCfmDataRecordParserFactory,
         1000,
@@ -665,6 +684,7 @@ public class BlobStoreStreamDataSourceTest {
         Schema.getDefaultInstance(),
         name,
         matchConfig,
-        SuccessMode.ONLY_COMPLETE_SUCCESS);
+        SuccessMode.ONLY_COMPLETE_SUCCESS,
+        DEFAULT_FEATURE_FLAGS);
   }
 }

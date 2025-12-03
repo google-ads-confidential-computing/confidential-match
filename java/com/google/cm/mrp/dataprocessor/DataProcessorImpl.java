@@ -153,12 +153,12 @@ public final class DataProcessorImpl implements DataProcessor {
               matchConfig, cryptoClient.get(), featureFlags, jobParameters);
       logger.info("Job {}: Created LookupDataSource", jobRequestId);
       streamDataSource =
-          streamDataSourceFactory.create(matchConfig, jobParameters, cryptoClient.get());
+          streamDataSourceFactory.create(matchConfig, jobParameters, cryptoClient.get(), featureFlags);
       logger.info("Job {}: Created StreamDataSource", jobRequestId);
     } else {
       lookupDataSource = lookupDataSourceFactory.create(matchConfig, featureFlags, jobParameters);
       logger.info("Job {}: Created LookupDataSource", jobRequestId);
-      streamDataSource = streamDataSourceFactory.create(matchConfig, jobParameters);
+      streamDataSource = streamDataSourceFactory.create(matchConfig, jobParameters, featureFlags);
       logger.info("Job {}: Created StreamDataSource", jobRequestId);
     }
     ImmutableList.Builder<CompletableFuture<ImmutableList<MatchStatistics>>> completableFutures =

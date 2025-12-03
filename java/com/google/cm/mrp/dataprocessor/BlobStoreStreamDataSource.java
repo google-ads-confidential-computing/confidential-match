@@ -33,6 +33,7 @@ import static java.util.concurrent.TimeUnit.MILLISECONDS;
 
 import com.google.api.client.googleapis.json.GoogleJsonResponseException;
 import com.google.cloud.storage.StorageException;
+import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.JobProcessorException;
 import com.google.cm.mrp.api.CreateJobParametersProto.JobParameters.DataOwner;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
@@ -92,6 +93,7 @@ public final class BlobStoreStreamDataSource implements StreamDataSource {
   private final Iterator<String> blobIterator;
   private final Schema schema;
   private final int size;
+  private final FeatureFlags featureFlags;
 
   /** Constructor for {@link BlobStoreStreamDataSource}. */
   @AssistedInject
@@ -100,7 +102,9 @@ public final class BlobStoreStreamDataSource implements StreamDataSource {
       MetricClient metricClient,
       DataReaderFactory dataReaderFactory,
       @Assisted MatchConfig matchConfig,
-      @Assisted JobParameters jobParameters) {
+      @Assisted JobParameters jobParameters,
+      @Assisted FeatureFlags featureFlags) {
+    this.featureFlags = featureFlags;
     this.blobStorageClient = blobStorageClient;
     this.metricClient = metricClient;
     this.dataReaderFactory = dataReaderFactory;
@@ -124,7 +128,9 @@ public final class BlobStoreStreamDataSource implements StreamDataSource {
       DataReaderFactory dataReaderFactory,
       @Assisted MatchConfig matchConfig,
       @Assisted JobParameters jobParameters,
-      @Assisted CryptoClient cryptoClient) {
+      @Assisted CryptoClient cryptoClient,
+      @Assisted FeatureFlags featureFlags) {
+    this.featureFlags = featureFlags;
     this.blobStorageClient = blobStorageClient;
     this.metricClient = metricClient;
     this.dataReaderFactory = dataReaderFactory;
@@ -562,10 +568,11 @@ public final class BlobStoreStreamDataSource implements StreamDataSource {
               matchConfig,
               successMode,
               encryptionMetadata.get(),
-              cryptoClient.get());
+              cryptoClient.get(),
+              featureFlags);
         }
         return dataReaderFactory.createProtoDataReader(
-            gcsBlob, schema, blob, matchConfig, successMode);
+            gcsBlob, schema, blob, matchConfig, successMode, featureFlags);
       default:
         throw new JobProcessorException(
             "Invalid data format: " + schema.getDataFormat(), INVALID_DATA_FORMAT);

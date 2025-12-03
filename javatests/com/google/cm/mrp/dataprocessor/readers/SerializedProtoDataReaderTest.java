@@ -33,6 +33,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.Mockito.when;
 
 import com.google.cm.mrp.JobProcessorException;
@@ -63,6 +64,7 @@ import com.google.cm.mrp.clients.cryptoclient.AeadProvider;
 import com.google.cm.mrp.clients.cryptoclient.HybridCryptoClient;
 import com.google.cm.mrp.dataprocessor.converters.SchemaConverter;
 import com.google.cm.mrp.dataprocessor.models.DataChunk;
+import com.google.cm.mrp.FeatureFlags;
 import com.google.cm.mrp.testutils.AeadKeyGenerator;
 import com.google.cm.util.ProtoUtils;
 import com.google.common.collect.ImmutableList;
@@ -187,13 +189,14 @@ public final class SerializedProtoDataReaderTest {
     when(mockHybridEncryptionKeyService.getEncrypter(any())).thenReturn(getDefaultHybridEncrypt());
     when(mockHybridEncryptionKeyService.getDecrypter(any())).thenReturn(getDefaultHybridDecrypt());
     hybridCryptoClient = new HybridCryptoClient(mockHybridEncryptionKeyService);
-    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any()))
+    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any(), any(FeatureFlags.class)))
         .thenReturn(
             new ConfidentialMatchDataRecordParserImpl(
                 micMatchConfig,
                 generateInternalSchema(schema),
                 SuccessMode.ALLOW_PARTIAL_SUCCESS,
-                COORDINATOR_ENCRYPTION_METADATA));
+                COORDINATOR_ENCRYPTION_METADATA,
+                FeatureFlags.builder().build()));
 
     try (DataReader dataReader =
         new SerializedProtoDataReader(
@@ -205,7 +208,8 @@ public final class SerializedProtoDataReaderTest {
             micMatchConfig,
             SuccessMode.ALLOW_PARTIAL_SUCCESS,
             COORDINATOR_ENCRYPTION_METADATA,
-            hybridCryptoClient)) {
+            hybridCryptoClient,
+            FeatureFlags.builder().build())) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
           .containsExactly(
@@ -287,13 +291,14 @@ public final class SerializedProtoDataReaderTest {
       writer.write(base64().encode(testRecord.toByteArray()));
       writer.newLine();
     }
-    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any()))
+    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any(), any(FeatureFlags.class)))
         .thenReturn(
             new ConfidentialMatchDataRecordParserImpl(
                 micMatchConfig,
                 generateInternalSchema(schema),
                 SuccessMode.ALLOW_PARTIAL_SUCCESS,
-                WRAPPED_ENCRYPTION_METADATA));
+                WRAPPED_ENCRYPTION_METADATA,
+                FeatureFlags.builder().build()));
 
     try (DataReader dataReader =
         new SerializedProtoDataReader(
@@ -305,7 +310,8 @@ public final class SerializedProtoDataReaderTest {
             micMatchConfig,
             SuccessMode.ALLOW_PARTIAL_SUCCESS,
             WRAPPED_ENCRYPTION_METADATA,
-            aeadCryptoClient)) {
+            aeadCryptoClient,
+            FeatureFlags.builder().build())) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
           .containsExactly(
@@ -394,13 +400,14 @@ public final class SerializedProtoDataReaderTest {
       writer.write(base64().encode(testRecord.toByteArray()));
       writer.newLine();
     }
-    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any()))
+    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any(), any(FeatureFlags.class)))
         .thenReturn(
             new ConfidentialMatchDataRecordParserImpl(
                 micMatchConfig,
                 generateInternalSchema(schema),
                 SuccessMode.ALLOW_PARTIAL_SUCCESS,
-                WRAPPED_ENCRYPTION_METADATA));
+                WRAPPED_ENCRYPTION_METADATA,
+                FeatureFlags.builder().build()));
 
     try (DataReader dataReader =
         new SerializedProtoDataReader(
@@ -412,7 +419,8 @@ public final class SerializedProtoDataReaderTest {
             micMatchConfig,
             SuccessMode.ALLOW_PARTIAL_SUCCESS,
             WRAPPED_ENCRYPTION_METADATA,
-            aeadCryptoClient)) {
+            aeadCryptoClient,
+            FeatureFlags.builder().build())) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
           .containsExactly(
@@ -506,13 +514,14 @@ public final class SerializedProtoDataReaderTest {
       writer.write(base64().encode(testRecord.toByteArray()));
       writer.newLine();
     }
-    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any()))
+    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any(), any(FeatureFlags.class)))
         .thenReturn(
             new ConfidentialMatchDataRecordParserImpl(
                 micMatchConfig,
                 generateInternalSchema(schema),
                 SuccessMode.ALLOW_PARTIAL_SUCCESS,
-                WRAPPED_ENCRYPTION_METADATA));
+                WRAPPED_ENCRYPTION_METADATA,
+                FeatureFlags.builder().build()));
 
     try (DataReader dataReader =
         new SerializedProtoDataReader(
@@ -524,7 +533,8 @@ public final class SerializedProtoDataReaderTest {
             micMatchConfig,
             SuccessMode.ALLOW_PARTIAL_SUCCESS,
             NO_WIP_WRAPPED_ENCRYPTION_METADATA,
-            aeadCryptoClient)) {
+            aeadCryptoClient,
+            FeatureFlags.builder().build())) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
           .containsExactly(
@@ -584,7 +594,7 @@ public final class SerializedProtoDataReaderTest {
     when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
     Schema schema =
         getSchemaFromFile("testdata/mic_proto_schema_wrapped_with_aws_role_arn_encrypted.json");
-    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any()))
+    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any(), any(FeatureFlags.class)))
         .thenReturn(makeCfmProtoParser(schema, AWS_ROW_LEVEL_WRAPPED_ENCRYPTION_METADATA));
     AeadCryptoClient aeadCryptoClient =
         makeAeadCryptoClient(AWS_ROW_LEVEL_WRAPPED_ENCRYPTION_METADATA);
@@ -606,7 +616,8 @@ public final class SerializedProtoDataReaderTest {
             micMatchConfig,
             SuccessMode.ALLOW_PARTIAL_SUCCESS,
             AWS_ROW_LEVEL_WRAPPED_ENCRYPTION_METADATA,
-            aeadCryptoClient)) {
+            aeadCryptoClient,
+            FeatureFlags.builder().build())) {
 
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
@@ -641,7 +652,7 @@ public final class SerializedProtoDataReaderTest {
     when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
     Schema schema =
         getSchemaFromFile("testdata/mic_proto_schema_wrapped_with_aws_role_arn_encrypted.json");
-    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any()))
+    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any(), any(FeatureFlags.class)))
         .thenReturn(makeCfmProtoParser(schema, AWS_ROW_LEVEL_WRAPPED_ENCRYPTION_METADATA));
     AeadCryptoClient aeadCryptoClient =
         makeAeadCryptoClient(AWS_ROW_LEVEL_WRAPPED_ENCRYPTION_METADATA);
@@ -663,7 +674,8 @@ public final class SerializedProtoDataReaderTest {
             micMatchConfig,
             SuccessMode.ALLOW_PARTIAL_SUCCESS,
             AWS_ROW_LEVEL_WRAPPED_ENCRYPTION_METADATA,
-            aeadCryptoClient)) {
+            aeadCryptoClient,
+            FeatureFlags.builder().build())) {
 
       DataChunk dataChunk = dataReader.next();
 
@@ -701,10 +713,13 @@ public final class SerializedProtoDataReaderTest {
                     getClass().getResource("testdata/mic_proto_schema_unencrypted.json")),
                 UTF_8),
             Schema.class);
-    when(mockCfmDataRecordParserFactory.create(any(), any(), any()))
+    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any(FeatureFlags.class)))
         .thenReturn(
             new ConfidentialMatchDataRecordParserImpl(
-                micMatchConfig, generateInternalSchema(schema), SuccessMode.ALLOW_PARTIAL_SUCCESS));
+                micMatchConfig,
+                generateInternalSchema(schema),
+                SuccessMode.ALLOW_PARTIAL_SUCCESS,
+                FeatureFlags.builder().build()));
 
     try (DataReader dataReader =
         new SerializedProtoDataReader(
@@ -714,7 +729,8 @@ public final class SerializedProtoDataReaderTest {
             schema,
             "test",
             micMatchConfig,
-            SuccessMode.ALLOW_PARTIAL_SUCCESS)) {
+            SuccessMode.ALLOW_PARTIAL_SUCCESS,
+            FeatureFlags.builder().build())) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
           .containsExactly(
@@ -787,10 +803,13 @@ public final class SerializedProtoDataReaderTest {
       writer.write(base64().encode(testRecord.toByteArray()));
       writer.newLine();
     }
-    when(mockCfmDataRecordParserFactory.create(any(), any(), any()))
+    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any(FeatureFlags.class)))
         .thenReturn(
             new ConfidentialMatchDataRecordParserImpl(
-                micMatchConfig, generateInternalSchema(schema), SuccessMode.ALLOW_PARTIAL_SUCCESS));
+                micMatchConfig,
+                generateInternalSchema(schema),
+                SuccessMode.ALLOW_PARTIAL_SUCCESS,
+                FeatureFlags.builder().build()));
 
     try (DataReader dataReader =
         new SerializedProtoDataReader(
@@ -800,7 +819,8 @@ public final class SerializedProtoDataReaderTest {
             schema,
             "test",
             micMatchConfig,
-            SuccessMode.ALLOW_PARTIAL_SUCCESS)) {
+            SuccessMode.ALLOW_PARTIAL_SUCCESS,
+            FeatureFlags.builder().build())) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
           .containsExactly(
@@ -848,10 +868,14 @@ public final class SerializedProtoDataReaderTest {
             MatchConfig.class);
 
     var file = File.createTempFile("mrp_test", "txt");
-    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any()))
+    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any(), any(FeatureFlags.class)))
         .thenReturn(
             new ConfidentialMatchDataRecordParserImpl(
-                micMatchConfig, generateInternalSchema(schema), SuccessMode.ALLOW_PARTIAL_SUCCESS));
+                micMatchConfig,
+                generateInternalSchema(schema),
+                SuccessMode.ALLOW_PARTIAL_SUCCESS,
+                WRAPPED_ENCRYPTION_METADATA,
+                FeatureFlags.builder().build()));
 
     try (DataReader dataReader =
         new SerializedProtoDataReader(
@@ -863,7 +887,8 @@ public final class SerializedProtoDataReaderTest {
             matchConfig,
             SuccessMode.ALLOW_PARTIAL_SUCCESS,
             WRAPPED_ENCRYPTION_METADATA,
-            aeadCryptoClient)) {
+            aeadCryptoClient,
+            FeatureFlags.builder().build())) {
       fail();
     } catch (Exception e) {
       assertTrue(e instanceof JobProcessorException);
@@ -920,13 +945,14 @@ public final class SerializedProtoDataReaderTest {
       writer.write(base64().encode(testRecord.toByteArray()));
       writer.newLine();
     }
-    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any()))
+    when(mockCfmDataRecordParserFactory.create(any(), any(), any(), any(), any(FeatureFlags.class)))
         .thenReturn(
             new ConfidentialMatchDataRecordParserImpl(
                 micMatchConfig,
                 generateInternalSchema(schema),
                 SuccessMode.ALLOW_PARTIAL_SUCCESS,
-                WRAPPED_ENCRYPTION_METADATA));
+                WRAPPED_ENCRYPTION_METADATA,
+                FeatureFlags.builder().build()));
 
     try (DataReader dataReader =
         new SerializedProtoDataReader(
@@ -938,7 +964,8 @@ public final class SerializedProtoDataReaderTest {
             micMatchConfig,
             SuccessMode.ALLOW_PARTIAL_SUCCESS,
             WRAPPED_ENCRYPTION_METADATA,
-            aeadCryptoClient)) {
+            aeadCryptoClient,
+            FeatureFlags.builder().build())) {
       assertThat(dataReader.getSchema()).isNotNull();
       assertThat(ImmutableList.copyOf(SchemaConverter.convertToColumnNames(dataReader.getSchema())))
           .containsExactly(
@@ -1007,7 +1034,8 @@ public final class SerializedProtoDataReaderTest {
         micMatchConfig,
         generateInternalSchema(schema),
         SuccessMode.ALLOW_PARTIAL_SUCCESS,
-        encryptionMetadata);
+        encryptionMetadata,
+        FeatureFlags.builder().build());
   }
 
   private EncryptionKey getAwsEncryptionKey(String dek, String kekUri, String role) {
