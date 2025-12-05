@@ -41,6 +41,7 @@ public final class FeatureFlagProviderImpl implements FeatureFlagProvider {
   private static final String LIST_DELIMITER = ",";
 
   private static final int DEFAULT_MAX_RECORDS_PER_PROTO_FILE = 100_000;
+  private static final int DEFAULT_PROTO_METADATA_MAX_COUNT = 100;
   // Threshold in bytes
   private static final long DEFAULT_LARGE_JOB_THRESHOLD = 1024 * 1024 * 1024; // 1GiB
   private static final int MAX_CACHE_SIZE = 1;
@@ -96,6 +97,10 @@ public final class FeatureFlagProviderImpl implements FeatureFlagProvider {
             getValue(Parameter.LARGE_JOB_THRESHOLD)
                 .map(Long::parseLong)
                 .orElse(DEFAULT_LARGE_JOB_THRESHOLD);
+        int protoMetadataMaxCount =
+            getValue(Parameter.PROTO_METADATA_MAX_COUNT)
+                .map(Integer::parseInt)
+                .orElse(DEFAULT_PROTO_METADATA_MAX_COUNT);
         var featureFlagsBuilder =
             FeatureFlags.builder()
                 .setEnableMIC(micFeatureEnabled)
@@ -103,7 +108,8 @@ public final class FeatureFlagProviderImpl implements FeatureFlagProvider {
                 .setCoordinatorBatchEncryptionEnabled(coordinatorBatchEncryptionEnabled)
                 .setProtoPassthroughMetadataEnabled(protoPassthroughMetadataEnabled)
                 .setMaxRecordsPerProtoOutputFile(maxRecordsPerProtoOutputFile)
-                .setLargeJobThresholdBytes(largeJobThresholdBytes);
+                .setLargeJobThresholdBytes(largeJobThresholdBytes)
+                .setProtoMetadataMaxCount(protoMetadataMaxCount);
 
         addApplicationIdWorkgroups(featureFlagsBuilder);
         addLargeJobWorkgroupApplicationIds(featureFlagsBuilder);

@@ -1211,6 +1211,288 @@ public final class SerializedProtoDataWriterTest {
     assertThat(compositeField.getMatchedOutputFieldsList()).isEmpty();
   }
 
+  @Test
+  public void write_passthroughMetadataFeatureFlagFalseSchemaFlagNotSet_usesKeyValueMetadata()
+      throws Exception {
+    TestDataDestination testDataDestination = new TestDataDestination();
+    // protoPassthroughMetadataEnabled flag set to true in the schema.
+    Schema schema = getSchema("testdata/proto_schema_multiple_column_groups.json");
+    // Binary flag passthroughMetadataEnabledEnabled is false in the default
+    // feature flags instance.
+    FeatureFlags featureFlags = FeatureFlags.builder().build();
+    // This metadata should be ignored when passthroughMetadata flag is disabled.
+    DataRecord.Metadata rowLevelMetadata =
+        DataRecord.Metadata.newBuilder()
+            .addMetadata(
+                DataRecord.KeyValue.newBuilder()
+                    .setKey("metadata_from_row")
+                    .setStringValue("row_value")
+                    .build())
+            .build();
+    List<Entry<String, Optional<String>>> keyValues = new ArrayList<>();
+    keyValues.add(Map.entry("em", Optional.of("test@google.com")));
+    keyValues.add(Map.entry("ph", Optional.of("999-999-9999")));
+    keyValues.add(Map.entry("fn", Optional.of("fakeName")));
+    keyValues.add(Map.entry("ln", Optional.of("fakeLastName")));
+    keyValues.add(Map.entry("zc", Optional.of("99999")));
+    keyValues.add(Map.entry("cc", Optional.of("US")));
+    keyValues.add(Map.entry("insta", Optional.of("test")));
+    keyValues.add(Map.entry("tik", Optional.of("@test")));
+    keyValues.add(Map.entry("coord_key_id", Optional.of("testKey")));
+    // This metadata should be used when passthroughMetadata flag is disabled.
+    keyValues.add(Map.entry("metadata", Optional.of("metadata_from_kv")));
+    keyValues.add(Map.entry("row_status", Optional.of(SUCCESS.toString())));
+    keyValues.add(Map.entry(ROW_MARKER_COLUMN_NAME, Optional.of("1")));
+    DataRecord dataRecord = getDataRecord(keyValues).setRowLevelMetadata(rowLevelMetadata).build();
+    DataChunk dataChunk = DataChunk.builder().addRecord(dataRecord).setSchema(schema).build();
+    MatchConfig testMatchConfig =
+        ProtoUtils.getProtoFromJson(
+            Resources.toString(
+                Objects.requireNonNull(
+                    getClass().getResource("testdata/match_config_multiple_column_groups.json")),
+                UTF_8),
+            MatchConfig.class);
+    SerializedProtoDataWriter dataWriter =
+        new SerializedProtoDataWriter(
+            featureFlags,
+            DEFAULT_PARAMS,
+            testDataDestination,
+            "proto_writer_test.txt",
+            schema,
+            testMatchConfig);
+
+    dataWriter.write(dataChunk);
+    dataWriter.close();
+
+    assertThat(testDataDestination.fileLines).hasSize(1);
+    ConfidentialMatchOutputDataRecord returnedRecord =
+        base64Decode(testDataDestination.fileLines.get(0)).get();
+    // Validate that returnedRecord has the metadata from keyValues.
+    assertThat(returnedRecord.getMetadataCount()).isEqualTo(1);
+    KeyValue metadata = returnedRecord.getMetadata(0);
+    assertThat(metadata.getKey()).isEqualTo("metadata");
+    assertThat(metadata.getStringValue()).isEqualTo("metadata_from_kv");
+  }
+
+  @Test
+  public void write_passthroughMetadataFeatureFlagTrueSchemaFlagNotSet_usesKeyValueMetadata()
+      throws Exception {
+    TestDataDestination testDataDestination = new TestDataDestination();
+    // protoPassthroughMetadataEnabled flag not set in the schema.
+    Schema schema = getSchema("testdata/proto_schema_multiple_column_groups.json");
+    // Binary flag passthroughMetadataEnabledEnabled is set to true.
+    FeatureFlags featureFlags =
+        FeatureFlags.builder().setProtoPassthroughMetadataEnabled(true).build();
+    // This metadata should be ignored when passthroughMetadata flag is disabled.
+    DataRecord.Metadata rowLevelMetadata =
+        DataRecord.Metadata.newBuilder()
+            .addMetadata(
+                DataRecord.KeyValue.newBuilder()
+                    .setKey("metadata_from_row")
+                    .setStringValue("row_value")
+                    .build())
+            .build();
+    List<Entry<String, Optional<String>>> keyValues = new ArrayList<>();
+    keyValues.add(Map.entry("em", Optional.of("test@google.com")));
+    keyValues.add(Map.entry("ph", Optional.of("999-999-9999")));
+    keyValues.add(Map.entry("fn", Optional.of("fakeName")));
+    keyValues.add(Map.entry("ln", Optional.of("fakeLastName")));
+    keyValues.add(Map.entry("zc", Optional.of("99999")));
+    keyValues.add(Map.entry("cc", Optional.of("US")));
+    keyValues.add(Map.entry("insta", Optional.of("test")));
+    keyValues.add(Map.entry("tik", Optional.of("@test")));
+    keyValues.add(Map.entry("coord_key_id", Optional.of("testKey")));
+    // This metadata should be used when passthroughMetadata flag is disabled.
+    keyValues.add(Map.entry("metadata", Optional.of("metadata_from_kv")));
+    keyValues.add(Map.entry("row_status", Optional.of(SUCCESS.toString())));
+    keyValues.add(Map.entry(ROW_MARKER_COLUMN_NAME, Optional.of("1")));
+    DataRecord dataRecord = getDataRecord(keyValues).setRowLevelMetadata(rowLevelMetadata).build();
+    DataChunk dataChunk = DataChunk.builder().addRecord(dataRecord).setSchema(schema).build();
+    MatchConfig testMatchConfig =
+        ProtoUtils.getProtoFromJson(
+            Resources.toString(
+                Objects.requireNonNull(
+                    getClass().getResource("testdata/match_config_multiple_column_groups.json")),
+                UTF_8),
+            MatchConfig.class);
+    SerializedProtoDataWriter dataWriter =
+        new SerializedProtoDataWriter(
+            featureFlags,
+            DEFAULT_PARAMS,
+            testDataDestination,
+            "proto_writer_test.txt",
+            schema,
+            testMatchConfig);
+
+    dataWriter.write(dataChunk);
+    dataWriter.close();
+
+    assertThat(testDataDestination.fileLines).hasSize(1);
+    ConfidentialMatchOutputDataRecord returnedRecord =
+        base64Decode(testDataDestination.fileLines.get(0)).get();
+    // Validate that returnedRecord has the metadata from keyValues.
+    assertThat(returnedRecord.getMetadataCount()).isEqualTo(1);
+    KeyValue metadata = returnedRecord.getMetadata(0);
+    assertThat(metadata.getKey()).isEqualTo("metadata");
+    assertThat(metadata.getStringValue()).isEqualTo("metadata_from_kv");
+  }
+
+  @Test
+  public void write_passthroughMetadataFeatureFlagFalseSchemaFlagTrue_usesKeyValueMetadata()
+      throws Exception {
+    TestDataDestination testDataDestination = new TestDataDestination();
+    // protoPassthroughMetadataEnabled flag set to true in the schema.
+    Schema schema = getSchema("testdata/proto_schema_multiple_column_groups_passthrough_metadata.json");
+    // Binary flag passthroughMetadataEnabledEnabled is false in the default
+    // feature flags instance.
+    FeatureFlags featureFlags = FeatureFlags.builder().build();
+    // This metadata should be ignored when passthroughMetadata flag is disabled.
+    DataRecord.Metadata rowLevelMetadata =
+        DataRecord.Metadata.newBuilder()
+            .addMetadata(
+                DataRecord.KeyValue.newBuilder()
+                    .setKey("metadata_from_row")
+                    .setStringValue("row_value")
+                    .build())
+            .build();
+    List<Entry<String, Optional<String>>> keyValues = new ArrayList<>();
+    keyValues.add(Map.entry("em", Optional.of("test@google.com")));
+    keyValues.add(Map.entry("ph", Optional.of("999-999-9999")));
+    keyValues.add(Map.entry("fn", Optional.of("fakeName")));
+    keyValues.add(Map.entry("ln", Optional.of("fakeLastName")));
+    keyValues.add(Map.entry("zc", Optional.of("99999")));
+    keyValues.add(Map.entry("cc", Optional.of("US")));
+    keyValues.add(Map.entry("insta", Optional.of("test")));
+    keyValues.add(Map.entry("tik", Optional.of("@test")));
+    keyValues.add(Map.entry("coord_key_id", Optional.of("testKey")));
+    // This metadata should be used when passthroughMetadata flag is disabled.
+    keyValues.add(Map.entry("metadata", Optional.of("metadata_from_kv")));
+    keyValues.add(Map.entry("row_status", Optional.of(SUCCESS.toString())));
+    keyValues.add(Map.entry(ROW_MARKER_COLUMN_NAME, Optional.of("1")));
+    DataRecord dataRecord = getDataRecord(keyValues).setRowLevelMetadata(rowLevelMetadata).build();
+    DataChunk dataChunk = DataChunk.builder().addRecord(dataRecord).setSchema(schema).build();
+    MatchConfig testMatchConfig =
+        ProtoUtils.getProtoFromJson(
+            Resources.toString(
+                Objects.requireNonNull(
+                    getClass().getResource("testdata/match_config_multiple_column_groups.json")),
+                UTF_8),
+            MatchConfig.class);
+    SerializedProtoDataWriter dataWriter =
+        new SerializedProtoDataWriter(
+            featureFlags,
+            DEFAULT_PARAMS,
+            testDataDestination,
+            "proto_writer_test.txt",
+            schema,
+            testMatchConfig);
+
+    dataWriter.write(dataChunk);
+    dataWriter.close();
+
+    assertThat(testDataDestination.fileLines).hasSize(1);
+    ConfidentialMatchOutputDataRecord returnedRecord =
+        base64Decode(testDataDestination.fileLines.get(0)).get();
+    // Validate that returnedRecord has the metadata from keyValues.
+    assertThat(returnedRecord.getMetadataCount()).isEqualTo(1);
+    KeyValue metadata = returnedRecord.getMetadata(0);
+    assertThat(metadata.getKey()).isEqualTo("metadata");
+    assertThat(metadata.getStringValue()).isEqualTo("metadata_from_kv");
+  }
+
+  @Test
+  public void write_passthroughMetadataFeatureFlagTrueSchemaFlagTrue_usesRowLevelMetadata()
+      throws Exception {
+    TestDataDestination testDataDestination = new TestDataDestination();
+    Schema schema =
+        getSchema("testdata/proto_schema_multiple_column_groups_passthrough_metadata.json");
+    FeatureFlags featureFlags =
+        FeatureFlags.builder().setProtoPassthroughMetadataEnabled(true).build();
+    // This metadata should be used when passthroughMetadata is enabled in both, binary and schema.
+    DataRecord.Metadata rowLevelMetadata =
+        DataRecord.Metadata.newBuilder()
+            .addMetadata(
+                DataRecord.KeyValue.newBuilder()
+                    .setKey("metadata_from_row")
+                    .setStringValue("row_value")
+                    .build())
+            .build();
+    // Build key values for the DataRecord
+    List<Entry<String, Optional<String>>> keyValues = new ArrayList<>();
+    keyValues.add(Map.entry("em", Optional.of("FAKE.1@google.com")));
+    keyValues.add(Map.entry("ph", Optional.of("999-999-9999")));
+    keyValues.add(Map.entry("fn", Optional.of("fakeName")));
+    keyValues.add(Map.entry("ln", Optional.of("fakeLastName")));
+    keyValues.add(Map.entry("zc", Optional.of("99999")));
+    keyValues.add(Map.entry("cc", Optional.of("US")));
+    keyValues.add(Map.entry("insta", Optional.of("test")));
+    keyValues.add(Map.entry("tik", Optional.of("@test")));
+    keyValues.add(Map.entry("coord_key_id", Optional.of("testKey")));
+    // The metadata from keyValues should be ignored when passthroughMetadata
+    // flag is enabled.
+    keyValues.add(Map.entry("metadata", Optional.of("metadata_from_kv")));
+    keyValues.add(Map.entry("row_status", Optional.of(SUCCESS.toString())));
+    keyValues.add(Map.entry(ROW_MARKER_COLUMN_NAME, Optional.of("1")));
+    // Build DataRecord with rowLevelMetadata and KeyValues
+    DataRecord dataRecord = getDataRecord(keyValues).setRowLevelMetadata(rowLevelMetadata).build();
+    DataChunk dataChunk = DataChunk.builder().addRecord(dataRecord).setSchema(schema).build();
+    MatchConfig testMatchConfig =
+        ProtoUtils.getProtoFromJson(
+            Resources.toString(
+                Objects.requireNonNull(
+                    getClass().getResource("testdata/match_config_multiple_column_groups.json")),
+                UTF_8),
+            MatchConfig.class);
+    SerializedProtoDataWriter dataWriter =
+        new SerializedProtoDataWriter(
+            featureFlags,
+            DEFAULT_PARAMS,
+            testDataDestination,
+            "proto_writer_test.txt",
+            schema,
+            testMatchConfig);
+
+    dataWriter.write(dataChunk);
+    dataWriter.close();
+
+    assertThat(testDataDestination.fileLines).hasSize(1);
+    ConfidentialMatchOutputDataRecord returnedRecord =
+        base64Decode(testDataDestination.fileLines.get(0)).get();
+    // Validate that returnedRecord has the metadata from rowLevelMetadata.
+    assertThat(returnedRecord.getMetadataCount()).isEqualTo(1);
+    KeyValue metadata = returnedRecord.getMetadata(0);
+    assertThat(metadata.getKey()).isEqualTo("metadata_from_row");
+    assertThat(metadata.getStringValue()).isEqualTo("row_value");
+  }
+
+  // Helper method to create the base list of key-values
+  private List<Entry<String, Optional<String>>> createKeyValuesWithMultipleColumnGroups() {
+    List<Entry<String, Optional<String>>> keyValues = new ArrayList<>();
+    keyValues.add(Map.entry("em", Optional.of("FAKE.1@google.com")));
+    keyValues.add(Map.entry("ph", Optional.of("999-999-9999")));
+    keyValues.add(Map.entry("fn", Optional.of("fakeName")));
+    keyValues.add(Map.entry("ln", Optional.of("fakeLastName")));
+    keyValues.add(Map.entry("zc", Optional.of("99999")));
+    keyValues.add(Map.entry("cc", Optional.of("US")));
+    keyValues.add(Map.entry("insta", Optional.of("test")));
+    keyValues.add(Map.entry("tik", Optional.of("@test")));
+    keyValues.add(Map.entry("coord_key_id", Optional.of("testKey")));
+    keyValues.add(Map.entry("metadata", Optional.of("metadata_from_kv")));
+    keyValues.add(Map.entry("row_status", Optional.of(SUCCESS.toString())));
+    keyValues.add(Map.entry(ROW_MARKER_COLUMN_NAME, Optional.of("1")));
+    return keyValues;
+  }
+
+  // Helper method to load MatchConfig
+  private MatchConfig loadMatchConfig(String matchConfigPath) throws IOException {
+    return ProtoUtils.getProtoFromJson(
+        Resources.toString(
+            Objects.requireNonNull(
+                getClass().getResource(matchConfigPath)),
+            UTF_8),
+        MatchConfig.class);
+  }
+
   private FieldMatch getSingleFieldMatch(String k0, String v0) {
     return getSingleFieldMatch(k0, v0, /* k1= */ "", /* v1= */ "");
   }

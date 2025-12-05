@@ -47,6 +47,8 @@ public enum Parameter {
   WORKGROUPS_ENABLED,
   // Metadata passthrough feature flag for proto format
   PROTO_PASSTHROUGH_METADATA_ENABLED,
+  // The max number of key-value pairs allowed in proto metadata.
+  PROTO_METADATA_MAX_COUNT,
   // Comma-separated list of application IDs for which to allocate large jobs to dedicated workgroup
   LARGE_JOB_APPLICATION_IDS,
   // Threshold (in bytes) above which jobs are allocated to dedicated workgroup

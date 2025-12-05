@@ -42,6 +42,7 @@ java_test(
         "testdata/proto_schema_data_types.json",
         "testdata/proto_schema_hashed.json",
         "testdata/proto_schema_multiple_column_groups.json",
+        "testdata/proto_schema_multiple_column_groups_passthrough_metadata.json",
         "testdata/proto_schema_wrapped_key.json",
         "//javatests/com/google/cm/mrp/dataprocessor/testdata",
     ],

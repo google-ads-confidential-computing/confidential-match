@@ -28,6 +28,7 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WRITER_
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WRITER_MISSING_WIP;
 import static com.google.cm.mrp.backend.ModeProto.Mode.JOIN;
 import static com.google.cm.mrp.dataprocessor.common.Constants.ROW_MARKER_COLUMN_NAME;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Map.entry;
@@ -120,6 +121,7 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
   private final JobParameters jobParameters;
   private final DataDestination dataDestination;
   private final int maxRecordsPerOutputFile;
+  private final boolean protoPassthroughMetadataEnabled;
   private final String name;
   private PrintWriter writer;
   private int numberOfRecords;
@@ -136,6 +138,9 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
       @Assisted MatchConfig matchConfig) {
     this.jobParameters = jobParameters;
     this.maxRecordsPerOutputFile = featureFlags.maxRecordsPerProtoOutputFile();
+    this.protoPassthroughMetadataEnabled =
+        featureFlags.protoPassthroughMetadataEnabled()
+            && schema.getProtoPassthroughMetadataEnabled();
     this.dataDestination = dataDestination;
     this.name = name;
     numberOfRecords = 0;
@@ -256,13 +261,24 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
           hasRowLevelEncryption ? Optional.empty() : getEncryptionKey(dataRecord);
       confidentialMatchOutputDataRecordBuilder.addAllMatchKeys(
           getMatchKeys(dataRecord, encryptionKey));
-      confidentialMatchOutputDataRecordBuilder.addAllMetadata(getMetadata(dataRecord));
+      if (!protoPassthroughMetadataEnabled) {
+        confidentialMatchOutputDataRecordBuilder.addAllMetadata(getMetadata(dataRecord));
+      } else if (dataRecord.hasRowLevelMetadata()) {
+        List<KeyValue> cfmRowLevelMetadata = toCfmMetadata(dataRecord.getRowLevelMetadata());
+        confidentialMatchOutputDataRecordBuilder.addAllMetadata(cfmRowLevelMetadata);
+      }
     }
     rowLevelEncryptionKey.ifPresent(confidentialMatchOutputDataRecordBuilder::setEncryptionKey);
     recordStatusFieldIndex.ifPresent(
         index ->
             confidentialMatchOutputDataRecordBuilder.setStatus(getStatus(groupedRecords, index)));
     return confidentialMatchOutputDataRecordBuilder.build();
+  }
+
+  private ImmutableList<KeyValue> toCfmMetadata(DataRecord.Metadata metadata) {
+    return metadata.getMetadataList().stream()
+        .map(SerializedProtoDataWriter::toCfmMetadataKeyValue)
+        .collect(toImmutableList());
   }
 
   /** Builds out an {@link EncryptionKey} for a provided {@link DataRecord}. */
@@ -438,7 +454,7 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
                 .getSingleFieldMetadataOrThrow(index)
                 .getMetadataList()
                 .stream()
-                .map(SerializedProtoDataWriter::toCfmKeyValue)
+                .map(SerializedProtoDataWriter::toCfmMetadataKeyValue)
                 .forEach(matchKeyBuilder::addMetadata);
           }
           return matchKeyBuilder.build();
@@ -490,7 +506,7 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
           .getCompositeFieldMetadataOrThrow(compositeFieldGroupNumber)
           .getMetadataList()
           .stream()
-          .map(SerializedProtoDataWriter::toCfmKeyValue)
+          .map(SerializedProtoDataWriter::toCfmMetadataKeyValue)
           .forEach(matchKeyBuilder::addMetadata);
     }
 
@@ -846,7 +862,14 @@ public final class SerializedProtoDataWriter extends BaseDataWriter {
     }
   }
 
-  private static KeyValue toCfmKeyValue(DataRecord.KeyValue dataRecordKeyValue) {
+  /**
+   * Converts from a {@link DataRecord.KeyValue} to a {@link KeyValue} field. This method expects
+   * that the DataRecord.KeyValue has a value set, otherwise it throws a {@link
+   * JobProcessorException}. This is a valid assumption for {@link DataRecord.KeyValue}s in {@link
+   * DataRecord.Metadata} since the {@link DataRecord.KeyValue}s for Metadata are constructed with
+   * only key-value pairs that have values set.
+   */
+  private static KeyValue toCfmMetadataKeyValue(DataRecord.KeyValue dataRecordKeyValue) {
     KeyValue.Builder cfmKeyValueBuilder = KeyValue.newBuilder().setKey(dataRecordKeyValue.getKey());
     switch (dataRecordKeyValue.getValueCase()) {
       case STRING_VALUE:

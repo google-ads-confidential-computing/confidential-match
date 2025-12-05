@@ -148,7 +148,7 @@ alias(
 # A unique dir for the flattened layer, so that Docker only uses our version
 tar(
     name = "empty_dir",
-    mtree = ["./confidential-match-java_base uid=0 gid=0 time=1672560000 mode=0755 type=dir"],
+    mtree = ["./confidential-match-mrp-java_base uid=0 gid=0 time=1672560000 mode=0755 type=dir"],
     tags = ["manual"],
 )
 

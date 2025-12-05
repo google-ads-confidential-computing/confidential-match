@@ -28,6 +28,7 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PROTO_D
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PROTO_MATCH_KEY_HAS_BAD_CHILD_FIELDS;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PROTO_MATCH_KEY_MISSING_FIELD;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PROTO_METADATA_CONTAINING_RESTRICTED_ALIAS;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PROTO_METADATA_EXCEEDS_LIMIT;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PROTO_MISSING_MATCH_KEYS;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.ROLE_ARN_MISSING_IN_RECORD;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.WIP_MISSING_IN_RECORD;
@@ -97,6 +98,7 @@ public final class ConfidentialMatchDataRecordParserImpl
 
   private static final Logger logger =
       LoggerFactory.getLogger(ConfidentialMatchDataRecordParserImpl.class);
+  private final int protoMetadataMaxCount;
   private final ImmutableList<Column> columnList;
   private final ImmutableSet<String> columnNameSet;
   private final ImmutableSet<String> singleMatchAliasSet;
@@ -132,6 +134,7 @@ public final class ConfidentialMatchDataRecordParserImpl
     this.protoPassthroughMetadataEnabled =
         featureFlags.protoPassthroughMetadataEnabled()
             && schema.getProtoPassthroughMetadataEnabled();
+    this.protoMetadataMaxCount = featureFlags.protoMetadataMaxCount();
   }
 
   /**
@@ -162,6 +165,7 @@ public final class ConfidentialMatchDataRecordParserImpl
     this.protoPassthroughMetadataEnabled =
         featureFlags.protoPassthroughMetadataEnabled()
             && schema.getProtoPassthroughMetadataEnabled();
+    this.protoMetadataMaxCount = featureFlags.protoMetadataMaxCount();
   }
 
   /**
@@ -422,14 +426,9 @@ public final class ConfidentialMatchDataRecordParserImpl
               String.format("Unknown column index for column: %s", columnName),
               INVALID_INPUT_FILE_ERROR);
         }
-        singleFieldMetadataMap.put(
-            columnIndex,
-            DataRecord.Metadata.newBuilder()
-                .addAllMetadata(
-                    matchKey.getMetadataList().stream()
-                        .map(keyValue -> toDataRecordKeyValue(keyValue))
-                        .collect(toImmutableList()))
-                .build());
+        DataRecord.Metadata singleFieldMetadata =
+            validateAndGetMetadata(matchKey.getMetadataList());
+        singleFieldMetadataMap.put(columnIndex, singleFieldMetadata);
       }
     }
   }
@@ -457,14 +456,9 @@ public final class ConfidentialMatchDataRecordParserImpl
 
         // If the match key has metadata, add it to the composite field metadata map.
         if (matchKey.getMetadataCount() > 0) {
-          compositeFieldMetadataMap.put(
-              groupNumber,
-              DataRecord.Metadata.newBuilder()
-                  .addAllMetadata(
-                      matchKey.getMetadataList().stream()
-                          .map(keyValue -> toDataRecordKeyValue(keyValue))
-                          .collect(toImmutableList()))
-                  .build());
+          DataRecord.Metadata compositeFieldMetadata =
+              validateAndGetMetadata(matchKey.getMetadataList());
+          compositeFieldMetadataMap.put(groupNumber, compositeFieldMetadata);
         }
       }
     }
@@ -583,7 +577,9 @@ public final class ConfidentialMatchDataRecordParserImpl
       dataRecordBuilder.setFieldLevelMetadata(fieldLevelMetadata.build());
     }
     if (protoPassthroughMetadataEnabled && firstDataRecord) {
-      dataRecordBuilder.setRowLevelMetadata(toDataRecordMetadata(cfmDataRecord.getMetadataList()));
+      DataRecord.Metadata rowLevelMetadata =
+          validateAndGetMetadata(cfmDataRecord.getMetadataList());
+      dataRecordBuilder.setRowLevelMetadata(rowLevelMetadata);
     }
     if (successMode == SuccessMode.ALLOW_PARTIAL_SUCCESS && rowLevelErrorCode.isPresent()) {
       dataRecordBuilder.setErrorCode(rowLevelErrorCode.get());
@@ -839,11 +835,23 @@ public final class ConfidentialMatchDataRecordParserImpl
   }
 
   /**
-   * Converts a list of {@link KeyValue} to a {@link DataRecord.Metadata}.
+   * Validates and converts a list of {@link KeyValue} to a {@link DataRecord.Metadata}.
    *
    * @param metadataList The list of {@link KeyValue} to convert.
    * @return A {@link DataRecord.Metadata} object.
    */
+  private DataRecord.Metadata validateAndGetMetadata(List<KeyValue> metadataList) {
+    // validate that the count of KeyValue pairs does not exceed the max metadata size limit
+    if (metadataList.size() > protoMetadataMaxCount) {
+      throw new JobProcessorException(
+          String.format(
+              "CFM DataRecord metadata contains too many key value pairs. Limit is %d.",
+              protoMetadataMaxCount),
+          PROTO_METADATA_EXCEEDS_LIMIT);
+    }
+    return toDataRecordMetadata(metadataList);
+  }
+
   private DataRecord.Metadata toDataRecordMetadata(List<KeyValue> metadataList) {
     if (metadataList.isEmpty()) {
       return DataRecord.Metadata.getDefaultInstance();
@@ -885,8 +893,13 @@ public final class ConfidentialMatchDataRecordParserImpl
     if (protoPassthroughMetadataEnabled) {
       // We want to pass through row level metadata in the error record so that
       // the output record has the row level metadata even if parsing the input
-      // record fails.
-      errorRecordBuilder.setRowLevelMetadata(toDataRecordMetadata(cfmDataRecord.getMetadataList()));
+      // record fails. We only pass through metadata if the count does not
+      // exceed the max limit.
+      if (cfmDataRecord.getMetadataCount() <= protoMetadataMaxCount) {
+        DataRecord.Metadata rowLevelMetadata =
+            toDataRecordMetadata(cfmDataRecord.getMetadataList());
+        errorRecordBuilder.setRowLevelMetadata(rowLevelMetadata);
+      }
     }
     return errorRecordBuilder.build();
   }

@@ -22,6 +22,7 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PROTO_M
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PROTO_MATCH_KEY_MISSING_FIELD;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PROTO_METADATA_CONTAINING_RESTRICTED_ALIAS;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PROTO_MISSING_MATCH_KEYS;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.PROTO_METADATA_EXCEEDS_LIMIT;
 import static com.google.cm.mrp.dataprocessor.common.Constants.ROW_MARKER_COLUMN_NAME;
 import static com.google.common.truth.Truth.assertThat;
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -1447,8 +1448,9 @@ public final class ConfidentialMatchDataRecordParserImplTest {
   }
 
   @Test
-  public void parse_withError_metadataPassthroughFeatureFlagTrueSchemaFlagTrue_SetsRowLevelMetadata()
-      throws Exception {
+  public void
+      parse_withError_metadataPassthroughFeatureFlagTrueSchemaFlagTrue_SetsRowLevelMetadata()
+          throws Exception {
     String schemaPath = "testdata/mic_proto_schema_encrypted_passthrough_metadata_true.json";
     EncryptionMetadata encryptionMetadata = TEST_GCP_ENCRYPTION_METADATA;
     boolean passthroughMetadataFlag = true;
@@ -1473,6 +1475,98 @@ public final class ConfidentialMatchDataRecordParserImplTest {
     assertThat(record.hasRowLevelMetadata()).isTrue();
     assertThat(record.getRowLevelMetadata().getMetadataList())
         .containsExactlyElementsIn(Arrays.asList(expectedMetadata));
+  }
+
+  @Test
+  public void parse_singleFieldMetadataExceedsLimit_returnsError() throws Exception {
+    ConfidentialMatchDataRecordParserImpl parser =
+        getConfidentialMatchDataRecordParserEncrypted(
+            "testdata/mic_proto_schema_encrypted.json", TEST_COORDINATOR_ENCRYPTION_METADATA);
+    List<KeyValue> metadataList = new ArrayList<>();
+    for (int i = 0; i < 101; i++) {
+      metadataList.add(kv("key" + i, "value" + i));
+    }
+    MatchKey emailWithMetadataExceedingLimit =
+        createEmailMatchKey(USER_EMAIL, metadataList.toArray(new KeyValue[0]));
+    ConfidentialMatchDataRecord cfmRecord =
+        ConfidentialMatchDataRecord.newBuilder()
+            .addMatchKeys(emailWithMetadataExceedingLimit)
+            .build();
+
+    List<DataRecord> resultList = parser.parse(cfmRecord);
+
+    assertThat(resultList).hasSize(1);
+    DataRecord internalRecord = resultList.get(0);
+    assertThat(internalRecord.getErrorCode()).isEqualTo(PROTO_METADATA_EXCEEDS_LIMIT);
+  }
+
+  @Test
+  public void parse_compositeFieldMetadataExceedsLimit_returnsError() throws Exception {
+    ConfidentialMatchDataRecordParserImpl parser =
+        getConfidentialMatchDataRecordParserEncrypted(
+            "testdata/mic_proto_schema_encrypted.json", TEST_COORDINATOR_ENCRYPTION_METADATA);
+    List<KeyValue> metadataList = new ArrayList<>();
+    for (int i = 0; i < 101; i++) {
+      metadataList.add(kv("key" + i, "value" + i));
+    }
+    MatchKey addressWithMetadataExceedingLimit =
+        createAddressMatchKey(DEFAULT_ADDRESS_FIELDS, metadataList.toArray(new KeyValue[0]));
+
+    ConfidentialMatchDataRecord cfmRecord =
+        ConfidentialMatchDataRecord.newBuilder()
+            .addMatchKeys(addressWithMetadataExceedingLimit)
+            .build();
+
+    List<DataRecord> resultList = parser.parse(cfmRecord);
+
+    assertThat(resultList).hasSize(1);
+    DataRecord internalRecord = resultList.get(0);
+    assertThat(internalRecord.getErrorCode()).isEqualTo(PROTO_METADATA_EXCEEDS_LIMIT);
+  }
+
+  @Test
+  public void parse_rowLevelMetadataExceedsLimit_passthroughEnabled_returnsError()
+      throws Exception {
+    ConfidentialMatchDataRecordParserImpl parser =
+        getConfidentialMatchDataRecordParserEncrypted(
+            "testdata/mic_proto_schema_encrypted_passthrough_metadata_true.json",
+            TEST_COORDINATOR_ENCRYPTION_METADATA,
+            /* passthroughMetadata= */ true);
+    ConfidentialMatchDataRecord.Builder cfmRecordBuilder =
+        ConfidentialMatchDataRecord.newBuilder().addMatchKeys(createEmailMatchKey(USER_EMAIL));
+    for (int i = 0; i < 101; i++) {
+      cfmRecordBuilder.addMetadata(kv("row_key" + i, "row_value" + i));
+    }
+    ConfidentialMatchDataRecord cfmRecord = cfmRecordBuilder.build();
+
+    List<DataRecord> resultList = parser.parse(cfmRecord);
+
+    assertThat(resultList).hasSize(1);
+    DataRecord internalRecord = resultList.get(0);
+    assertThat(internalRecord.getErrorCode()).isEqualTo(PROTO_METADATA_EXCEEDS_LIMIT);
+  }
+
+  @Test
+  public void parse_missingMatchKeys_rowLevelMetadataExceedsLimit_passthroughEnabled_returnsError()
+      throws Exception {
+    ConfidentialMatchDataRecordParserImpl parser =
+        getConfidentialMatchDataRecordParserEncrypted(
+            "testdata/mic_proto_schema_encrypted_passthrough_metadata_true.json",
+            TEST_COORDINATOR_ENCRYPTION_METADATA,
+            /* passthroughMetadata= */ true);
+    // No MatchKeys added to trigger PROTO_MISSING_MATCH_KEYS in internalParse
+    ConfidentialMatchDataRecord.Builder cfmRecordBuilder = ConfidentialMatchDataRecord.newBuilder();
+    for (int i = 0; i < 101; i++) {
+      cfmRecordBuilder.addMetadata(kv("row_key" + i, "row_value" + i));
+    }
+    ConfidentialMatchDataRecord cfmRecord = cfmRecordBuilder.build();
+
+    List<DataRecord> resultList = parser.parse(cfmRecord);
+
+    assertThat(resultList).hasSize(1);
+    DataRecord internalRecord = resultList.get(0);
+    assertThat(internalRecord.getErrorCode()).isEqualTo(PROTO_MISSING_MATCH_KEYS);
+    assertThat(internalRecord.hasRowLevelMetadata()).isFalse();
   }
 
   private ConfidentialMatchDataRecordParserImpl getConfidentialMatchDataRecordParserUnencrypted(

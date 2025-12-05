@@ -48,6 +48,12 @@ alias(
 )
 
 alias(
+    name = "absl_bind_front",
+    actual = "@com_google_absl//absl/functional:bind_front",
+    tags = ["manual"],
+)
+
+alias(
     name = "absl_hash",
     actual = "@com_google_absl//absl/hash",
 )
@@ -71,6 +77,12 @@ alias(
 alias(
     name = "absl_status",
     actual = "@com_google_absl//absl/status",
+)
+
+alias(
+    name = "absl_status_matchers",
+    actual = "@com_google_absl//absl/status:status_matchers",
+    tags = ["manual"],
 )
 
 alias(

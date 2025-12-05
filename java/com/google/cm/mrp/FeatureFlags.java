@@ -36,7 +36,8 @@ public abstract class FeatureFlags {
         .setLargeJobThresholdBytes(1000000)
         .setCoordinatorBatchEncryptionEnabled(false)
         .setMaxRecordsPerProtoOutputFile(100000)
-        .setProtoPassthroughMetadataEnabled(false);
+        .setProtoPassthroughMetadataEnabled(false)
+        .setProtoMetadataMaxCount(100);
   }
 
   /** Returns the flag for MIC feature. */
@@ -63,6 +64,9 @@ public abstract class FeatureFlags {
   /** Returns the max records to output for proto files. */
   public abstract int maxRecordsPerProtoOutputFile();
 
+  /** Returns the max number of key-value pairs allowed in proto metadata. */
+  public abstract int protoMetadataMaxCount();
+
   /** Builder for {@link FeatureFlags}. */
   @AutoValue.Builder
   public abstract static class Builder {
@@ -82,6 +86,9 @@ public abstract class FeatureFlags {
 
     /** Sets the metadata passthrough feature flag for proto format. */
     public abstract Builder setProtoPassthroughMetadataEnabled(boolean protoPassthroughMetadataEnabled);
+
+    /** Sets the max number of key-value pairs allowed in proto metadata. */
+    public abstract Builder setProtoMetadataMaxCount(int protoMetadataMaxCount);
 
     /** Set the applicationIdWorkgroups map */
     public abstract Builder setApplicationIdWorkgroups(Map<String, String> applicationIdWorkgroups);
