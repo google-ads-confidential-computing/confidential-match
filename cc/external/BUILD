@@ -60,13 +60,18 @@ alias(
 
 alias(
     name = "absl_log",
-    actual = "@com_google_absl//absl/log:absl_log",
+    actual = "@com_google_absl//absl/log",
 )
 
 alias(
     name = "absl_log_initialize",
     actual = "@com_google_absl//absl/log:initialize",
     tags = ["manual"],
+)
+
+alias(
+    name = "absl_log_scoped_mock_log",
+    actual = "@com_google_absl//absl/log:scoped_mock_log",
 )
 
 alias(
