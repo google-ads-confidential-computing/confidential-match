@@ -15,6 +15,7 @@
 #include "cc/lookup_server/crypto_client/src/hpke_crypto_client.h"
 
 #include <memory>
+#include <string>
 
 #include "absl/strings/string_view.h"
 #include "cc/core/interface/async_context.h"

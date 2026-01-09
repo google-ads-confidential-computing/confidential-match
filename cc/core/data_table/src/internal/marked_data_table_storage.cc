@@ -14,6 +14,7 @@
 
 #include "cc/core/data_table/src/internal/marked_data_table_storage.h"
 
+#include <algorithm>
 #include <string>
 #include <utility>
 #include <vector>

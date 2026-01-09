@@ -14,7 +14,9 @@
 
 #include "cc/lookup_server/parameter_client/src/parameter_client.h"
 
+#include <list>
 #include <memory>
+#include <string>
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/str_join.h"

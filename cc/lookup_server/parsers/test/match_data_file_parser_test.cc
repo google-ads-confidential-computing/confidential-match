@@ -14,6 +14,8 @@
 
 #include "cc/lookup_server/parsers/src/match_data_file_parser.h"
 
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "absl/strings/escaping.h"

@@ -14,6 +14,7 @@
 
 #include "cc/lookup_server/service/src/hashed_lookup_task.h"
 
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>

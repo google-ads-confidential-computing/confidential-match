@@ -15,6 +15,7 @@
 #include "cc/lookup_server/service/src/kms_encrypted_lookup_task.h"
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>

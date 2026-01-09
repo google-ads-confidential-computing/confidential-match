@@ -15,6 +15,8 @@
 #include "cc/lookup_server/match_data_loader/src/match_data_loader.h"
 
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "absl/types/span.h"
 #include "cc/core/interface/async_context.h"

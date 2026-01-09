@@ -15,6 +15,7 @@
 #include "cc/lookup_server/service/src/lookup_service.h"
 
 #include <map>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>

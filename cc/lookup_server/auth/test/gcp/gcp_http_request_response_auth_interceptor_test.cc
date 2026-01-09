@@ -14,6 +14,9 @@
 
 #include "cc/lookup_server/auth/src/gcp/gcp_http_request_response_auth_interceptor.h"
 
+#include <memory>
+#include <string>
+
 #include "absl/strings/str_cat.h"
 #include "cc/core/interface/http_types.h"
 #include "cc/public/core/interface/execution_result.h"

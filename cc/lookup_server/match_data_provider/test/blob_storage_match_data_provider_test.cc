@@ -15,6 +15,7 @@
 #include "cc/lookup_server/match_data_provider/src/blob_storage_match_data_provider.h"
 
 #include <memory>
+#include <string>
 
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"

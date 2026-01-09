@@ -27,3 +27,14 @@ message GetAuthTokenResponse {
   // Retrieved token
   string token = 1;
 }
+
+// Represents a request to get a service account email
+message GetServiceAccountEmailRequest {
+
+}
+
+// Represents a response from getting a service account email
+message GetServiceAccountEmailResponse {
+  // Retrieved email
+  string email = 1;
+}

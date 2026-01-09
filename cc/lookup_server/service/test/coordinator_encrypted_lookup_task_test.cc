@@ -14,6 +14,10 @@
 
 #include "cc/lookup_server/service/src/coordinator_encrypted_lookup_task.h"
 
+#include <memory>
+#include <utility>
+#include <vector>
+
 #include "cc/core/async_executor/mock/mock_async_executor.h"
 #include "cc/core/http2_server/mock/mock_http2_server.h"
 #include "cc/core/interface/async_context.h"

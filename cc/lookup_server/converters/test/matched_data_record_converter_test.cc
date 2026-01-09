@@ -14,6 +14,9 @@
 
 #include "cc/lookup_server/converters/src/matched_data_record_converter.h"
 
+#include <string>
+#include <vector>
+
 #include "cc/public/core/interface/execution_result.h"
 #include "include/gtest/gtest.h"
 

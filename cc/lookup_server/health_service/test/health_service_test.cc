@@ -14,6 +14,8 @@
 
 #include "cc/lookup_server/health_service/src/health_service.h"
 
+#include <memory>
+#include <string>
 #include <vector>
 
 #include "cc/public/core/test/interface/execution_result_matchers.h"

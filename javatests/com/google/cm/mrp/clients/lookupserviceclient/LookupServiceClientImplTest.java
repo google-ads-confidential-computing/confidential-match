@@ -19,11 +19,13 @@ package com.google.cm.mrp.clients.lookupserviceclient;
 import static com.google.api.client.testing.http.HttpTesting.SIMPLE_URL;
 import static com.google.cm.util.JumpConsistentHasher.hash;
 import static com.google.common.truth.Truth.assertThat;
-import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
+import static com.google.common.util.concurrent.MoreExecutors.getExitingExecutorService;
+import static java.util.concurrent.Executors.newFixedThreadPool;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -53,11 +55,16 @@ import com.google.cm.orchestrator.api.OrchestratorProto.GetCurrentShardingScheme
 import com.google.cm.orchestrator.api.OrchestratorProto.GetCurrentShardingSchemeResponse.Shard;
 import com.google.cm.shared.api.model.Code;
 import com.google.common.collect.ImmutableList;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
 import org.junit.Before;
@@ -81,6 +88,7 @@ public final class LookupServiceClientImplTest {
   @Mock private LookupServiceShardClient lookupServiceShardClient;
   private LookupServiceClient lookupServiceClient;
   @Mock private CryptoClient mockCryptoClient;
+  private ExecutorService threadPool;
 
   @Captor private ArgumentCaptor<String> shardEndpointCaptor;
   @Captor private ArgumentCaptor<LookupRequest> lookupRequestCaptor;
@@ -189,13 +197,14 @@ public final class LookupServiceClientImplTest {
 
   @Before
   public void setUp() {
+    threadPool = newFixedThreadPool(/* nThreads */ 10);
     // Default maximum of 10 data records per shard request
     lookupServiceClient =
         new LookupServiceClientImpl(
             orchestratorClient,
             lookupServiceShardClient,
-            directExecutor(),
-            10,
+            getExitingExecutorService((ThreadPoolExecutor) threadPool),
+            /* maxRecordsPerRequest */ 10,
             TEST_CLUSTER_GROUP_ID);
   }
 
@@ -212,7 +221,7 @@ public final class LookupServiceClientImplTest {
         .thenReturn(firstLookupResponse)
         .thenReturn(otherLookupResponse);
 
-    LookupServiceClientResponse result = lookupServiceClient.lookupRecords(lookupRequest);
+    LookupServiceClientResponse result = lookupServiceClient.lookupRecords(lookupRequest, false);
 
     // 100 data records, 3 shards, and 10 records max per shard request
     // Each shard gets 3 full requests, and 1 partially filled request; 4x3 = 12 total
@@ -254,7 +263,7 @@ public final class LookupServiceClientImplTest {
     when(lookupServiceShardClient.lookupRecords(eq(String.valueOf(decryptedJch)), any()))
         .thenReturn(lookupResponse);
 
-    LookupServiceClientResponse result = lookupServiceClient.lookupRecords(lookupRequest);
+    LookupServiceClientResponse result = lookupServiceClient.lookupRecords(lookupRequest, false);
 
     // Verify only decrypted JCH shard was called
     verify(lookupServiceShardClient)
@@ -288,7 +297,7 @@ public final class LookupServiceClientImplTest {
         .thenReturn(getShuffledScheme(numShards));
     when(lookupServiceShardClient.lookupRecords(anyString(), any())).thenReturn(lookupResponse);
 
-    LookupServiceClientResponse result = lookupServiceClient.lookupRecords(lookupRequest);
+    LookupServiceClientResponse result = lookupServiceClient.lookupRecords(lookupRequest, false);
 
     verify(lookupServiceShardClient, times(expectedTotalShardCalls))
         .lookupRecords(shardEndpointCaptor.capture(), lookupRequestCaptor.capture());
@@ -324,7 +333,7 @@ public final class LookupServiceClientImplTest {
     var ex =
         assertThrows(
             LookupServiceClientException.class,
-            () -> lookupServiceClient.lookupRecords(getLookupRequest(1)));
+            () -> lookupServiceClient.lookupRecords(getLookupRequest(1), false));
 
     verify(lookupServiceShardClient).lookupRecords(eq(SIMPLE_URL), any());
     verifyNoMoreInteractions(lookupServiceShardClient);
@@ -343,6 +352,70 @@ public final class LookupServiceClientImplTest {
     assertThat(ex.getErrorCode()).isEqualTo(Code.INTERNAL.name());
   }
 
+  @Test(timeout=8000)
+  public void lookupRecords_shardClientThrows_futuresAreCancelled() throws Exception {
+    when(orchestratorClient.getCurrentShardingScheme(TEST_CLUSTER_GROUP_ID))
+        .thenReturn(getScheme(2));
+    when(lookupServiceShardClient.lookupRecords(eq(SIMPLE_URL), any()))
+        .thenAnswer(unused -> {
+          try {
+            // Sleep for more than the test timeout, so it only passes when cancelled
+            Thread.sleep(9000);
+          } catch (InterruptedException ex) {
+            // Not an error, the test should be finished now
+          }
+          return LookupResponse.getDefaultInstance();
+        })
+        .thenThrow(LookupServiceShardClientException.class);
+
+    var ex =
+        assertThrows(
+            LookupServiceClientException.class,
+            () -> lookupServiceClient.lookupRecords(getLookupRequest(4), true));
+
+    verify(lookupServiceShardClient, times(2)).lookupRecords(eq(SIMPLE_URL), any());
+    verifyNoMoreInteractions(lookupServiceShardClient);
+    assertThat(ex).hasCauseThat().isInstanceOf(LookupServiceClientException.class);
+    assertThat(ex).hasCauseThat().hasCauseThat().isInstanceOf(CompletionException.class);
+    assertThat(ex)
+        .hasCauseThat()
+        .hasCauseThat()
+        .hasCauseThat()
+        .isInstanceOf(LookupServiceShardClientException.class);
+    assertThat(ex)
+        .hasMessageThat()
+        .isEqualTo(
+            "LookupServiceClient threw an exception while retrieving lookup results from one of the"
+                + " shards.");
+    assertThat(ex.getErrorCode()).isEqualTo(Code.INTERNAL.name());
+    assertThat(threadPool.shutdownNow()).isEmpty();
+  }
+
+  @Test(timeout=8000)
+  public void lookupRecords_callerTaskIsInterrupted_futuresAreCancelled() throws Exception {
+    when(orchestratorClient.getCurrentShardingScheme(TEST_CLUSTER_GROUP_ID))
+        .thenReturn(getScheme(1));
+    when(lookupServiceShardClient.lookupRecords(eq(SIMPLE_URL), any()))
+        .thenAnswer(unused -> {
+          try {
+            // Sleep for more than the test timeout, so it only passes when cancelled
+            Thread.sleep(9000);
+          } catch (InterruptedException ex) {
+            // Not an error, the test should be finished now
+          }
+          return LookupResponse.getDefaultInstance();
+        });
+
+    ListenableFuture<LookupServiceClientResponse> future = Futures.submit(
+        () -> lookupServiceClient.lookupRecords(getLookupRequest(1), true), threadPool);
+    future.cancel(true);
+    var ex = assertThrows(CancellationException.class, future::get);
+
+    verifyNoMoreInteractions(lookupServiceShardClient);
+    assertThat(ex).isInstanceOf(CancellationException.class);
+    assertThat(threadPool.shutdownNow()).isEmpty();
+  }
+
   @Test
   public void lookupRecords_orchestratorClientThrows_throwsException() throws Exception {
     when(orchestratorClient.getCurrentShardingScheme(TEST_CLUSTER_GROUP_ID))
@@ -351,7 +424,7 @@ public final class LookupServiceClientImplTest {
     var ex =
         assertThrows(
             LookupServiceClientException.class,
-            () -> lookupServiceClient.lookupRecords(getLookupRequest(1)));
+            () -> lookupServiceClient.lookupRecords(getLookupRequest(1), false));
 
     assertThat(ex).isInstanceOf(LookupServiceClientException.class);
     assertThat(ex).hasCauseThat().isInstanceOf(OrchestratorClientException.class);
@@ -378,7 +451,7 @@ public final class LookupServiceClientImplTest {
                 Code.INVALID_ARGUMENT.name(), ErrorReason.INVALID_SCHEME.name(), "message"))
         .thenReturn(lookupResponse);
 
-    LookupServiceClientResponse result = lookupServiceClient.lookupRecords(lookupRequest);
+    LookupServiceClientResponse result = lookupServiceClient.lookupRecords(lookupRequest, false);
 
     verify(lookupServiceShardClient, times(2)).lookupRecords(eq(SIMPLE_URL), any());
     verifyNoMoreInteractions(lookupServiceShardClient);
@@ -397,7 +470,7 @@ public final class LookupServiceClientImplTest {
     var ex =
         assertThrows(
             LookupServiceClientException.class,
-            () -> lookupServiceClient.lookupRecords(getLookupRequest(1)));
+            () -> lookupServiceClient.lookupRecords(getLookupRequest(1), false));
 
     verify(lookupServiceShardClient, times(2)).lookupRecords(eq(SIMPLE_URL), any());
     verifyNoMoreInteractions(lookupServiceShardClient);
@@ -426,16 +499,17 @@ public final class LookupServiceClientImplTest {
         .thenReturn(getScheme(3));
     // The first call returns all records, since this test doesn't check that records hash to
     // different shards.
-    when(lookupServiceShardClient.lookupRecords(eq(SIMPLE_URL), any()))
+    lenient().when(lookupServiceShardClient.lookupRecords(eq(SIMPLE_URL), any()))
         .thenReturn(firstLookupResponse)
         .thenReturn(otherLookupResponse);
 
-    when(mockCryptoClient.encrypt(any(), any(byte[].class))).thenReturn("encryptedstring");
+    lenient().when(mockCryptoClient.encrypt(any(), any(byte[].class)))
+        .thenReturn("encryptedstring");
 
     var ex =
         assertThrows(
             LookupServiceClientException.class,
-            () -> lookupServiceClient.lookupRecords(lookupRequest));
+            () -> lookupServiceClient.lookupRecords(lookupRequest, false));
     assertThat(ex)
         .hasMessageThat()
         .isEqualTo(
@@ -458,7 +532,7 @@ public final class LookupServiceClientImplTest {
         .thenReturn(otherLookupResponse);
     when(mockCryptoClient.encrypt(any(), any(byte[].class))).thenReturn("encryptedstring");
 
-    LookupServiceClientResponse result = lookupServiceClient.lookupRecords(lookupRequest);
+    LookupServiceClientResponse result = lookupServiceClient.lookupRecords(lookupRequest, false);
 
     // 100 data records, 3 shards, and 10 records max per shard request
     // Each shard gets 3 full requests, and 1 partially filled request; 4x3 = 12 total

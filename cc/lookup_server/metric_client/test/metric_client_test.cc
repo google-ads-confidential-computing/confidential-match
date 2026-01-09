@@ -15,6 +15,7 @@
 #include "cc/lookup_server/metric_client/src/metric_client.h"
 
 #include <memory>
+#include <string>
 
 #include "absl/strings/str_format.h"
 #include "cc/core/interface/type_def.h"

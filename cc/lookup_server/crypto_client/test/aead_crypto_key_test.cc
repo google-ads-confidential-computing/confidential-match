@@ -15,6 +15,7 @@
 #include "cc/lookup_server/crypto_client/src/aead_crypto_key.h"
 
 #include <memory>
+#include <string>
 
 #include "cc/public/core/interface/execution_result.h"
 #include "cc/public/core/test/interface/execution_result_matchers.h"

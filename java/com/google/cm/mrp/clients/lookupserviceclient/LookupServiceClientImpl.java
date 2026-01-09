@@ -53,13 +53,15 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Multimaps;
 import com.google.common.collect.Streams;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 import com.google.inject.Inject;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map.Entry;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -96,19 +98,20 @@ public final class LookupServiceClientImpl implements LookupServiceClient {
 
   /** {@inheritDoc} */
   @Override
-  public LookupServiceClientResponse lookupRecords(LookupServiceClientRequest request)
-      throws LookupServiceClientException {
+  public LookupServiceClientResponse lookupRecords(LookupServiceClientRequest request,
+      boolean allowFutureCancellation) throws LookupServiceClientException {
     logger.info("LookupServiceClient starting to send requests to lookup service.");
     // Don't try to refresh scheme on first try
-    return lookupRecords(request, /*forceShardingSchemeRefresh*/ false);
+    return lookupRecords(request, /*forceShardingSchemeRefresh*/ false, allowFutureCancellation);
   }
 
   private LookupServiceClientResponse lookupRecords(
-      LookupServiceClientRequest request, boolean forceShardingSchemeRefresh)
-      throws LookupServiceClientException {
+      LookupServiceClientRequest request, boolean forceShardingSchemeRefresh,
+      boolean allowFutureCancellation) throws LookupServiceClientException {
     try {
 
-      return getLookupServiceClientResponse(request, forceShardingSchemeRefresh);
+      return getLookupServiceClientResponse(request, forceShardingSchemeRefresh,
+          allowFutureCancellation);
 
     } catch (OrchestratorClientException ex) {
 
@@ -131,7 +134,8 @@ public final class LookupServiceClientImpl implements LookupServiceClient {
        */
       if (isInvalidSchemeException(ex) && !forceShardingSchemeRefresh) {
         // Try to get the records again, this time by forcing a scheme refresh
-        return lookupRecords(request, /* forceShardingSchemeRefresh= */ true);
+        return lookupRecords(request, /* forceShardingSchemeRefresh= */ true,
+            allowFutureCancellation);
       }
       String message =
           String.format(
@@ -144,18 +148,20 @@ public final class LookupServiceClientImpl implements LookupServiceClient {
   }
 
   private LookupServiceClientResponse getLookupServiceClientResponse(
-      LookupServiceClientRequest request, boolean forceShardingSchemeRefresh)
+      LookupServiceClientRequest request, boolean forceShardingSchemeRefresh,
+      boolean allowFutureCancellation)
       throws LookupServiceClientException, OrchestratorClientException {
     if (shardingScheme == null || shards == null || forceShardingSchemeRefresh) {
       refreshShardingScheme();
     }
-    LookupServiceClientResponse result = lookupRecordsFromShards(request);
+    LookupServiceClientResponse result = lookupRecordsFromShards(request, allowFutureCancellation);
     logger.info("LookupServiceClient finished receiving responses from the lookup service.");
     return result;
   }
 
   private LookupServiceClientResponse lookupRecordsFromShards(
-      LookupServiceClientRequest clientRequest) throws LookupServiceClientException {
+      LookupServiceClientRequest clientRequest, boolean allowFutureCancellation)
+      throws LookupServiceClientException {
     List<LookupDataRecord> allRecords = clientRequest.records();
 
     var lookupRequestBuilder =
@@ -167,7 +173,7 @@ public final class LookupServiceClientImpl implements LookupServiceClient {
     clientRequest.encryptionKeyInfo().ifPresent(lookupRequestBuilder::setEncryptionKeyInfo);
 
     try {
-      ImmutableList<CompletableFuture<LookupResponse>> futureResults =
+      ImmutableList<ListenableFuture<LookupResponse>> futureResults =
           Multimaps.index(
                   allRecords,
                   record -> {
@@ -186,27 +192,42 @@ public final class LookupServiceClientImpl implements LookupServiceClient {
                   entry ->
                       clientRequest.cryptoClient().isPresent()
                           ? toBatchEncryptedRequestFuture(
-                              shards.get(entry.getKey()).getServerAddressUri(),
-                              entry.getValue(),
-                              lookupRequestBuilder.build(),
-                              clientRequest.cryptoClient().get())
+                          shards.get(entry.getKey()).getServerAddressUri(),
+                          entry.getValue(),
+                          lookupRequestBuilder.build(),
+                          clientRequest.cryptoClient().get())
                           : toRequestFuture(entry, lookupRequestBuilder.build()))
               .collect(toImmutableList());
 
       logger.info("LookupServiceClient sending async requests to LookupServiceShardClient.");
-      List<LookupResult> results =
-          futureResults.stream()
-              .flatMap(future -> future.join().getLookupResultsList().stream())
-              .collect(toImmutableList());
-      return LookupServiceClientResponse.builder().setResults(results).build();
-    } catch (RuntimeException ex) {
+
+      try {
+        List<LookupResult> results =
+            Futures.allAsList(futureResults).get().stream()
+                .map(LookupResponse::getLookupResultsList)
+                .flatMap(Collection::stream)
+                .collect(toImmutableList());
+        return LookupServiceClientResponse.builder().setResults(results).build();
+      } catch (ExecutionException | InterruptedException ex) {
+        if (ex.getCause() != null && ex.getCause() instanceof Exception) {
+          throw (Exception) ex.getCause();
+        }
+        throw ex;
+      } finally {
+        // Cancel any futures that may still be running
+        // Rebuild the list in case an exception is thrown before the list is built
+        if (allowFutureCancellation) {
+          futureResults.forEach(future -> future.cancel(/* interrupt */ true));
+        }
+      }
+    } catch (Exception ex) {
       String message = "LookupServiceClient threw an exception.";
       logger.error(message);
       throw new LookupServiceClientException(Code.INTERNAL.name(), message, ex);
     }
   }
 
-  private Stream<CompletableFuture<LookupResponse>> toRequestFuture(
+  private Stream<ListenableFuture<LookupResponse>> toRequestFuture(
       Entry<Integer, Collection<LookupDataRecord>> shardRecords, LookupRequest lookupRequestBase) {
     String shardUri = shards.get(shardRecords.getKey()).getServerAddressUri();
     Collection<DataRecord> recordsPerShard =
@@ -220,7 +241,7 @@ public final class LookupServiceClientImpl implements LookupServiceClient {
         .map(request -> getAsyncShardResponse(request, shardUri));
   }
 
-  private Stream<CompletableFuture<LookupResponse>> toBatchEncryptedRequestFuture(
+  private Stream<ListenableFuture<LookupResponse>> toBatchEncryptedRequestFuture(
       String shardUri,
       Collection<LookupDataRecord> lookupDataRecords,
       LookupRequest lookupRequestBase,
@@ -237,7 +258,7 @@ public final class LookupServiceClientImpl implements LookupServiceClient {
                     recordsPerRequest, lookupRequestBase, cryptoClient, shardUri));
   }
 
-  private CompletableFuture<LookupResponse> buildAndSubmitAsyncBatchRequest(
+  private ListenableFuture<LookupResponse> buildAndSubmitAsyncBatchRequest(
       List<DataRecord> records,
       LookupRequest lookupRequestBase,
       CryptoClient cryptoClient,
@@ -262,7 +283,7 @@ public final class LookupServiceClientImpl implements LookupServiceClient {
 
     LookupRequest request =
         lookupRequestBase.toBuilder().setEncryptedDataRecords(encryptedDataRecords).build();
-    return CompletableFuture.supplyAsync(
+    return Futures.submit(
         () -> {
           try {
             return lookupServiceShardClient.lookupRecords(shardEndpoint, request);
@@ -291,9 +312,9 @@ public final class LookupServiceClientImpl implements LookupServiceClient {
   }
 
   // Executes async, may throw a CompletionException on join()/get()/etc.
-  private CompletableFuture<LookupResponse> getAsyncShardResponse(
+  private ListenableFuture<LookupResponse> getAsyncShardResponse(
       LookupRequest request, String shardEndpoint) {
-    return CompletableFuture.supplyAsync(
+    return Futures.submit(
         () -> {
           try {
             return lookupServiceShardClient.lookupRecords(shardEndpoint, request);

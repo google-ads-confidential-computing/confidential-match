@@ -14,6 +14,9 @@
 
 #include "cc/lookup_server/service/src/lookup_service.h"
 
+#include <memory>
+#include <string>
+#include <utility>
 #include <vector>
 
 #include "cc/core/test/utils/conditional_wait.h"

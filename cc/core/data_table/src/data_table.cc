@@ -14,6 +14,7 @@
 
 #include "cc/core/data_table/src/data_table.h"
 
+#include <algorithm>
 #include <string>
 #include <vector>
 

@@ -15,6 +15,7 @@
 #include "cc/lookup_server/crypto_client/src/aead_crypto_client.h"
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "absl/strings/escaping.h"

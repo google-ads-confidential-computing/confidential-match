@@ -14,6 +14,8 @@
 
 #include "cc/lookup_server/server/src/cloud_platform_dependency_factory/local/local_dependency_factory.h"
 
+#include <memory>
+
 #include "cc/core/authorization_proxy/src/pass_thru_authorization_proxy.h"
 #include "cc/core/interface/config_provider_interface.h"
 

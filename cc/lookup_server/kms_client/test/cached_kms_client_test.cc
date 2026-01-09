@@ -16,6 +16,7 @@
 
 #include <ctime>
 #include <memory>
+#include <string>
 
 #include "absl/strings/escaping.h"
 #include "cc/core/async_executor/mock/mock_async_executor.h"

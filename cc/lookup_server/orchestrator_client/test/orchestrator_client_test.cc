@@ -15,6 +15,7 @@
 #include "cc/lookup_server/orchestrator_client/src/orchestrator_client.h"
 
 #include <memory>
+#include <string>
 
 #include "absl/strings/str_format.h"
 #include "cc/core/http2_client/mock/mock_http_client.h"

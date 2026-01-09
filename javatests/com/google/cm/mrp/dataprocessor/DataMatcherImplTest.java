@@ -3260,6 +3260,80 @@ public final class DataMatcherImplTest {
     assertThat(outputRecord.getJoinFields().getCompositeFieldRecordMatchesMap()).containsKey(1);
   }
 
+  @Test
+  public void match_redactMode_propagatesRowLevelMetadata() {
+    String[][] testData = {
+      {"email", "email", "fake.email@google.com"},
+      {"phone", "phone", "999-999-9999"},
+    };
+    DataRecord.Metadata rowLevelMetadata =
+        DataRecord.Metadata.newBuilder()
+            .addMetadata(
+                KeyValue.newBuilder().setKey("source_file").setStringValue("file1.csv").build())
+            .addMetadata(KeyValue.newBuilder().setKey("row_number").setStringValue("10").build())
+            .build();
+    DataRecord inputRecord =
+        getDataRecord(testData).toBuilder().setRowLevelMetadata(rowLevelMetadata).build();
+    DataChunk dataChunk1 =
+        DataChunk.builder().setSchema(getSchema(testData)).addRecord(inputRecord).build();
+    String[][] piiDataEmail = {{"pii_value", "pii_value", "fake.email@google.com"}};
+    DataChunk dataChunk2 =
+        DataChunk.builder()
+            .setSchema(getSchema(piiDataEmail))
+            .addRecord(getDataRecord(piiDataEmail))
+            .build();
+
+    DataMatchResult dataMatchResult = dataMatcher.match(dataChunk1, dataChunk2);
+
+    DataChunk result = dataMatchResult.dataChunk();
+    assertThat(result.records()).hasSize(1);
+    DataRecord outputRecord = result.records().get(0);
+    assertThat(outputRecord.hasRowLevelMetadata()).isTrue();
+    assertThat(outputRecord.getRowLevelMetadata()).isEqualTo(rowLevelMetadata);
+    // Also check that redaction happened correctly
+    assertThat(outputRecord.getKeyValues(0).getStringValue()).isEqualTo("fake.email@google.com");
+    assertThat(outputRecord.getKeyValues(1).getStringValue()).isEqualTo(REDACT_UNMATCHED_WITH);
+  }
+
+  @Test
+  public void match_joinMode_propagatesRowLevelMetadata() {
+    String[][] testData = {
+      {"email", "email", "fake.email@google.com"},
+      {"phone", "phone", "999-999-9999"},
+    };
+    DataRecord.Metadata rowLevelMetadata =
+        DataRecord.Metadata.newBuilder()
+            .addMetadata(
+                KeyValue.newBuilder().setKey("data_source").setStringValue("bigquery").build())
+            .addMetadata(
+                KeyValue.newBuilder().setKey("row_id").setStringValue("123456789").build())
+            .build();
+    DataRecord inputRecord =
+        getDataRecord(testData).toBuilder().setRowLevelMetadata(rowLevelMetadata).build();
+    DataChunk dataChunk1 =
+        DataChunk.builder().setSchema(getSchema(testData)).addRecord(inputRecord).build();
+    String[][] piiDataEmail = {
+      {"pii_value", "pii_value", "fake.email@google.com"},
+      {"encrypted_gaia_id", "encrypted_gaia_id", "123"}
+    };
+    DataChunk dataChunk2 =
+        DataChunk.builder()
+            .setSchema(getSchema(piiDataEmail))
+            .addRecord(getDataRecord(piiDataEmail))
+            .build();
+
+    DataMatchResult dataMatchResult = dataMatcherWithJoinMode.match(dataChunk1, dataChunk2);
+
+    DataChunk result = dataMatchResult.dataChunk();
+    assertThat(result.records()).hasSize(1);
+    DataRecord outputRecord = result.records().get(0);
+    assertThat(outputRecord.hasRowLevelMetadata()).isTrue();
+    assertThat(outputRecord.getRowLevelMetadata()).isEqualTo(rowLevelMetadata);
+    // Also check that join happened correctly
+    assertThat(outputRecord.getKeyValues(0).getStringValue()).isEqualTo("fake.email@google.com");
+    assertThat(outputRecord.getJoinFields().getSingleFieldRecordMatchesMap()).containsKey(0);
+  }
+
   private DataChunk buildDataChunk(
       String[][] piiDataEmail, String[][] piiDataPhone, String[][] piiDataAddress) {
     DataChunk.Builder result = DataChunk.builder();

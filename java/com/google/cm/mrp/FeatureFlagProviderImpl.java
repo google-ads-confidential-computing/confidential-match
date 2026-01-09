@@ -88,7 +88,8 @@ public final class FeatureFlagProviderImpl implements FeatureFlagProvider {
         boolean workgroupsEnabled =
             getValue(Parameter.WORKGROUPS_ENABLED).map(Boolean::parseBoolean).orElse(false);
         boolean protoPassthroughMetadataEnabled =
-            getValue(Parameter.PROTO_PASSTHROUGH_METADATA_ENABLED).map(Boolean::parseBoolean).orElse(false);
+            getValue(Parameter.PROTO_PASSTHROUGH_METADATA_ENABLED).map(Boolean::parseBoolean)
+                .orElse(false);
         int maxRecordsPerProtoOutputFile =
             getValue(Parameter.MAX_RECORDS_PER_PROTO_OUTPUT_FILE)
                 .map(Integer::parseInt)
@@ -101,6 +102,9 @@ public final class FeatureFlagProviderImpl implements FeatureFlagProvider {
             getValue(Parameter.PROTO_METADATA_MAX_COUNT)
                 .map(Integer::parseInt)
                 .orElse(DEFAULT_PROTO_METADATA_MAX_COUNT);
+        boolean threadCancellationEnabled =
+            getValue(Parameter.THREAD_CANCELLATION_ENABLED).map(Boolean::parseBoolean)
+                .orElse(false);
         var featureFlagsBuilder =
             FeatureFlags.builder()
                 .setEnableMIC(micFeatureEnabled)
@@ -109,7 +113,8 @@ public final class FeatureFlagProviderImpl implements FeatureFlagProvider {
                 .setProtoPassthroughMetadataEnabled(protoPassthroughMetadataEnabled)
                 .setMaxRecordsPerProtoOutputFile(maxRecordsPerProtoOutputFile)
                 .setLargeJobThresholdBytes(largeJobThresholdBytes)
-                .setProtoMetadataMaxCount(protoMetadataMaxCount);
+                .setProtoMetadataMaxCount(protoMetadataMaxCount)
+                .setThreadCancellationEnabled(threadCancellationEnabled);
 
         addApplicationIdWorkgroups(featureFlagsBuilder);
         addLargeJobWorkgroupApplicationIds(featureFlagsBuilder);

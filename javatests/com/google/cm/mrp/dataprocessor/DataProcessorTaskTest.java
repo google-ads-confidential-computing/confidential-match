@@ -16,6 +16,7 @@
 
 package com.google.cm.mrp.dataprocessor;
 
+import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.any;
@@ -37,6 +38,7 @@ import com.google.cm.mrp.dataprocessor.writers.DataWriter;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.util.Optional;
+import java.util.concurrent.CompletionException;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -174,6 +176,46 @@ public class DataProcessorTaskTest {
     verify(mockLookupDataSource, times(2)).lookup(mockDataChunk, Optional.empty());
     verifyNoMoreInteractions(
         mockDataReader,
+        mockDataWriter,
+        mockDataMatcher,
+        mockDataChunk,
+        mockErrorChunk,
+        mockLookupDataSource);
+  }
+
+  @Test
+  public void run_whenInterrupted_fails()
+      throws IOException, LookupServiceClientException {
+    when(mockDataReader.hasNext()).thenReturn(true).thenReturn(true).thenReturn(false);
+    when(mockDataReader.next()).thenReturn(mockDataChunk).thenReturn(mockDataChunk);
+    when(mockLookupDataSource.lookup(mockDataChunk, Optional.empty()))
+        .thenReturn(mockLookupDataSourceResult);
+    when(mockLookupDataSourceResult.lookupResults()).thenReturn(mockDataChunk);
+    when(mockLookupDataSourceResult.erroredLookupResults()).thenReturn(Optional.empty());
+    var result = DataMatchResult.create(mockDataChunk, MatchStatistics.emptyInstance());
+    when(mockDataMatcher.match(eq(mockDataChunk), eq(mockDataChunk))).thenReturn(result);
+
+    Thread.currentThread().interrupt();
+    var ex = assertThrows(
+        CompletionException.class,
+        () ->
+            DataProcessorTask.run(
+                mockDataReader,
+                mockLookupDataSource,
+                mockDataMatcher,
+                mockDataWriter,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty()));
+
+    assertThat(ex.getCause()).isInstanceOf(InterruptedException.class);
+    verify(mockDataReader).hasNext();
+    verify(mockDataReader).close();
+    verify(mockDataReader).getName();
+    verify(mockDataWriter).close();
+    verifyNoMoreInteractions(
+        mockDataReader,
+        mockDataSourcePreparer,
         mockDataWriter,
         mockDataMatcher,
         mockDataChunk,

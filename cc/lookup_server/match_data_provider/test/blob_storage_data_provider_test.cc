@@ -16,6 +16,7 @@
 
 #include <future>
 #include <memory>
+#include <string>
 
 #include "absl/strings/string_view.h"
 #include "cc/core/interface/async_context.h"

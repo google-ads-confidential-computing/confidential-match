@@ -35,6 +35,7 @@ import com.google.cm.mrp.dataprocessor.writers.DataWriter;
 import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.util.Optional;
+import java.util.concurrent.CompletionException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -65,8 +66,8 @@ public final class DataProcessorTask {
       var stats = ImmutableList.<MatchStatistics>builder();
       logger.info("File {}: Running DataProcessorTask", filename);
       while (dataReader.hasNext()) {
+        checkForInterruption();
         logger.info("File {}: Processing next DataChunk", filename);
-
         // If dataSourcePreparer is present, data chunk output from dataReader will be prepared by
         // dataSourcePreparer.
         dataSourcePreparer.ifPresent(
@@ -76,6 +77,7 @@ public final class DataProcessorTask {
                 ? dataSourcePreparer.get().prepare(dataReader.next())
                 : dataReader.next();
 
+        checkForInterruption();
         logger.info("File {}: Performing Lookup for DataChunk", filename);
         LookupDataSourceResult lookupResult =
             lookupDataSource.lookup(dataChunk, encryptionMetadata);
@@ -85,9 +87,12 @@ public final class DataProcessorTask {
             lookupResult
                 .erroredLookupResults()
                 .map(errorChunk -> DataErrorMatcher.matchErrors(dataChunk, errorChunk));
+
+        checkForInterruption();
         DataMatchResult dataMatchResult =
             dataMatcher.match(dataChunkWithErrors.orElse(dataChunk), lookupResult.lookupResults());
 
+        checkForInterruption();
         dataOutputPreparer.ifPresent(
             (unused) -> logger.info("File {}: Preparing output result of DataChunk", filename));
         DataMatchResult preparedDataMatchResult =
@@ -95,6 +100,7 @@ public final class DataProcessorTask {
                 ? dataOutputPreparer.get().prepare(dataMatchResult)
                 : dataMatchResult;
 
+        checkForInterruption();
         logger.info("File {}: Writing DataChunk", filename);
         dataWriter.write(preparedDataMatchResult.dataChunk());
         stats.add(preparedDataMatchResult.matchStatistics());
@@ -129,6 +135,15 @@ public final class DataProcessorTask {
         logger.error("Error closing blob output stream: " + e.getMessage());
       }
       logger.info("Finished processing {}", filename);
+    }
+  }
+
+  private static void checkForInterruption() {
+    if (Thread.currentThread().isInterrupted()) {
+      String message = "A DataProcessorTask thread was interrupted.";
+      logger.error(message);
+      throw new CompletionException(
+          new InterruptedException(message));
     }
   }
 }

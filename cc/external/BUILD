@@ -75,6 +75,11 @@ alias(
 )
 
 alias(
+    name = "absl_random",
+    actual = "@com_google_absl//absl/random",
+)
+
+alias(
     name = "absl_span",
     actual = "@com_google_absl//absl/types:span",
 )
@@ -82,6 +87,11 @@ alias(
 alias(
     name = "absl_status",
     actual = "@com_google_absl//absl/status",
+)
+
+alias(
+    name = "absl_statusor",
+    actual = "@com_google_absl//absl/status:statusor",
 )
 
 alias(
@@ -128,6 +138,24 @@ alias(
 alias(
     name = "google_protobuf",
     actual = "@com_google_protobuf//:protobuf",
+)
+
+alias(
+    name = "google_rpc_status_cc_proto",
+    actual = "@com_google_googleapis//google/rpc:status_cc_proto",
+    tags = ["manual"],
+)
+
+alias(
+    name = "google_rpc_code_cc_proto",
+    actual = "@com_google_googleapis//google/rpc:code_cc_proto",
+    tags = ["manual"],
+)
+
+alias(
+    name = "google_rpc_error_details_cc_proto",
+    actual = "@com_google_googleapis//google/rpc:error_details_cc_proto",
+    tags = ["manual"],
 )
 
 alias(

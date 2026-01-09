@@ -15,6 +15,7 @@
 #include "cc/lookup_server/match_data_storage/src/in_memory_match_data_storage.h"
 
 #include <memory>
+#include <vector>
 
 #include "cc/core/interface/type_def.h"
 #include "cc/core/test/utils/proto_test_utils.h"

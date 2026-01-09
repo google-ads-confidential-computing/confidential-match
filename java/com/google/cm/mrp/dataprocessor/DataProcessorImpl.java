@@ -59,13 +59,14 @@ import com.google.cm.mrp.dataprocessor.readers.DataReader;
 import com.google.cm.mrp.dataprocessor.writers.DataWriter;
 import com.google.cm.mrp.models.JobParameters;
 import com.google.common.collect.ImmutableList;
+import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 import java.io.File;
 import java.io.IOException;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
@@ -135,7 +136,6 @@ public final class DataProcessorImpl implements DataProcessor {
    * output bucket.
    */
   @Override
-  @SuppressWarnings("UnstableApiUsage") // ImmutableList::builderWithExpectedSize
   public MatchStatistics process(
       FeatureFlags featureFlags, MatchConfig matchConfig, JobParameters jobParameters)
       throws JobProcessorException {
@@ -161,7 +161,7 @@ public final class DataProcessorImpl implements DataProcessor {
       streamDataSource = streamDataSourceFactory.create(matchConfig, jobParameters, featureFlags);
       logger.info("Job {}: Created StreamDataSource", jobRequestId);
     }
-    ImmutableList.Builder<CompletableFuture<ImmutableList<MatchStatistics>>> completableFutures =
+    ImmutableList.Builder<ListenableFuture<ImmutableList<MatchStatistics>>> futures =
         ImmutableList.builderWithExpectedSize(streamDataSource.size());
 
     DataMatcher dataMatcher = dataMatcherFactory.create(matchConfig, jobParameters);
@@ -207,41 +207,40 @@ public final class DataProcessorImpl implements DataProcessor {
       logger.info("Job {}: Created DataOutputPreparer", jobRequestId);
     }
 
-    for (int i = 0; i < streamDataSource.size(); ++i) {
-      completableFutures.add(
-          CompletableFuture.supplyAsync(
-              () -> {
-                final DataReader dataReader = streamDataSource.next();
-                final Schema outputSchema =
-                    dataOutputFormatter.isPresent()
-                        ? dataOutputFormatter.get().getOutputSchema()
-                        : getOutputSchema(matchConfig, dataReader.getSchema());
-                final DataWriter dataWriter =
-                    getDataWriter(
-                        featureFlags,
-                        jobParameters,
-                        outputSchema,
-                        dataDestination,
-                        dataReader.getName(),
-                        matchConfig);
-                logger.info("File {}: Created DataWriter", dataReader.getName());
-                return DataProcessorTask.run(
-                    dataReader,
-                    lookupDataSource,
-                    dataMatcher,
-                    dataWriter,
-                    encryptionMetadata,
-                    dataSourcePreparer,
-                    dataOutputPreparer);
-              },
-              executorService));
-    }
-
     try {
-      // Finish all tasks and combine match statistics
+      for (int i = 0; i < streamDataSource.size(); ++i) {
+        futures.add(
+            Futures.submit(
+                () -> {
+                  final DataReader dataReader = streamDataSource.next();
+                  final Schema outputSchema =
+                      dataOutputFormatter.isPresent()
+                          ? dataOutputFormatter.get().getOutputSchema()
+                          : getOutputSchema(matchConfig, dataReader.getSchema());
+                  final DataWriter dataWriter =
+                      getDataWriter(
+                          featureFlags,
+                          jobParameters,
+                          outputSchema,
+                          dataDestination,
+                          dataReader.getName(),
+                          matchConfig);
+                  logger.info("File {}: Created DataWriter", dataReader.getName());
+                  return DataProcessorTask.run(
+                      dataReader,
+                      lookupDataSource,
+                      dataMatcher,
+                      dataWriter,
+                      encryptionMetadata,
+                      dataSourcePreparer,
+                      dataOutputPreparer);
+                },
+                executorService));
+      }
+
+      // Combine match statistics
       ImmutableList<MatchStatistics> stats =
-          completableFutures.build().stream()
-              .map(CompletableFuture::join)
+          Futures.allAsList(futures.build()).get().stream()
               .flatMap(Collection::stream)
               .collect(toImmutableList());
       return MatchStatistics.create(
@@ -253,15 +252,22 @@ public final class DataProcessorImpl implements DataProcessor {
           sumStatsMapEntries(stats, MatchStatistics::datasource1Errors),
           sumStatsMapEntries(stats, MatchStatistics::datasource2ConditionMatches),
           streamDataSource.getSchema().getDataFormat());
-
-    } catch (CompletionException e) {
+    } catch (Exception e) {
       // Unwrap JobProcessorException from the CompletionException to allow job-level retries
       if (e.getCause() != null && e.getCause() instanceof JobProcessorException) {
         throw (JobProcessorException) e.getCause();
-      } else {
-        throw e;
       }
+      // Throw as a CompletionException, wrapping if necessary, for handling by callers
+      if (e instanceof CompletionException) {
+        throw (CompletionException) e;
+      }
+      throw new CompletionException(e);
     } finally {
+      // Cancel any futures that may still be running
+      // Rebuild the list in case an exception is thrown before the list is built
+      if (featureFlags.threadCancellationEnabled()) {
+        futures.build().forEach(future -> future.cancel(/* interrupt */ true));
+      }
       try {
         if (cryptoClient.isPresent()) {
           cryptoClient.get().close();
@@ -284,7 +290,7 @@ public final class DataProcessorImpl implements DataProcessor {
     }
     DataSourceFormatter formatter;
     // Evaluate if data is encrypted
-    if (cryptoClient.isPresent()) {
+    if (cryptoClient.isPresent() && encryptionMetadata.isPresent()) {
       formatter =
           dataSourceFormatterFactory.create(
               matchConfig,

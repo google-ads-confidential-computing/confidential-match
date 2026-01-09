@@ -52,7 +52,9 @@ public enum Parameter {
   // Comma-separated list of application IDs for which to allocate large jobs to dedicated workgroup
   LARGE_JOB_APPLICATION_IDS,
   // Threshold (in bytes) above which jobs are allocated to dedicated workgroup
-  LARGE_JOB_THRESHOLD;
+  LARGE_JOB_THRESHOLD,
+  // Enables batched threads to be cancelled by exceptions
+  THREAD_CANCELLATION_ENABLED;
 
   /** String to prefix the parameters. */
   public static final String CFM_PREFIX = "CFM";

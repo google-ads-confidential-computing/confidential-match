@@ -176,7 +176,6 @@ public final class LookupServerDataSource implements LookupDataSource {
   /*
    *  Parses data from hashed data source and sends to the lookup service
    */
-  @SuppressWarnings("UnstableApiUsage")
   private LookupDataSourceResult buildAndSendHashedRequestToLookupService(
       DataChunk dataChunk,
       int piisPerRow,
@@ -206,7 +205,8 @@ public final class LookupServerDataSource implements LookupDataSource {
               .setAssociatedDataKeys(getAssociatedDataKeys())
               .setRecords(piisList)
               .build();
-      var lookupResults = lookupServiceClient.lookupRecords(lookupRequest).results();
+      var lookupResults = lookupServiceClient.lookupRecords(lookupRequest,
+          featureFlags.threadCancellationEnabled()).results();
       // Group LookupResults by status
       Map<Status, List<LookupResult>> lookupResultsByStatus =
           lookupResults.stream().collect(groupingBy(LookupResult::getStatus));
@@ -234,7 +234,6 @@ public final class LookupServerDataSource implements LookupDataSource {
   /*
    *  Parses data from encrypted data source and groups it to send to the lookup service
    */
-  @SuppressWarnings("UnstableApiUsage")
   private LookupDataSourceResult buildAndSendEncryptedRequestsToLookupService(
       EncryptionMetadata encryptionMetadata,
       DataChunk dataChunk,
@@ -305,7 +304,8 @@ public final class LookupServerDataSource implements LookupDataSource {
                 .setRecords(piisMap.values().stream().collect(ImmutableList.toImmutableList()))
                 .setAssociatedDataKeys(getAssociatedDataKeys())
                 .build();
-        var lookupServiceClientResults = lookupServiceClient.lookupRecords(lookupRequest).results();
+        var lookupServiceClientResults = lookupServiceClient.lookupRecords(lookupRequest,
+            featureFlags.threadCancellationEnabled()).results();
 
         // Group results by status
         Map<Status, List<LookupResult>> lookupResultsByStatus =
@@ -409,7 +409,8 @@ public final class LookupServerDataSource implements LookupDataSource {
                 .setCryptoClient(cryptoClient.get())
                 .setAssociatedDataKeys(getAssociatedDataKeys())
                 .build();
-        var lookupServiceClientResults = lookupServiceClient.lookupRecords(lookupRequest).results();
+        var lookupServiceClientResults = lookupServiceClient.lookupRecords(lookupRequest,
+            featureFlags.threadCancellationEnabled()).results();
         // Group results by status
         Map<Status, List<LookupResult>> lookupResultsByStatus =
             lookupServiceClientResults.stream().collect(groupingBy(LookupResult::getStatus));
@@ -426,7 +427,7 @@ public final class LookupServerDataSource implements LookupDataSource {
         List<DataRecord> resultRecords =
             lookupResultsByStatus.getOrDefault(Status.STATUS_SUCCESS, ImmutableList.of()).stream()
                 .filter(lookupResult -> lookupResult.getMatchedDataRecordsCount() > 0)
-                .flatMap(lookupResult -> toDataRecords(lookupResult))
+                .flatMap(this::toDataRecords)
                 .collect(Collectors.toList());
         lookupResults.addAll(resultRecords);
       }

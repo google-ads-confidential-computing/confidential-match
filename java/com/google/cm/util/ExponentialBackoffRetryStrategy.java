@@ -19,6 +19,7 @@ package com.google.cm.util;
 import com.google.common.collect.ImmutableList;
 import com.google.common.math.LongMath;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.net.NoRouteToHostException;
 import java.net.UnknownHostException;
 import javax.net.ssl.SSLException;
@@ -57,7 +58,8 @@ public final class ExponentialBackoffRetryStrategy extends DefaultHttpRequestRet
         baseRetryDelay,
         // nonRetriableIOExceptionClasses
         ImmutableList.of(
-            UnknownHostException.class, NoRouteToHostException.class, SSLException.class),
+            UnknownHostException.class, NoRouteToHostException.class, SSLException.class,
+            InterruptedIOException.class),
         // retriableCodes
         ImmutableList.of(
             HttpStatus.SC_REQUEST_TIMEOUT, // HTTP Status Code: 408
@@ -69,7 +71,6 @@ public final class ExponentialBackoffRetryStrategy extends DefaultHttpRequestRet
   }
 
   /** Calculates the delay between retry attempts. */
-  @SuppressWarnings("UnstableApiUsage") // LongMath::saturatedPow, LongMath::saturatedMultiply
   @Override
   public TimeValue getRetryInterval(HttpResponse response, int execCount, HttpContext context) {
     logger.info(

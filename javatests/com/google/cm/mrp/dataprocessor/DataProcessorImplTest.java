@@ -23,6 +23,7 @@ import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.any;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.times;
@@ -80,6 +81,7 @@ import com.google.cm.mrp.models.JobParameters.OutputDataLocation;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 import org.junit.Before;
@@ -153,12 +155,14 @@ public final class DataProcessorImplTest {
   @Captor private ArgumentCaptor<DestinationInfo> destinationInfoCaptor;
 
   private DataProcessor dataProcessor;
+  private ExecutorService threadPool;
 
   @Before
   public void setUp() {
+    threadPool = Executors.newFixedThreadPool(4);
     dataProcessor =
         new DataProcessorImpl(
-            Executors.newFixedThreadPool(1),
+            threadPool,
             mockDataMatcherFactory,
             mockDataWriterFactory,
             mockLookupDataSourceFactory,
@@ -637,9 +641,79 @@ public final class DataProcessorImplTest {
         mockDataDestination);
   }
 
+  @Test(timeout=8000)
+  public void process_whenDataReaderFails_futuresCancelled() throws Exception {
+    when(mockStreamDataSourceFactory.create(eq(CM_CONFIG), eq(DEFAULT_PARAMS),
+        eq(DEFAULT_FEATURE_FLAGS)))
+        .thenReturn(mockStreamDataSource);
+    when(mockStreamDataSource.size()).thenReturn(2);
+    when(mockStreamDataSource.next()).thenReturn(mockDataReader);
+    when(mockDataReader.hasNext()).thenReturn(true);
+    when(mockDataReader.next())
+        .thenAnswer(unused -> {
+          try {
+            // Sleep for more than the test timeout, so it only passes when cancelled
+            Thread.sleep(9000);
+          } catch (InterruptedException ex) {
+            // Restore interrupt status so the task catches it
+            Thread.currentThread().interrupt();
+          }
+          return mockDataChunk;
+        })
+        .thenThrow(RuntimeException.class);
+    when(mockDataReader.getName()).thenReturn("test.csv");
+    when(mockDataReader.getSchema()).thenReturn(DEFAULT_SCHEMA);
+    when(mockLookupDataSourceFactory.create(CM_CONFIG, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS))
+        .thenReturn(mockLookupDataSource);
+    when(mockDataMatcherFactory.create(CM_CONFIG, DEFAULT_PARAMS)).thenReturn(mockDataMatcher);
+    when(mockDataDestinationFactory.create(any(DestinationInfo.class)))
+        .thenReturn(mockDataDestination);
+    when(mockDataWriterFactory.createCsvDataWriter(
+        mockDataDestination, "test.csv", DEFAULT_SCHEMA, CM_OUTPUT_COLUMNS))
+        .thenReturn(mockDataWriter);
+
+    assertThrows(
+        RuntimeException.class,
+        () ->
+            dataProcessor.process(
+                FeatureFlags.builder().setEnableMIC(false).build(),
+                CM_CONFIG,
+                JobParameters.builder()
+                    .setJobId(JOB_REQUEST_ID)
+                    .setDataLocation(DATA_OWNER_LIST.getDataOwners(0).getDataLocation())
+                    .setOutputDataLocation(
+                        OutputDataLocation.forNameAndPrefix(OUTPUT_BUCKET, OUTPUT_PREFIX))
+                    .build()));
+
+    verify(mockDataReader, atLeastOnce()).hasNext();
+    verify(mockDataReader, atLeastOnce()).next();
+    verify(mockDataReader, atLeastOnce()).close();
+    verify(mockDataReader, atLeastOnce()).getSchema();
+    verify(mockDataReader, atLeastOnce()).getName();
+    verify(mockDataMatcherFactory).create(CM_CONFIG, DEFAULT_PARAMS);
+    verify(mockDataWriterFactory, atLeastOnce())
+        .createCsvDataWriter(mockDataDestination, "test.csv", DEFAULT_SCHEMA, CM_OUTPUT_COLUMNS);
+    verify(mockDataWriter, atLeastOnce()).close();
+    verify(mockDataDestinationFactory).create(destinationInfoCaptor.capture());
+    verify(mockLookupDataSourceFactory).create(CM_CONFIG, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS);
+    verify(mockStreamDataSourceFactory).create(eq(CM_CONFIG), eq(DEFAULT_PARAMS),
+        eq(DEFAULT_FEATURE_FLAGS));
+    verify(mockStreamDataSource, atLeast(3)).size();
+    verify(mockStreamDataSource, atLeastOnce()).next();
+    assertThat(destinationInfoCaptor.getValue().getGcsDestination().getOutputBucket())
+        .isEqualTo(OUTPUT_BUCKET);
+    assertThat(destinationInfoCaptor.getValue().getGcsDestination().getOutputPrefix())
+        .isEqualTo(OUTPUT_PREFIX);
+    assertThat(destinationInfoCaptor.getValue().getGcsDestination().hasDataOwnerIdentity())
+        .isFalse();
+    // Don't verify no more mock interactions this time, threads make the check nondeterministic
+    assertThat(threadPool.shutdownNow()).isEmpty();
+  }
+
   @Test
   public void process_whenDataMatcherFailsThenThrows() throws Exception {
-    when(mockStreamDataSourceFactory.create(eq(CM_CONFIG), eq(DEFAULT_PARAMS), eq(DEFAULT_FEATURE_FLAGS) ))
+    when(mockStreamDataSourceFactory.create(eq(CM_CONFIG), eq(DEFAULT_PARAMS),
+        eq(DEFAULT_FEATURE_FLAGS)))
         .thenReturn(mockStreamDataSource);
     when(mockStreamDataSource.size()).thenReturn(1);
     when(mockStreamDataSource.next()).thenReturn(mockDataReader);

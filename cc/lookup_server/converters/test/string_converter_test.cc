@@ -14,6 +14,9 @@
 
 #include "cc/lookup_server/converters/src/string_converter.h"
 
+#include <list>
+#include <string>
+
 #include "absl/strings/str_format.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "cc/public/core/test/interface/execution_result_matchers.h"

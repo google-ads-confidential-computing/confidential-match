@@ -17,21 +17,30 @@ which provides a technical guarantee about how the data is processed.
 Confidential Match source code and images are built with the following
 dependencies:
 
-* Debian 12 (Bookworm) on x86_64
+* Operating System: Debian 12 (Bookworm) on x86_64
 * Docker Engine 20.10.24
-    * https://docs.docker.com/engine/install/debian/#install-using-the-repository
-    * https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user
+    * Install the package [docker.io](https://packages.debian.org/bookworm/docker.io) from Debian 12
+    * * `sudo apt install docker.io`
+    * Manage Docker as non-root: https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user
+
 * Bazel 6.5.0
     * https://bazel.build/versions/6.5.0/install/ubuntu
+        * Follow until Step 2
     * If installing Bazelisk, it must be callable with the command `bazel`
 * OpenJDK JDK 17
+    * Install the package [openjdk-17-jdk](https://packages.debian.org/bookworm/openjdk-17-jdk) from Debian 12.
+    * * `sudo apt install openjdk-17-jdk`
+
 * Python 3.12.8
     * Installed using https://github.com/pyenv/pyenv
 * Go (golang) 1.19.8
+    * Install the package [golang-1.19](https://packages.debian.org/bookworm/golang-1.19) from Debian 12.
+    * * `sudo apt install golang-1.19`
 * Google Cloud SDK (gcloud) 530.0.0
     * https://cloud.google.com/sdk/docs/install
 * Clang 13
-
+    * Install the package [clang-13](https://packages.debian.org/bookworm/clang-13) from Debian 12.
+    * * `sudo apt install clang-13`
 ### Google Cloud Platform (GCP) Authentication
 
 These commands will authenticate your account using gcloud and configure its

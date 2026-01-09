@@ -14,6 +14,8 @@
 
 #include "cc/lookup_server/kms_client/src/cached_kms_client.h"
 
+#include <memory>
+#include <string>
 #include <utility>
 
 #include "absl/strings/string_view.h"

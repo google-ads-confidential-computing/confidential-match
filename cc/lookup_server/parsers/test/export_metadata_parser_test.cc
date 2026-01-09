@@ -14,6 +14,8 @@
 
 #include "cc/lookup_server/parsers/src/export_metadata_parser.h"
 
+#include <string>
+
 #include "cc/public/core/interface/execution_result.h"
 #include "cc/public/core/test/interface/execution_result_matchers.h"
 #include "gtest/gtest.h"

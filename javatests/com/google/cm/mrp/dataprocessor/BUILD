@@ -60,6 +60,7 @@ java_test(
         "//java/com/google/cm/mrp/dataprocessor/readers",
         "//java/com/google/cm/mrp/dataprocessor/writers",
         "//java/com/google/cm/mrp/selectors",
+        "//java/external:google_truth",
         "//java/external:guava",
         "//java/external:mockito",
     ],

@@ -15,6 +15,7 @@
 #include "cc/lookup_server/kms_client/src/kms_client.h"
 
 #include <memory>
+#include <string>
 
 #include "absl/strings/escaping.h"
 #include "cc/core/async_executor/src/async_executor.h"

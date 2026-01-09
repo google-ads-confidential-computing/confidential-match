@@ -42,6 +42,7 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.times;
@@ -250,7 +251,7 @@ public final class LookupServerDataSourceTest {
 
   @Test
   public void lookup_whenAllColumnsMatchThenReturnsCompleteRecord() throws Exception {
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenReturn(
             LookupServiceClientResponse.builder()
                 .addResult(
@@ -309,7 +310,8 @@ public final class LookupServerDataSourceTest {
     assertThat(result.schema().getColumnsCount()).isEqualTo(1);
     assertThat(result.schema().getColumns(0).getColumnName()).isEqualTo(PII_VALUE);
     assertThat(result.schema().getColumns(0).getColumnAlias()).isEqualTo(PII_VALUE);
-    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
+    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture(),
+        anyBoolean());
     List<LookupDataRecord> lookupRequestRecords =
         lookupServiceClientRequestCaptor.getValue().records();
     assertEquals(3, lookupRequestRecords.size());
@@ -329,7 +331,7 @@ public final class LookupServerDataSourceTest {
     String encryptedEmail = encryptString(dek, "fake.email@google.com");
     when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
     when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenReturn(
             LookupServiceClientResponse.builder()
                 .addResult(
@@ -372,7 +374,8 @@ public final class LookupServerDataSourceTest {
 
     lookupServerDataSourceForEncryption.lookup(dataChunk, Optional.of(WRAPPED_ENCRYPTION_METADATA));
 
-    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
+    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture(),
+        anyBoolean());
     var lookupRequest = lookupServiceClientRequestCaptor.getValue();
     assertEquals(KeyFormat.KEY_FORMAT_HASHED_ENCRYPTED, lookupRequest.keyFormat());
     // Verify KeyMetadata
@@ -980,7 +983,7 @@ public final class LookupServerDataSourceTest {
 
   @Test
   public void lookup_whenMultiColumnsMatchThenReturnsCompleteRecord() throws Exception {
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenReturn(
             LookupServiceClientResponse.builder()
                 .addResult(
@@ -1079,7 +1082,8 @@ public final class LookupServerDataSourceTest {
     assertEquals(
         hashString("fake_first_name2fake_last_name2MX88888"),
         result.records().get(5).getKeyValues(0).getStringValue());
-    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
+    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture(),
+        anyBoolean());
     List<LookupDataRecord> lookupRequestRecords =
         lookupServiceClientRequestCaptor.getValue().records();
     assertEquals(6, lookupRequestRecords.size());
@@ -1103,7 +1107,7 @@ public final class LookupServerDataSourceTest {
 
   @Test
   public void lookup_whenPartialColumnsMatchThenReturnsPartialRecord() throws Exception {
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenReturn(
             LookupServiceClientResponse.builder()
                 .addResult(
@@ -1145,7 +1149,8 @@ public final class LookupServerDataSourceTest {
     assertEquals(1, result.records().get(1).getKeyValuesCount());
     assertEquals(PII_VALUE, result.records().get(1).getKeyValues(0).getKey());
     assertEquals("999-999-9999", result.records().get(1).getKeyValues(0).getStringValue());
-    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
+    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture(),
+        anyBoolean());
     List<LookupDataRecord> lookupRequestRecords =
         lookupServiceClientRequestCaptor.getValue().records();
     assertEquals(3, lookupRequestRecords.size());
@@ -1161,7 +1166,7 @@ public final class LookupServerDataSourceTest {
 
   @Test
   public void lookup_whenNoMatchThenReturnsEmptyResult() throws Exception {
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenReturn(
             LookupServiceClientResponse.builder()
                 .addResult(LookupResult.newBuilder().setStatus(Status.STATUS_SUCCESS))
@@ -1183,7 +1188,8 @@ public final class LookupServerDataSourceTest {
     DataChunk result = lookupServerDataSource.lookup(dataChunk, Optional.empty()).lookupResults();
 
     assertEquals(0, result.records().size());
-    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
+    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture(),
+        anyBoolean());
     List<LookupDataRecord> lookupRequestRecords =
         lookupServiceClientRequestCaptor.getValue().records();
     assertEquals(3, lookupRequestRecords.size());
@@ -1201,7 +1207,7 @@ public final class LookupServerDataSourceTest {
   public void lookup_whenAssociatedDataThenReturnsMultipleRecords() throws Exception {
     String associatedDataKey = "encrypted_gaia_id";
     ByteString associatedDataValue = ByteString.copyFromUtf8("abcd1234");
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenReturn(
             LookupServiceClientResponse.builder()
                 .addResult(
@@ -1294,7 +1300,8 @@ public final class LookupServerDataSourceTest {
     assertEquals("address", record.getKeyValues(1).getStringValue());
     assertEquals(associatedDataKey, record.getKeyValues(2).getKey());
     assertEquals(associatedDataValue, fromBase64String(record.getKeyValues(2).getStringValue()));
-    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
+    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture(),
+        anyBoolean());
     List<LookupDataRecord> lookupRequestRecords =
         lookupServiceClientRequestCaptor.getValue().records();
     assertEquals(3, lookupRequestRecords.size());
@@ -1326,7 +1333,7 @@ public final class LookupServerDataSourceTest {
             testConfig,
             FeatureFlags.builder().build(),
             DEFAULT_PARAMS);
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenReturn(
             LookupServiceClientResponse.builder()
                 .addResult(
@@ -1382,7 +1389,8 @@ public final class LookupServerDataSourceTest {
     assertEquals(
         hashString("fake_first_namefake_last_nameus09999"),
         result.records().get(2).getKeyValues(0).getStringValue());
-    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
+    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture(),
+        anyBoolean());
     List<LookupDataRecord> lookupRequestRecords =
         lookupServiceClientRequestCaptor.getValue().records();
     assertEquals(3, lookupRequestRecords.size());
@@ -1398,7 +1406,7 @@ public final class LookupServerDataSourceTest {
 
   @Test
   public void lookup_whenBlankEmailThenDoesNotLookupEmail() throws Exception {
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenReturn(
             LookupServiceClientResponse.builder()
                 .addResult(
@@ -1443,7 +1451,8 @@ public final class LookupServerDataSourceTest {
     assertEquals(
         "IEUw/X1oeAwDwxvBs8+aS2bfk781XbfMOyEenBunDSU=",
         result.records().get(1).getKeyValues(0).getStringValue());
-    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
+    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture(),
+        anyBoolean());
     List<LookupDataRecord> lookupRequestRecords =
         lookupServiceClientRequestCaptor.getValue().records();
     assertEquals(2, lookupRequestRecords.size());
@@ -1457,7 +1466,7 @@ public final class LookupServerDataSourceTest {
 
   @Test
   public void lookup_whenBlankPhoneThenDoesNotLookupPhone() throws Exception {
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenReturn(
             LookupServiceClientResponse.builder()
                 .addResult(
@@ -1503,7 +1512,8 @@ public final class LookupServerDataSourceTest {
     assertEquals(
         "IEUw/X1oeAwDwxvBs8+aS2bfk781XbfMOyEenBunDSU=",
         result.records().get(1).getKeyValues(0).getStringValue());
-    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
+    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture(),
+        anyBoolean());
     List<LookupDataRecord> lookupRequestRecords =
         lookupServiceClientRequestCaptor.getValue().records();
     assertEquals(2, lookupRequestRecords.size());
@@ -1517,7 +1527,7 @@ public final class LookupServerDataSourceTest {
 
   @Test
   public void lookup_whenBlankAddressThenDoesNotLookupAddress() throws Exception {
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenReturn(
             LookupServiceClientResponse.builder()
                 .addResult(
@@ -1559,7 +1569,8 @@ public final class LookupServerDataSourceTest {
     assertEquals(1, result.records().get(1).getKeyValuesCount());
     assertEquals(PII_VALUE, result.records().get(1).getKeyValues(0).getKey());
     assertEquals("999-999-9999", result.records().get(1).getKeyValues(0).getStringValue());
-    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
+    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture(),
+        anyBoolean());
     List<LookupDataRecord> lookupRequestRecords =
         lookupServiceClientRequestCaptor.getValue().records();
     assertEquals(2, lookupRequestRecords.size());
@@ -1593,7 +1604,7 @@ public final class LookupServerDataSourceTest {
 
   @Test
   public void lookup_whenHashedDataRecordsWithErrorCodeSkipped() throws Exception {
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenReturn(
             LookupServiceClientResponse.builder()
                 .addResult(
@@ -1642,7 +1653,8 @@ public final class LookupServerDataSourceTest {
     assertEquals(1, result.records().get(1).getKeyValuesCount());
     assertEquals(PII_VALUE, result.records().get(1).getKeyValues(0).getKey());
     assertEquals("999-999-9999", result.records().get(1).getKeyValues(0).getStringValue());
-    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
+    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture(),
+        anyBoolean());
     List<LookupDataRecord> lookupRequestRecords =
         lookupServiceClientRequestCaptor.getValue().records();
     // Should only be two records since other DataRecord has error code
@@ -1656,7 +1668,7 @@ public final class LookupServerDataSourceTest {
   @Test
   public void lookup_whenHashedRequestsHasUnrecognizedLookupResultThenThrowsException()
       throws Exception {
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenReturn(
             LookupServiceClientResponse.builder()
                 .addResult(LookupProto.LookupResult.newBuilder())
@@ -1685,7 +1697,7 @@ public final class LookupServerDataSourceTest {
 
   @Test
   public void lookup_whenHashedRequestsHasFailedLookupResultThenThrowsException() throws Exception {
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenReturn(
             LookupServiceClientResponse.builder()
                 .addResult(LookupProto.LookupResult.newBuilder().setStatus(Status.STATUS_FAILED))
@@ -1724,7 +1736,7 @@ public final class LookupServerDataSourceTest {
     String encryptedLastName = encryptString(dek, "fake_last_name");
     when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
     when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenAnswer(
             invocation -> {
               var responseBuilder = LookupServiceClientResponse.builder();
@@ -1808,7 +1820,8 @@ public final class LookupServerDataSourceTest {
     assertEquals(
         hashString("fake_first_namefake_last_nameUS99999"),
         dataRecords.get(2).getKeyValues(0).getStringValue());
-    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
+    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture(),
+        anyBoolean());
     var lookupRequest = lookupServiceClientRequestCaptor.getValue();
     assertEquals(KeyFormat.KEY_FORMAT_HASHED_ENCRYPTED, lookupRequest.keyFormat());
     // Verify EncryptionKeyInfo
@@ -1856,7 +1869,7 @@ public final class LookupServerDataSourceTest {
     String encryptedLastName = encryptString(dek, "fake_last_name");
     when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
     when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenAnswer(
             invocation -> {
               var responseBuilder = LookupServiceClientResponse.builder();
@@ -1940,7 +1953,8 @@ public final class LookupServerDataSourceTest {
     assertEquals(
         hashString("fake_first_namefake_last_nameUS99999"),
         dataRecords.get(2).getKeyValues(0).getStringValue());
-    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
+    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture(),
+        anyBoolean());
     var lookupRequest = lookupServiceClientRequestCaptor.getValue();
     assertEquals(KeyFormat.KEY_FORMAT_HASHED_ENCRYPTED, lookupRequest.keyFormat());
     // Verify EncryptionKeyInfo
@@ -1987,7 +2001,7 @@ public final class LookupServerDataSourceTest {
     String encryptedPhone = encryptString(dek, "999-999-9999");
     String encryptedFirstName = encryptString(dek, "fake_first_name");
     String encryptedLastName = encryptString(dek, "fake_last_name");
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenReturn(
             LookupServiceClientResponse.builder()
                 .addResult(LookupProto.LookupResult.newBuilder())
@@ -2039,7 +2053,7 @@ public final class LookupServerDataSourceTest {
     String encryptedPhone = encryptString(dek, "999-999-9999");
     String encryptedFirstName = encryptString(dek, "fake_first_name");
     String encryptedLastName = encryptString(dek, "fake_last_name");
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenReturn(
             LookupServiceClientResponse.builder()
                 .addResult(LookupProto.LookupResult.newBuilder().setStatus(Status.STATUS_FAILED))
@@ -2092,7 +2106,7 @@ public final class LookupServerDataSourceTest {
     String encryptedLastName = encryptString(dek, "fake_last_name");
     when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
     when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenAnswer(
             invocation -> {
               var responseBuilder = LookupServiceClientResponse.builder();
@@ -2192,7 +2206,8 @@ public final class LookupServerDataSourceTest {
     assertEquals(
         hashString("fake_first_namefake_last_nameUS99999"),
         dataRecords.get(3).getKeyValues(0).getStringValue());
-    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
+    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture(),
+        anyBoolean());
     var lookupRequest = lookupServiceClientRequestCaptor.getValue();
     assertEquals(KeyFormat.KEY_FORMAT_HASHED_ENCRYPTED, lookupRequest.keyFormat());
     // Verify EncryptionKeyInfo
@@ -2251,7 +2266,7 @@ public final class LookupServerDataSourceTest {
     String encryptedLastName1 = encryptString(dek1, "fake_last_name1");
     when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
     when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenAnswer(
             invocation -> {
               var responseBuilder = LookupServiceClientResponse.builder();
@@ -2395,7 +2410,7 @@ public final class LookupServerDataSourceTest {
         hashString("fake_first_name1fake_last_name1US99999"),
         dataRecords.get(5).getKeyValues(0).getStringValue());
     verify(mockLookupServiceClient, times(2))
-        .lookupRecords(lookupServiceClientRequestCaptor.capture());
+        .lookupRecords(lookupServiceClientRequestCaptor.capture(), anyBoolean());
     // Multiple requests means multiple values captured
     // Order of requests is nondeterministic, so sort by email value (so dek0 is first)
     var lookupRequestList = sortLookupRequests(lookupServiceClientRequestCaptor.getAllValues());
@@ -2468,7 +2483,7 @@ public final class LookupServerDataSourceTest {
     String wip1 = "testWip1";
     when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
     when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenAnswer(
             invocation -> {
               var responseBuilder = LookupServiceClientResponse.builder();
@@ -2614,7 +2629,7 @@ public final class LookupServerDataSourceTest {
         hashString("fake_first_name1fake_last_name1US99999"),
         dataRecords.get(5).getKeyValues(0).getStringValue());
     verify(mockLookupServiceClient, times(2))
-        .lookupRecords(lookupServiceClientRequestCaptor.capture());
+        .lookupRecords(lookupServiceClientRequestCaptor.capture(), anyBoolean());
     // Multiple requests means multiple values captured
     // Order of requests is nondeterministic, so sort by email value (so wip0 is first)
     var lookupRequestList = sortLookupRequests(lookupServiceClientRequestCaptor.getAllValues());
@@ -2687,7 +2702,7 @@ public final class LookupServerDataSourceTest {
     String role1 = "testRole1";
     when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
     when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenAnswer(
             invocation -> {
               var responseBuilder = LookupServiceClientResponse.builder();
@@ -2815,7 +2830,7 @@ public final class LookupServerDataSourceTest {
 
     assertEquals(6, result.records().size());
     verify(mockLookupServiceClient, times(2))
-        .lookupRecords(lookupServiceClientRequestCaptor.capture());
+        .lookupRecords(lookupServiceClientRequestCaptor.capture(), anyBoolean());
     // Multiple requests means multiple values captured
     // Order of requests is nondeterministic, so sort by email value (so wip0 is first)
     var lookupRequestList = sortLookupRequests(lookupServiceClientRequestCaptor.getAllValues());
@@ -2876,7 +2891,7 @@ public final class LookupServerDataSourceTest {
   public void lookup_lookupServiceReturnsUnknownRecordThrowsException() throws Exception {
     var dek = generateEncryptedDek();
     String encryptedEmail = encryptString(dek, "fake.email@google.com");
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenReturn(
             LookupServiceClientResponse.builder()
                 .addResult(
@@ -2920,7 +2935,7 @@ public final class LookupServerDataSourceTest {
 
   @Test
   public void lookup_encryptionMetadataWithCoordinatorKey() throws Exception {
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenAnswer(
             invocation -> {
               var responseBuilder = LookupServiceClientResponse.builder();
@@ -3019,7 +3034,8 @@ public final class LookupServerDataSourceTest {
     actual.add(dataRecords.get(2).getKeyValues(0).getStringValue());
     Collections.sort(actual);
     assertEquals(expected, actual);
-    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
+    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture(),
+        anyBoolean());
     var lookupRequest = lookupServiceClientRequestCaptor.getValue();
     assertEquals(KeyFormat.KEY_FORMAT_HASHED_ENCRYPTED, lookupRequest.keyFormat());
     // Verify EncryptionKeyInfo
@@ -3071,7 +3087,7 @@ public final class LookupServerDataSourceTest {
 
   @Test
   public void lookup_encryptionMetadataWithCoordinatorKeyBatchEncryption() throws Exception {
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenAnswer(
             invocation -> {
               var responseBuilder = LookupServiceClientResponse.builder();
@@ -3173,7 +3189,8 @@ public final class LookupServerDataSourceTest {
     actual.add(dataRecords.get(2).getKeyValues(0).getStringValue());
     Collections.sort(actual);
     assertEquals(expected, actual);
-    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
+    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture(),
+        anyBoolean());
     var lookupRequest = lookupServiceClientRequestCaptor.getValue();
     assertEquals(KeyFormat.KEY_FORMAT_HASHED_ENCRYPTED, lookupRequest.keyFormat());
     // Verify EncryptionKeyInfo
@@ -3217,7 +3234,7 @@ public final class LookupServerDataSourceTest {
     String encryptedPhone = encryptString(dek, "999-999-9999");
     String encryptedEmail2 = encryptString(dek, "fake.email2@google.com");
     String encryptedPhone2 = encryptString(dek, "999-999-9990");
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenAnswer(
             invocation -> {
               var responseBuilder = LookupServiceClientResponse.builder();
@@ -3288,7 +3305,8 @@ public final class LookupServerDataSourceTest {
     assertEquals(PII_VALUE, dataRecords.get(1).getKeyValues(0).getKey());
     assertEquals("999-999-9999", dataRecords.get(1).getKeyValues(0).getStringValue());
 
-    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
+    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture(),
+        anyBoolean());
     var lookupRequest = lookupServiceClientRequestCaptor.getValue();
     assertEquals(KeyFormat.KEY_FORMAT_HASHED_ENCRYPTED, lookupRequest.keyFormat());
     // Verify EncryptionKeyInfo
@@ -3325,7 +3343,7 @@ public final class LookupServerDataSourceTest {
     String encryptedPhone0 = encryptString(dek0, "099-999-9999");
     String encryptedFirstName0 = encryptString(dek0, "fake_first_name");
     String encryptedLastName0 = encryptString(dek0, "fake_last_name");
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenReturn(
             LookupServiceClientResponse.builder()
                 .addResult(
@@ -3390,7 +3408,7 @@ public final class LookupServerDataSourceTest {
     String encryptedLastName1 = encryptString(dek1, "fake_last_name1");
     when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
     when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenAnswer(
             invocation -> {
               var responseBuilder = LookupServiceClientResponse.builder();
@@ -3545,7 +3563,7 @@ public final class LookupServerDataSourceTest {
         dataRecords.get(3).getKeyValues(0).getStringValue());
     // Multiple requests
     verify(mockLookupServiceClient, times(2))
-        .lookupRecords(lookupServiceClientRequestCaptor.capture());
+        .lookupRecords(lookupServiceClientRequestCaptor.capture(), anyBoolean());
     var lookupRequestList = sortLookupRequests(lookupServiceClientRequestCaptor.getAllValues());
     // Verify first request records
     var lookupRequest = lookupRequestList.get(0);
@@ -3586,7 +3604,7 @@ public final class LookupServerDataSourceTest {
     String encryptedLastName = encryptString(dek0, "fake_last_name");
     when(mockAeadProvider.getAeadSelector(any())).thenReturn(getDefaultAeadSelector());
     when(mockAeadProvider.readKeysetHandle(any(), any())).thenAnswer(realKeysetHandleRead());
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenAnswer(
             invocation -> {
               var responseBuilder = LookupServiceClientResponse.builder();
@@ -3687,7 +3705,7 @@ public final class LookupServerDataSourceTest {
     assertEquals(0, result.lookupResults().records().size());
     // one requests
     verify(mockLookupServiceClient, times(1))
-        .lookupRecords(lookupServiceClientRequestCaptor.capture());
+        .lookupRecords(lookupServiceClientRequestCaptor.capture(), anyBoolean());
     var lookupRequestList = sortLookupRequests(lookupServiceClientRequestCaptor.getAllValues());
     // Verify request records
     var lookupRequest = lookupRequestList.get(0);
@@ -3765,7 +3783,7 @@ public final class LookupServerDataSourceTest {
             MatchConfigProvider.getMatchConfig("mic"),
             FeatureFlags.builder().build(),
             JOIN_MODE_PARAMS);
-    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class)))
+    when(mockLookupServiceClient.lookupRecords(any(LookupServiceClientRequest.class), anyBoolean()))
         .thenAnswer(
             invocation -> {
               var responseBuilder = LookupServiceClientResponse.builder();
@@ -3853,7 +3871,8 @@ public final class LookupServerDataSourceTest {
     assertThat(result.schema().getColumns(0).getColumnAlias()).isEqualTo(PII_VALUE);
     assertThat(result.schema().getColumns(1).getColumnName()).isEqualTo(associatedDataKey);
     assertThat(result.schema().getColumns(1).getColumnAlias()).isEqualTo(associatedDataKey);
-    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture());
+    verify(mockLookupServiceClient).lookupRecords(lookupServiceClientRequestCaptor.capture(),
+        anyBoolean());
     List<LookupDataRecord> lookupRequestRecords =
         lookupServiceClientRequestCaptor.getValue().records();
     assertEquals(3, lookupRequestRecords.size());
