@@ -99,6 +99,22 @@ public class LookupServiceShardClientImplTest {
   }
 
   @Test
+  public void lookupRecords_json_threadInterrupted_throwsException() {
+    Thread.currentThread().interrupt();
+    var ex =
+        assertThrows(
+            LookupServiceShardClientException.class,
+            () -> jsonShardClient.lookupRecords(SIMPLE_URL, LookupRequest.getDefaultInstance()));
+
+    assertThat(ex)
+        .hasMessageThat()
+        .startsWith("LookupServiceShardClient threw an exception.");
+    assertThat(ex.getErrorCode()).isEqualTo(UNKNOWN.name());
+    assertThat(ex.getCause()).isInstanceOf(InterruptedException.class);
+    verifyNoMoreInteractions(httpClient);
+  }
+
+  @Test
   public void lookupRecords_json_httpResponseNotOk_throwsException() {
     LookupRequest lookupRequest = LookupRequest.getDefaultInstance();
     var response = SimpleHttpResponse.create(NOT_FOUND.getHttpStatusCode());

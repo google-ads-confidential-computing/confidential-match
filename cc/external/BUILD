@@ -126,6 +126,11 @@ alias(
 )
 
 alias(
+    name = "boringssl_crypto",
+    actual = "@boringssl//:crypto",
+)
+
+alias(
     name = "google_gtest",
     actual = "@com_google_googletest//:gtest",
 )

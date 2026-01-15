@@ -73,6 +73,9 @@ public final class LookupServiceShardClientImpl implements LookupServiceShardCli
       request.setHeader(HttpHeaders.CONTENT_LENGTH, content.length);
       long requestSetupTimeMs = stopwatch.elapsed(TimeUnit.MILLISECONDS);
 
+      if (Thread.currentThread().isInterrupted()) {
+        throw new InterruptedException("Thread was interrupted.");
+      }
       SimpleHttpResponse response = httpClient.execute(request, null).get();
       long totalRequestTimeMs = stopwatch.elapsed(TimeUnit.MILLISECONDS);
 

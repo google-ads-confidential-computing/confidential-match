@@ -80,7 +80,8 @@ public class DataProcessorTaskTest {
         mockDataWriter,
         Optional.empty(),
         Optional.empty(),
-        Optional.empty());
+        Optional.empty(),
+        () -> false);
 
     verify(mockDataReader, times(3)).hasNext();
     verify(mockDataReader, times(2)).next();
@@ -122,7 +123,8 @@ public class DataProcessorTaskTest {
         mockDataWriter,
         Optional.empty(),
         Optional.empty(),
-        Optional.empty());
+        Optional.empty(),
+        () -> false);
 
     verify(mockDataReader, times(3)).hasNext();
     verify(mockDataReader, times(2)).next();
@@ -163,7 +165,8 @@ public class DataProcessorTaskTest {
         mockDataWriter,
         Optional.empty(),
         Optional.of(mockDataSourcePreparer),
-        Optional.of(mockDataOutputPreparer));
+        Optional.of(mockDataOutputPreparer),
+        () -> false);
 
     verify(mockDataReader, times(3)).hasNext();
     verify(mockDataReader, times(2)).next();
@@ -184,16 +187,8 @@ public class DataProcessorTaskTest {
   }
 
   @Test
-  public void run_whenInterrupted_fails()
-      throws IOException, LookupServiceClientException {
-    when(mockDataReader.hasNext()).thenReturn(true).thenReturn(true).thenReturn(false);
-    when(mockDataReader.next()).thenReturn(mockDataChunk).thenReturn(mockDataChunk);
-    when(mockLookupDataSource.lookup(mockDataChunk, Optional.empty()))
-        .thenReturn(mockLookupDataSourceResult);
-    when(mockLookupDataSourceResult.lookupResults()).thenReturn(mockDataChunk);
-    when(mockLookupDataSourceResult.erroredLookupResults()).thenReturn(Optional.empty());
-    var result = DataMatchResult.create(mockDataChunk, MatchStatistics.emptyInstance());
-    when(mockDataMatcher.match(eq(mockDataChunk), eq(mockDataChunk))).thenReturn(result);
+  public void run_whenInterrupted_fails() throws Exception {
+    when(mockDataReader.hasNext()).thenReturn(true);
 
     Thread.currentThread().interrupt();
     var ex = assertThrows(
@@ -206,7 +201,40 @@ public class DataProcessorTaskTest {
                 mockDataWriter,
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty()));
+                Optional.empty(),
+                () -> false));
+
+    assertThat(ex.getCause()).isInstanceOf(InterruptedException.class);
+    verify(mockDataReader).hasNext();
+    verify(mockDataReader).close();
+    verify(mockDataReader).getName();
+    verify(mockDataWriter).close();
+    verifyNoMoreInteractions(
+        mockDataReader,
+        mockDataSourcePreparer,
+        mockDataWriter,
+        mockDataMatcher,
+        mockDataChunk,
+        mockErrorChunk,
+        mockLookupDataSource);
+  }
+
+  @Test
+  public void run_whenCancelled_fails() throws Exception {
+    when(mockDataReader.hasNext()).thenReturn(true);
+
+    var ex = assertThrows(
+        CompletionException.class,
+        () ->
+            DataProcessorTask.run(
+                mockDataReader,
+                mockLookupDataSource,
+                mockDataMatcher,
+                mockDataWriter,
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty(),
+                () -> true));
 
     assertThat(ex.getCause()).isInstanceOf(InterruptedException.class);
     verify(mockDataReader).hasNext();
@@ -238,7 +266,8 @@ public class DataProcessorTaskTest {
                 mockDataWriter,
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty()));
+                Optional.empty(),
+                () -> false));
 
     verify(mockDataReader).hasNext();
     verify(mockDataReader).next();
@@ -276,7 +305,8 @@ public class DataProcessorTaskTest {
                 mockDataWriter,
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty()));
+                Optional.empty(),
+                () -> false));
 
     verify(mockDataReader).hasNext();
     verify(mockDataReader).next();
@@ -317,7 +347,8 @@ public class DataProcessorTaskTest {
                 mockDataWriter,
                 Optional.empty(),
                 Optional.empty(),
-                Optional.empty()));
+                Optional.empty(),
+                () -> false));
 
     verify(mockDataReader).hasNext();
     verify(mockDataReader).next();

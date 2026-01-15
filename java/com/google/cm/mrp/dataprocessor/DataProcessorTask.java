@@ -36,6 +36,7 @@ import com.google.common.collect.ImmutableList;
 import java.io.IOException;
 import java.util.Optional;
 import java.util.concurrent.CompletionException;
+import java.util.function.BooleanSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,7 +58,8 @@ public final class DataProcessorTask {
       DataWriter dataWriter,
       Optional<EncryptionMetadata> encryptionMetadata,
       Optional<DataSourcePreparer> dataSourcePreparer,
-      Optional<DataOutputPreparer> dataOutputPreparer)
+      Optional<DataOutputPreparer> dataOutputPreparer,
+      BooleanSupplier isCancelled)
       throws JobProcessorException {
     String filename = dataReader.getName();
 
@@ -66,7 +68,7 @@ public final class DataProcessorTask {
       var stats = ImmutableList.<MatchStatistics>builder();
       logger.info("File {}: Running DataProcessorTask", filename);
       while (dataReader.hasNext()) {
-        checkForInterruption();
+        checkForInterruption(isCancelled);
         logger.info("File {}: Processing next DataChunk", filename);
         // If dataSourcePreparer is present, data chunk output from dataReader will be prepared by
         // dataSourcePreparer.
@@ -77,10 +79,12 @@ public final class DataProcessorTask {
                 ? dataSourcePreparer.get().prepare(dataReader.next())
                 : dataReader.next();
 
-        checkForInterruption();
+        checkForInterruption(isCancelled);
         logger.info("File {}: Performing Lookup for DataChunk", filename);
         LookupDataSourceResult lookupResult =
             lookupDataSource.lookup(dataChunk, encryptionMetadata);
+
+        checkForInterruption(isCancelled);
         // Check if Lookup results contained errors. If so match them to dataChunkWithErrors. This
         // allows DataMatcher to correctly map partial successes.
         var dataChunkWithErrors =
@@ -88,11 +92,11 @@ public final class DataProcessorTask {
                 .erroredLookupResults()
                 .map(errorChunk -> DataErrorMatcher.matchErrors(dataChunk, errorChunk));
 
-        checkForInterruption();
+        checkForInterruption(isCancelled);
         DataMatchResult dataMatchResult =
             dataMatcher.match(dataChunkWithErrors.orElse(dataChunk), lookupResult.lookupResults());
 
-        checkForInterruption();
+        checkForInterruption(isCancelled);
         dataOutputPreparer.ifPresent(
             (unused) -> logger.info("File {}: Preparing output result of DataChunk", filename));
         DataMatchResult preparedDataMatchResult =
@@ -100,7 +104,7 @@ public final class DataProcessorTask {
                 ? dataOutputPreparer.get().prepare(dataMatchResult)
                 : dataMatchResult;
 
-        checkForInterruption();
+        checkForInterruption(isCancelled);
         logger.info("File {}: Writing DataChunk", filename);
         dataWriter.write(preparedDataMatchResult.dataChunk());
         stats.add(preparedDataMatchResult.matchStatistics());
@@ -138,12 +142,12 @@ public final class DataProcessorTask {
     }
   }
 
-  private static void checkForInterruption() {
-    if (Thread.currentThread().isInterrupted()) {
-      String message = "A DataProcessorTask thread was interrupted.";
+  private static void checkForInterruption(BooleanSupplier isCancelled) {
+    if (isCancelled.getAsBoolean() || Thread.currentThread().isInterrupted()) {
+      String message = isCancelled.getAsBoolean() ? "A DataProcessorTask was cancelled."
+          : "A DataProcessorTask was interrupted.";
       logger.error(message);
-      throw new CompletionException(
-          new InterruptedException(message));
+      throw new CompletionException(new InterruptedException(message));
     }
   }
 }

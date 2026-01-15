@@ -59,6 +59,7 @@ import com.google.cm.mrp.dataprocessor.readers.DataReader;
 import com.google.cm.mrp.dataprocessor.writers.DataWriter;
 import com.google.cm.mrp.models.JobParameters;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
 import java.io.File;
@@ -68,7 +69,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import javax.inject.Inject;
@@ -161,8 +164,6 @@ public final class DataProcessorImpl implements DataProcessor {
       streamDataSource = streamDataSourceFactory.create(matchConfig, jobParameters, featureFlags);
       logger.info("Job {}: Created StreamDataSource", jobRequestId);
     }
-    ImmutableList.Builder<ListenableFuture<ImmutableList<MatchStatistics>>> futures =
-        ImmutableList.builderWithExpectedSize(streamDataSource.size());
 
     DataMatcher dataMatcher = dataMatcherFactory.create(matchConfig, jobParameters);
     logger.info("Job {}: Created DataMatcher", jobRequestId);
@@ -207,8 +208,11 @@ public final class DataProcessorImpl implements DataProcessor {
       logger.info("Job {}: Created DataOutputPreparer", jobRequestId);
     }
 
+    List<ListenableFuture<ImmutableList<MatchStatistics>>> futures =
+        Lists.newArrayListWithCapacity(streamDataSource.size());
+    var futuresAreCancelled = new AtomicBoolean();
     try {
-      for (int i = 0; i < streamDataSource.size(); ++i) {
+      for (int i = 0; i < streamDataSource.size() && !futuresAreCancelled.get(); ++i) {
         futures.add(
             Futures.submit(
                 () -> {
@@ -229,18 +233,19 @@ public final class DataProcessorImpl implements DataProcessor {
                   return DataProcessorTask.run(
                       dataReader,
                       lookupDataSource,
-                      dataMatcher,
-                      dataWriter,
-                      encryptionMetadata,
-                      dataSourcePreparer,
-                      dataOutputPreparer);
+                        dataMatcher,
+                        dataWriter,
+                        encryptionMetadata,
+                        dataSourcePreparer,
+                        dataOutputPreparer,
+                        futuresAreCancelled::get);
                 },
                 executorService));
       }
 
       // Combine match statistics
       ImmutableList<MatchStatistics> stats =
-          Futures.allAsList(futures.build()).get().stream()
+          Futures.allAsList(futures).get().stream()
               .flatMap(Collection::stream)
               .collect(toImmutableList());
       return MatchStatistics.create(
@@ -252,21 +257,21 @@ public final class DataProcessorImpl implements DataProcessor {
           sumStatsMapEntries(stats, MatchStatistics::datasource1Errors),
           sumStatsMapEntries(stats, MatchStatistics::datasource2ConditionMatches),
           streamDataSource.getSchema().getDataFormat());
-    } catch (Exception e) {
-      // Unwrap JobProcessorException from the CompletionException to allow job-level retries
+    } catch (RuntimeException | InterruptedException | ExecutionException e) {
+      // Unwrap a JobProcessorException to allow job-level retries
       if (e.getCause() != null && e.getCause() instanceof JobProcessorException) {
         throw (JobProcessorException) e.getCause();
       }
-      // Throw as a CompletionException, wrapping if necessary, for handling by callers
-      if (e instanceof CompletionException) {
-        throw (CompletionException) e;
+      // Rethrow runtime exceptions, wrap any other with a CompletionException
+      if (e instanceof RuntimeException) {
+        throw (RuntimeException) e;
       }
       throw new CompletionException(e);
     } finally {
       // Cancel any futures that may still be running
-      // Rebuild the list in case an exception is thrown before the list is built
       if (featureFlags.threadCancellationEnabled()) {
-        futures.build().forEach(future -> future.cancel(/* interrupt */ true));
+        futuresAreCancelled.set(true);
+        futures.forEach(future -> future.cancel(/* interrupt */ true));
       }
       try {
         if (cryptoClient.isPresent()) {

@@ -215,7 +215,6 @@ public final class LookupServiceClientImpl implements LookupServiceClient {
         throw ex;
       } finally {
         // Cancel any futures that may still be running
-        // Rebuild the list in case an exception is thrown before the list is built
         if (allowFutureCancellation) {
           futureResults.forEach(future -> future.cancel(/* interrupt */ true));
         }
@@ -283,9 +282,14 @@ public final class LookupServiceClientImpl implements LookupServiceClient {
 
     LookupRequest request =
         lookupRequestBase.toBuilder().setEncryptedDataRecords(encryptedDataRecords).build();
+    Thread parentThread = Thread.currentThread();
     return Futures.submit(
         () -> {
           try {
+            // Immediately interrupt the thread when the parent thread is interrupted
+            if (parentThread.isInterrupted()) {
+              Thread.currentThread().interrupt();
+            }
             return lookupServiceShardClient.lookupRecords(shardEndpoint, request);
           } catch (LookupServiceShardClientException ex) {
             if (isValidRowLevelErrorReason(ex.getErrorReason())) {
@@ -314,9 +318,14 @@ public final class LookupServiceClientImpl implements LookupServiceClient {
   // Executes async, may throw a CompletionException on join()/get()/etc.
   private ListenableFuture<LookupResponse> getAsyncShardResponse(
       LookupRequest request, String shardEndpoint) {
+    Thread parentThread = Thread.currentThread();
     return Futures.submit(
         () -> {
           try {
+            // Immediately interrupt the thread when the parent thread is interrupted
+            if (parentThread.isInterrupted()) {
+              Thread.currentThread().interrupt();
+            }
             return lookupServiceShardClient.lookupRecords(shardEndpoint, request);
           } catch (LookupServiceShardClientException ex) {
             throw new CompletionException(ex);

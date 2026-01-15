@@ -81,6 +81,8 @@ import com.google.cm.mrp.models.JobParameters.OutputDataLocation;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
@@ -94,6 +96,7 @@ import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
+import org.mockito.stubbing.Answer;
 
 @RunWith(JUnit4.class)
 public final class DataProcessorImplTest {
@@ -643,27 +646,31 @@ public final class DataProcessorImplTest {
 
   @Test(timeout=8000)
   public void process_whenDataReaderFails_futuresCancelled() throws Exception {
+    FeatureFlags featureFlags =
+        FeatureFlags.builder().setThreadCancellationEnabled(true).setEnableMIC(false).build();
     when(mockStreamDataSourceFactory.create(eq(CM_CONFIG), eq(DEFAULT_PARAMS),
-        eq(DEFAULT_FEATURE_FLAGS)))
+        eq(featureFlags)))
         .thenReturn(mockStreamDataSource);
-    when(mockStreamDataSource.size()).thenReturn(2);
+    when(mockStreamDataSource.size()).thenReturn(50);
     when(mockStreamDataSource.next()).thenReturn(mockDataReader);
     when(mockDataReader.hasNext()).thenReturn(true);
+    Answer<DataChunk> delayedGetReader = unused -> {
+      try {
+        // Sleep for more than the test timeout, so it only passes when cancelled
+        Thread.sleep(9000);
+      } catch (Exception ex) {
+        // Do nothing
+      }
+      return mockDataChunk;
+    };
     when(mockDataReader.next())
-        .thenAnswer(unused -> {
-          try {
-            // Sleep for more than the test timeout, so it only passes when cancelled
-            Thread.sleep(9000);
-          } catch (InterruptedException ex) {
-            // Restore interrupt status so the task catches it
-            Thread.currentThread().interrupt();
-          }
-          return mockDataChunk;
-        })
-        .thenThrow(RuntimeException.class);
+        .thenAnswer(delayedGetReader)
+        .thenAnswer(delayedGetReader)
+        .thenThrow(RuntimeException.class)
+        .thenAnswer(delayedGetReader);
     when(mockDataReader.getName()).thenReturn("test.csv");
     when(mockDataReader.getSchema()).thenReturn(DEFAULT_SCHEMA);
-    when(mockLookupDataSourceFactory.create(CM_CONFIG, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS))
+    when(mockLookupDataSourceFactory.create(CM_CONFIG, featureFlags, DEFAULT_PARAMS))
         .thenReturn(mockLookupDataSource);
     when(mockDataMatcherFactory.create(CM_CONFIG, DEFAULT_PARAMS)).thenReturn(mockDataMatcher);
     when(mockDataDestinationFactory.create(any(DestinationInfo.class)))
@@ -672,11 +679,11 @@ public final class DataProcessorImplTest {
         mockDataDestination, "test.csv", DEFAULT_SCHEMA, CM_OUTPUT_COLUMNS))
         .thenReturn(mockDataWriter);
 
-    assertThrows(
-        RuntimeException.class,
+    var ex = assertThrows(
+        CompletionException.class,
         () ->
             dataProcessor.process(
-                FeatureFlags.builder().setEnableMIC(false).build(),
+                featureFlags,
                 CM_CONFIG,
                 JobParameters.builder()
                     .setJobId(JOB_REQUEST_ID)
@@ -685,6 +692,8 @@ public final class DataProcessorImplTest {
                         OutputDataLocation.forNameAndPrefix(OUTPUT_BUCKET, OUTPUT_PREFIX))
                     .build()));
 
+    assertThat(ex.getCause()).isInstanceOf(ExecutionException.class);
+    assertThat(ex.getCause().getCause()).isInstanceOf(RuntimeException.class);
     verify(mockDataReader, atLeastOnce()).hasNext();
     verify(mockDataReader, atLeastOnce()).next();
     verify(mockDataReader, atLeastOnce()).close();
@@ -695,9 +704,9 @@ public final class DataProcessorImplTest {
         .createCsvDataWriter(mockDataDestination, "test.csv", DEFAULT_SCHEMA, CM_OUTPUT_COLUMNS);
     verify(mockDataWriter, atLeastOnce()).close();
     verify(mockDataDestinationFactory).create(destinationInfoCaptor.capture());
-    verify(mockLookupDataSourceFactory).create(CM_CONFIG, DEFAULT_FEATURE_FLAGS, DEFAULT_PARAMS);
+    verify(mockLookupDataSourceFactory).create(CM_CONFIG, featureFlags, DEFAULT_PARAMS);
     verify(mockStreamDataSourceFactory).create(eq(CM_CONFIG), eq(DEFAULT_PARAMS),
-        eq(DEFAULT_FEATURE_FLAGS));
+        eq(featureFlags));
     verify(mockStreamDataSource, atLeast(3)).size();
     verify(mockStreamDataSource, atLeastOnce()).next();
     assertThat(destinationInfoCaptor.getValue().getGcsDestination().getOutputBucket())
