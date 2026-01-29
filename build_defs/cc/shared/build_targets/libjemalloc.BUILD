@@ -7,7 +7,7 @@ filegroup(
     srcs = glob(["jemalloc-5.3.0/**"]),
 )
 
-# https://bazelbuild.github.io/rules_foreign_cc/main/configure_make.html#configure_make-autogen
+# https://bazel-contrib.github.io/rules_foreign_cc/configure_make.html
 configure_make(
     name = "libjemalloc",
     autogen = True,
@@ -16,6 +16,7 @@ configure_make(
         # Setting --enable-prof enables jemalloc memory profiling
         # "--enable-prof",
     ],
+    copts = ["-Wno-int-conversion"],
     lib_source = ":jemalloc_srcs",
 )
 

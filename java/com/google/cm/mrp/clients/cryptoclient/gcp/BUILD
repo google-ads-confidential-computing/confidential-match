@@ -27,6 +27,7 @@ java_library(
         "//java/external:autovalue_annotations",
         "//java/external:clients_configclient_gcp",
         "//java/external:clients_cryptoclient",
+        "//java/external:clients_metricclient",
         "//java/external:findbugs",
         "//java/external:google_auth_library_oauth2_http",
         "//java/external:guava",

@@ -27,6 +27,7 @@ import com.google.common.base.Strings;
 import com.google.scp.operator.cpio.cryptoclient.EncryptionKeyFetchingService;
 import com.google.scp.operator.cpio.cryptoclient.HttpEncryptionKeyFetchingService;
 import com.google.scp.operator.cpio.cryptoclient.HybridEncryptionKeyService;
+import com.google.scp.operator.cpio.metricclient.MetricClient;
 import com.google.scp.operator.cpio.cryptoclient.MultiPartyHybridEncryptionKeyServiceImpl;
 import com.google.scp.operator.cpio.cryptoclient.MultiPartyHybridEncryptionKeyServiceParams;
 import com.google.scp.shared.api.util.HttpClientWrapper;
@@ -46,11 +47,13 @@ public final class MultiPartyHybridEncryptionKeyServiceProvider
       Duration.ofSeconds(5);
 
   private final AeadProvider aeadProvider;
+  private final MetricClient metricClient;
 
   @Inject
-  public MultiPartyHybridEncryptionKeyServiceProvider(AeadProviderFactory aeadProviderFactory) {
+  public MultiPartyHybridEncryptionKeyServiceProvider(AeadProviderFactory aeadProviderFactory, MetricClient metricClient) {
     // Hybrid keys are assumed to be GCP
     this.aeadProvider = aeadProviderFactory.createGcpAeadProvider();
+    this.metricClient = metricClient;
   }
 
   /**
@@ -105,6 +108,7 @@ public final class MultiPartyHybridEncryptionKeyServiceProvider
             .setCoordBKeyFetchingService(keyFetchingServiceB)
             .setCoordAAeadService(cloudAeadSelectorA)
             .setCoordBAeadService(cloudAeadSelectorB)
+            .setMetricClient(metricClient)
             .setEnablePrivateKeyDecryptionRetries(true)
             .build();
 

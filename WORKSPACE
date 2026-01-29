@@ -19,7 +19,7 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_file"
 # Download all http_archives and git_repositories: Begin
 ################################################################################
 
-SCP_VERSION = "v0.353.0"  # latest as of Wed Nov 19 00:13:05 2025 +0000
+SCP_VERSION = "v0.373.0"  # latest as of Wed Jan 21 13:31:25 2026 -0800
 
 SCP_REPOSITORY = "https://github.com/google-ads-confidential-computing/conf-data-processing-architecture-reference"
 
@@ -33,7 +33,9 @@ git_repository(
 # Rules JVM External: Begin
 ################################################################################
 RULES_JVM_EXTERNAL_TAG = "6.6"
+
 RULES_JVM_EXTERNAL_SHA = "ec60d258e6f55a1014368e40ca52058b1a645a3d455ca471c4edb7c03f4b8d88"
+
 http_archive(
     name = "rules_jvm_external",
     sha256 = RULES_JVM_EXTERNAL_SHA,
@@ -80,6 +82,7 @@ git_repository(
 PROTOBUF_CORE_VERSION = "28.0"
 
 PROTOBUF_SHA_256 = "13e7749c30bc24af6ee93e092422f9dc08491c7097efa69461f88eb5f61805ce"
+
 load("//build_defs/cc:cfm.bzl", "cfm_dependencies")
 
 cfm_dependencies(PROTOBUF_CORE_VERSION, PROTOBUF_SHA_256)
@@ -355,8 +358,8 @@ maven_install(
         # maven_install can't generate the right url to download this library
         # with com.google.apis:google-api-services-cloudkms:<version>
         maven.artifact(
-            group = "com.google.apis",
             artifact = "google-api-services-cloudkms",
+            group = "com.google.apis",
             version = "v1-rev20240808-2.0.0",
         ),
     ] + TINK_MAVEN_ARTIFACTS,
@@ -436,23 +439,23 @@ oci_pull(
 # https://github.com/GoogleCloudPlatform/cloud-sdk-docker
 # Tag: emulators
 oci_pull(
-   name = "pubsub_emulator",
-   digest = "sha256:e71213061230d222941d4107b92cc2889507a832f076de24b822fc2f7f137f2c",
-   image = "gcr.io/google.com/cloudsdktool/google-cloud-cli",
+    name = "pubsub_emulator",
+    digest = "sha256:e71213061230d222941d4107b92cc2889507a832f076de24b822fc2f7f137f2c",
+    image = "gcr.io/google.com/cloudsdktool/google-cloud-cli",
 )
 
 # https://github.com/GoogleCloudPlatform/cloud-spanner-emulator
 oci_pull(
-   name = "spanner_emulator",
-   digest = "sha256:84871f164cfb6f5cc1776671286f7f2006399ddb99bc714d651bce61db427b82",
-   image = "gcr.io/cloud-spanner-emulator/emulator",
+    name = "spanner_emulator",
+    digest = "sha256:84871f164cfb6f5cc1776671286f7f2006399ddb99bc714d651bce61db427b82",
+    image = "gcr.io/cloud-spanner-emulator/emulator",
 )
 
 # https://github.com/googleapis/storage-testbench
 oci_pull(
-   name = "gcs_emulator",
-   digest = "sha256:bfe7af2ecf0c6b1ea0188e938953ec81a49555c4e1ba7d18f43c331723b4d6b0",
-   image = "gcr.io/cloud-devrel-public-resources/storage-testbench",
+    name = "gcs_emulator",
+    digest = "sha256:bfe7af2ecf0c6b1ea0188e938953ec81a49555c4e1ba7d18f43c331723b4d6b0",
+    image = "gcr.io/cloud-devrel-public-resources/storage-testbench",
 )
 
 ################################################################################
@@ -490,6 +493,18 @@ apt.install(
 load("@lookup_server_builder_apt//:packages.bzl", "lookup_server_builder_apt_packages")
 
 lookup_server_builder_apt_packages()
+
+# Packages for the Match Service base image
+# To update, follow instructions in the manifest file
+apt.install(
+    name = "match_service_apt",
+    lock = "//build_defs/cc/match_service:match_service_apt.lock.json",
+    manifest = "//build_defs/cc/match_service:match_service_apt.yaml",
+)
+
+load("@match_service_apt//:packages.bzl", "match_service_apt_packages")
+
+match_service_apt_packages()
 
 ################################################################################
 # Download Apt Packages: End

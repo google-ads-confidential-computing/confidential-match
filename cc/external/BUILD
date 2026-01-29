@@ -182,8 +182,14 @@ alias(
 )
 
 alias(
+    name = "nlohmann_json",
+    actual = "@nlohmann_json//:json",
+    tags = ["manual"],
+)
+
+alias(
     name = "onetbb",
-    actual = "@oneTBB//:tbb",
+    actual = "@onetbb//:tbb",
 )
 
 alias(

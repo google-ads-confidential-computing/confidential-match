@@ -28,6 +28,7 @@ import com.google.cm.mrp.clients.cryptoclient.AeadProviderFactory;
 import com.google.cm.mrp.clients.cryptoclient.HybridEncryptionKeyServiceProvider.HybridEncryptionKeyServiceProviderException;
 import com.google.cm.mrp.clients.cryptoclient.exceptions.AeadProviderException;
 import com.google.cm.mrp.clients.cryptoclient.models.AeadProviderParameters;
+import com.google.scp.operator.cpio.metricclient.MetricClient;
 import com.google.scp.shared.crypto.tink.CloudAeadSelector;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -54,6 +55,7 @@ public final class MultiPartyHybridEncryptionKeyServiceProviderTest {
   @Mock private AeadProvider mockAeadProvider;
   @Mock private AeadProviderFactory mockAeadProviderFactory;
   @Mock private CloudAeadSelector mockAeadSelector;
+  @Mock private MetricClient mockMetricClient;
   @Captor private ArgumentCaptor<AeadProviderParameters> parametersCaptor;
   private MultiPartyHybridEncryptionKeyServiceProvider decryptionKeyServiceProvider;
 
@@ -61,7 +63,7 @@ public final class MultiPartyHybridEncryptionKeyServiceProviderTest {
   public void setUp() {
     when(mockAeadProviderFactory.createGcpAeadProvider()).thenReturn(mockAeadProvider);
     decryptionKeyServiceProvider =
-        new MultiPartyHybridEncryptionKeyServiceProvider(mockAeadProviderFactory);
+        new MultiPartyHybridEncryptionKeyServiceProvider(mockAeadProviderFactory, mockMetricClient);
   }
 
   @Test

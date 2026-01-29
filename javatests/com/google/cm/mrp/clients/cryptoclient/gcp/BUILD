@@ -49,6 +49,7 @@ java_test(
         "//java/com/google/cm/mrp/clients/cryptoclient",
         "//java/com/google/cm/mrp/clients/cryptoclient/exceptions",
         "//java/com/google/cm/mrp/clients/cryptoclient/gcp",
+        "//java/external:clients_metricclient",
         "//java/external:google_truth",
         "//java/external:mockito",
         "//java/external:shared_crypto_tink",

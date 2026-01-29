@@ -41,6 +41,5 @@ cc_library(
         "//cc/external:scp_core_interface_lib",
         "//cc/lookup_server/auth/src:auth",
         "//cc/lookup_server/interface:lookup_server_interface_lib",
-        "@nlohmann_json//:lib",
     ],
 )
