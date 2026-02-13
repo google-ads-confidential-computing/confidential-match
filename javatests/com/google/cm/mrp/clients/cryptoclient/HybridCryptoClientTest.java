@@ -208,7 +208,7 @@ public class HybridCryptoClientTest {
         assertThrows(
             CryptoClientException.class,
             () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
-    assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.DECRYPTION_ERROR);
+    assertThat(ex.getErrorCode()).isEqualTo(JobResultCode.COORDINATOR_KEY_NOT_FOUND);
 
     verify(mockHybridEncryptionKeyService, times(1)).getDecrypter(any());
   }
@@ -229,12 +229,12 @@ public class HybridCryptoClientTest {
         assertThrows(
             CryptoClientException.class,
             () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
-    assertThat(ex1.getErrorCode()).isEqualTo(JobResultCode.DECRYPTION_ERROR);
+    assertThat(ex1.getErrorCode()).isEqualTo(JobResultCode.COORDINATOR_KEY_NOT_FOUND);
     var ex2 =
         assertThrows(
             CryptoClientException.class,
             () -> cryptoClient.decrypt(encryptionKeys, encrypted, BASE64));
-    assertThat(ex2.getErrorCode()).isEqualTo(JobResultCode.DECRYPTION_ERROR);
+    assertThat(ex2.getErrorCode()).isEqualTo(JobResultCode.COORDINATOR_KEY_NOT_FOUND);
 
     // Verify that key fetch is only attempted once for non-existent key
     verify(mockHybridEncryptionKeyService, times(1)).getDecrypter(any());

@@ -19,6 +19,7 @@ package com.google.cm.mrp.clients.cryptoclient;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.COORDINATOR_KEY_ENCRYPTION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.COORDINATOR_KEY_MISSING_IN_RECORD;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.COORDINATOR_KEY_SERVICE_ERROR;
+import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.COORDINATOR_KEY_NOT_FOUND;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.CRYPTO_CLIENT_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.DECRYPTION_ERROR;
 import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.TINK_REGISTRATION_FAILED;
@@ -27,6 +28,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncryptionKeys;
 import com.google.cm.mrp.clients.cryptoclient.exceptions.AeadProviderException;
 import com.google.cm.mrp.clients.cryptoclient.utils.GcpProviderUtils;
+import com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.cache.CacheLoader;
 import com.google.common.cache.LoadingCache;
@@ -168,21 +170,16 @@ public final class HybridCryptoClient extends BaseCryptoClient {
                   "%s error when fetching the primitives for the key %s",
                   e.getReason().name(), keyId),
               e);
+          JobResultCode resultCode = mapToJobResultCode(e);
           if (!isKeyFetchExceptionRetryable(e)) {
-            invalidDecrypters.put(keyId, DECRYPTION_ERROR);
+            invalidDecrypters.put(keyId, resultCode);
             logger.warn("Coordinator key could not be used. Will not be retried in job.");
-            throw new CryptoClientException(e, DECRYPTION_ERROR);
-          } else {
-            // fall back to throwing a retryable error code.
-            logger.warn(
-                "Authentication/Authorization failed on request to private key service"
-                    + " or KMS client.",
-                e.getCause());
+            throw new CryptoClientException(e, resultCode);
           }
           // For all other error reasons, send a retryable error code.
           logger.warn(
               "Hybrid Crypto client could not use coordinator key for an unknown reason.", e);
-          throw new CryptoClientException(e, COORDINATOR_KEY_SERVICE_ERROR);
+          throw new CryptoClientException(e, resultCode);
         } catch (IllegalArgumentException e) {
           logger.warn("Error when calling getDecrypter/getEncrypter", e.getCause());
           throw new CryptoClientException(e, DECRYPTION_ERROR);
@@ -205,6 +202,20 @@ public final class HybridCryptoClient extends BaseCryptoClient {
       case UNAUTHENTICATED:
       default:
         return true;
+    }
+  }
+
+  private JobResultCode mapToJobResultCode(KeyFetchException e) {
+    switch (e.getReason()) {
+      case KEY_NOT_FOUND:
+        return COORDINATOR_KEY_NOT_FOUND;
+      case INVALID_ARGUMENT:
+        return DECRYPTION_ERROR;
+      case KEY_DECRYPTION_ERROR:
+      case PERMISSION_DENIED:
+      case UNAUTHENTICATED:
+      default:
+        return COORDINATOR_KEY_SERVICE_ERROR;
     }
   }
 
