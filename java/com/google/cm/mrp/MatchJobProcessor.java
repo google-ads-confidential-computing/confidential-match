@@ -525,6 +525,11 @@ public final class MatchJobProcessor implements JobProcessor {
     writeAndLogMetric("numdatarecords", "Count", stats.numDataRecords(), matchLabels, result);
     writeAndLogMetric(
         "numdatarecordswithmatch", "Count", stats.numDataRecordsWithMatch(), matchLabels, result);
+    double recordMatchPercentage =
+        stats.numDataRecords() == 0L ? 0.0
+            : (100.0 * stats.numDataRecordsWithMatch()) / stats.numDataRecords();
+    writeAndLogMetric("datarecordswithmatchpercentage", "Percent", recordMatchPercentage,
+        matchLabels, result);
     writeAndLogMetric("numpii", "Count", validConditionChecksTotal, matchLabels, result);
     writeAndLogMetric("nummatches", "Count", matchesTotal, matchLabels, result);
     writeAndLogMetric("matchpercentage", "Percent", matchPercentage, matchLabels, result);

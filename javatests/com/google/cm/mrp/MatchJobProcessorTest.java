@@ -109,6 +109,8 @@ public final class MatchJobProcessorTest {
           "0",
           "numdatarecordswithmatch",
           "0",
+          "datarecordswithmatchpercentage",
+          "0",
           "numfiles",
           "0",
           "nummatches",
@@ -235,6 +237,7 @@ public final class MatchJobProcessorTest {
     resultsMap.put("matchpercentagepercondition phone", "100");
     resultsMap.put("numdatarecords", "20000000");
     resultsMap.put("numdatarecordswithmatch", "11111111");
+    resultsMap.put("datarecordswithmatchpercentage", "55.55555");
     resultsMap.put("numdatasource2matchespercondition email", "11111111");
     resultsMap.put("numdatasource2matchespercondition phone", "200");
     resultsMap.put("numfiles", "20");
@@ -296,7 +299,7 @@ public final class MatchJobProcessorTest {
 
     processor.process(job);
 
-    verify(mockMetricClient, times(13)).recordMetric(metricCaptor.capture());
+    verify(mockMetricClient, times(14)).recordMetric(metricCaptor.capture());
     var statsLabels =
         ImmutableMap.ofEntries(
             Map.entry("CustomerServiceAccount", "Default"),
@@ -324,6 +327,7 @@ public final class MatchJobProcessorTest {
             makeMetric("numfiles", "Count", 20.0, statsLabels),
             makeMetric("numdatarecords", "Count", 20000000.0, statsLabels),
             makeMetric("numdatarecordswithmatch", "Count", 11111111.0, statsLabels),
+            makeMetric("datarecordswithmatchpercentage", "Percent", 55.555555, statsLabels),
             makeMetric("numpii", "Count", 20000000.0, statsLabels),
             makeMetric("nummatches", "Count", 11111111.0, statsLabels),
             makeMetric("matchpercentage", "Percent", 55.555555, statsLabels),
@@ -351,7 +355,7 @@ public final class MatchJobProcessorTest {
 
     processor.process(job);
 
-    verify(mockMetricClient, times(11)).recordMetric(metricCaptor.capture());
+    verify(mockMetricClient, times(12)).recordMetric(metricCaptor.capture());
     var statsLabels =
         ImmutableMap.ofEntries(
             Map.entry("CustomerServiceAccount", "Default"),
@@ -384,6 +388,7 @@ public final class MatchJobProcessorTest {
             makeMetric("numfiles", "Count", 0.0, statsLabels),
             makeMetric("numdatarecords", "Count", 4.0, statsLabels),
             makeMetric("numdatarecordswithmatch", "Count", 1.0, statsLabels),
+            makeMetric("datarecordswithmatchpercentage", "Percent", 25.0, statsLabels),
             makeMetric("numpii", "Count", 0.0, statsLabels),
             makeMetric("nummatches", "Count", 0.0, statsLabels),
             makeMetric("matchpercentage", "Percent", 0.0, statsLabels),
@@ -435,6 +440,8 @@ public final class MatchJobProcessorTest {
             "20",
             "numdatarecordswithmatch",
             "1",
+            "datarecordswithmatchpercentage",
+            "5",
             "numfiles",
             "0",
             "nummatches",
@@ -498,6 +505,8 @@ public final class MatchJobProcessorTest {
             "4",
             "numdatarecordswithmatch",
             "1",
+            "datarecordswithmatchpercentage",
+            "25",
             "numfiles",
             "0",
             "nummatches",
@@ -558,6 +567,8 @@ public final class MatchJobProcessorTest {
             "4",
             "numdatarecordswithmatch",
             "1",
+            "datarecordswithmatchpercentage",
+            "25",
             "numfiles",
             "0",
             "nummatches",
