@@ -26,7 +26,6 @@
 #include "cc/public/core/interface/execution_result.h"
 #include "cc/public/cpio/interface/metric_client/metric_client_interface.h"
 
-#include "cc/core/data_table/src/data_table.h"
 #include "cc/lookup_server/interface/metric_client_interface.h"
 
 namespace google::confidential_match::lookup_server {

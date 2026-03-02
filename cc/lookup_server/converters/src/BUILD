@@ -26,7 +26,7 @@ cc_library(
         "-std=c++17",
     ],
     deps = [
-        "//cc/core/data_table/src:data_table_lib",
+        #"//cc/core/data_table/src:data_table_lib",
         "//cc/external:absl_flat_hash_map",
         "//cc/external:absl_span",
         "//cc/external:absl_str_format",

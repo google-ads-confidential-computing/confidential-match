@@ -15,13 +15,9 @@
 package(default_visibility = ["//cc:__subpackages__"])
 
 cc_library(
-    name = "data_table_lib",
-    srcs = glob(
-        [
-            "*.cc",
-            "*.h",
-        ],
-    ),
+    name = "marked_data_table_lib",
+    srcs = ["marked_data_table.cc"],
+    hdrs = ["marked_data_table.h"],
     copts = [
         "-std=c++17",
     ],

@@ -15,18 +15,14 @@
 package(default_visibility = ["//cc:__subpackages__"])
 
 cc_test(
-    name = "data_table_test",
+    name = "marked_data_table_test",
     size = "small",
-    srcs = glob(
-        [
-            "*.cc",
-        ],
-    ),
+    srcs = ["marked_data_table_test.cc"],
     copts = [
         "-std=c++17",
     ],
     deps = [
-        "//cc/core/data_table/src:data_table_lib",
+        "//cc/core/data_table/src:marked_data_table_lib",
         "//cc/external:google_gtest_main",
         "//cc/external:scp_core_execution_result_matchers",
         "//cc/external:scp_core_test_utils",

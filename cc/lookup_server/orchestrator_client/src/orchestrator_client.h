@@ -26,7 +26,6 @@
 #include "cc/core/interface/http_types.h"
 #include "cc/public/core/interface/execution_result.h"
 
-#include "cc/core/data_table/src/data_table.h"
 #include "cc/lookup_server/interface/orchestrator_client_interface.h"
 #include "protos/lookup_server/backend/data_export_info.pb.h"
 
