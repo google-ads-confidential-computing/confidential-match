@@ -205,8 +205,13 @@ public final class LookupServerDataSource implements LookupDataSource {
               .setAssociatedDataKeys(getAssociatedDataKeys())
               .setRecords(piisList)
               .build();
-      var lookupResults = lookupServiceClient.lookupRecords(lookupRequest,
-          featureFlags.threadCancellationEnabled()).results();
+      var lookupResults =
+          lookupServiceClient
+              .lookupRecords(
+                  lookupRequest,
+                  featureFlags.threadCancellationEnabled(),
+                  featureFlags.timeboundLookupRequestEnabled())
+              .results();
       // Group LookupResults by status
       Map<Status, List<LookupResult>> lookupResultsByStatus =
           lookupResults.stream().collect(groupingBy(LookupResult::getStatus));
@@ -304,8 +309,13 @@ public final class LookupServerDataSource implements LookupDataSource {
                 .setRecords(piisMap.values().stream().collect(ImmutableList.toImmutableList()))
                 .setAssociatedDataKeys(getAssociatedDataKeys())
                 .build();
-        var lookupServiceClientResults = lookupServiceClient.lookupRecords(lookupRequest,
-            featureFlags.threadCancellationEnabled()).results();
+        var lookupServiceClientResults =
+            lookupServiceClient
+                .lookupRecords(
+                    lookupRequest,
+                    featureFlags.threadCancellationEnabled(),
+                    featureFlags.timeboundLookupRequestEnabled())
+                .results();
 
         // Group results by status
         Map<Status, List<LookupResult>> lookupResultsByStatus =
@@ -409,8 +419,13 @@ public final class LookupServerDataSource implements LookupDataSource {
                 .setCryptoClient(cryptoClient.get())
                 .setAssociatedDataKeys(getAssociatedDataKeys())
                 .build();
-        var lookupServiceClientResults = lookupServiceClient.lookupRecords(lookupRequest,
-            featureFlags.threadCancellationEnabled()).results();
+        var lookupServiceClientResults =
+            lookupServiceClient
+                .lookupRecords(
+                    lookupRequest,
+                    featureFlags.threadCancellationEnabled(),
+                    featureFlags.timeboundLookupRequestEnabled())
+                .results();
         // Group results by status
         Map<Status, List<LookupResult>> lookupResultsByStatus =
             lookupServiceClientResults.stream().collect(groupingBy(LookupResult::getStatus));

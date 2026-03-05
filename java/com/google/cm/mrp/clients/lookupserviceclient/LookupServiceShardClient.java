@@ -23,7 +23,8 @@ import com.google.cm.lookupserver.api.LookupProto.LookupResponse;
 public interface LookupServiceShardClient {
 
   /** Sends a lookup request to a lookup service shard endpoint, and returns the response. */
-  LookupResponse lookupRecords(String shardEndpoint, LookupRequest lookupRequest)
+  LookupResponse lookupRecords(
+      String shardEndpoint, LookupRequest lookupRequest, boolean allowTimeBoundedRequests)
       throws LookupServiceShardClientException;
 
   /** Wrapper for exceptions thrown by a {@link LookupServiceShardClient}. */

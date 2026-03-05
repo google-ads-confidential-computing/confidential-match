@@ -88,7 +88,8 @@ public final class FeatureFlagProviderImpl implements FeatureFlagProvider {
         boolean workgroupsEnabled =
             getValue(Parameter.WORKGROUPS_ENABLED).map(Boolean::parseBoolean).orElse(false);
         boolean protoPassthroughMetadataEnabled =
-            getValue(Parameter.PROTO_PASSTHROUGH_METADATA_ENABLED).map(Boolean::parseBoolean)
+            getValue(Parameter.PROTO_PASSTHROUGH_METADATA_ENABLED)
+                .map(Boolean::parseBoolean)
                 .orElse(false);
         int maxRecordsPerProtoOutputFile =
             getValue(Parameter.MAX_RECORDS_PER_PROTO_OUTPUT_FILE)
@@ -103,7 +104,12 @@ public final class FeatureFlagProviderImpl implements FeatureFlagProvider {
                 .map(Integer::parseInt)
                 .orElse(DEFAULT_PROTO_METADATA_MAX_COUNT);
         boolean threadCancellationEnabled =
-            getValue(Parameter.THREAD_CANCELLATION_ENABLED).map(Boolean::parseBoolean)
+            getValue(Parameter.THREAD_CANCELLATION_ENABLED)
+                .map(Boolean::parseBoolean)
+                .orElse(false);
+        boolean timeboundLookupRequestEnabled =
+            getValue(Parameter.TIMEBOUND_LOOKUP_REQUESTS_ENABLED)
+                .map(Boolean::parseBoolean)
                 .orElse(false);
         var featureFlagsBuilder =
             FeatureFlags.builder()
@@ -114,7 +120,8 @@ public final class FeatureFlagProviderImpl implements FeatureFlagProvider {
                 .setMaxRecordsPerProtoOutputFile(maxRecordsPerProtoOutputFile)
                 .setLargeJobThresholdBytes(largeJobThresholdBytes)
                 .setProtoMetadataMaxCount(protoMetadataMaxCount)
-                .setThreadCancellationEnabled(threadCancellationEnabled);
+                .setThreadCancellationEnabled(threadCancellationEnabled)
+                .setTimeboundLookupRequestEnabled(timeboundLookupRequestEnabled);
 
         addApplicationIdWorkgroups(featureFlagsBuilder);
         addLargeJobWorkgroupApplicationIds(featureFlagsBuilder);

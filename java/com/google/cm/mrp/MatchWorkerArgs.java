@@ -108,6 +108,11 @@ public final class MatchWorkerArgs {
       description = "Lookup client max retries per request. Defaults to 7.")
   private int lookupClientMaxRequestRetries = 7;
 
+  @Parameter(
+      names = "--lookup_request_max_sec",
+      description = "Lookup request time upper bound seconds. Defaults to 20 mins.")
+  private int lookupRequestMaxSec = 1200;
+
   @Parameter(names = "--orchestrator_endpoint", description = "Orchestrator endpoint.")
   private String orchestratorEndpoint = "";
 
@@ -209,6 +214,10 @@ public final class MatchWorkerArgs {
 
   public int getLookupClientMaxRequestRetries() {
     return lookupClientMaxRequestRetries;
+  }
+
+  public int getLookupRequestMaxSec() {
+    return lookupRequestMaxSec;
   }
 
   public String getOrchestratorEndpoint() {

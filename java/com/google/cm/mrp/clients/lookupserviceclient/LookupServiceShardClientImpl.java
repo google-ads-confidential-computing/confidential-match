@@ -22,6 +22,7 @@ import static com.google.cm.mrp.dataprocessor.converters.ErrorCodeConverter.isVa
 
 import com.google.cm.lookupserver.api.LookupProto.LookupRequest;
 import com.google.cm.lookupserver.api.LookupProto.LookupResponse;
+import com.google.cm.mrp.clients.lookupserviceclient.Annotations.LookupRequestMaxSec;
 import com.google.cm.mrp.clients.lookupserviceclient.Annotations.LookupServiceShardClientHttpClient;
 import com.google.cm.mrp.selectors.LookupProtoFormatSelector.LookupProtoFormatHandler;
 import com.google.cm.shared.api.model.Code;
@@ -31,6 +32,7 @@ import java.io.IOException;
 import java.net.URI;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.apache.hc.client5.http.async.methods.SimpleHttpRequest;
 import org.apache.hc.client5.http.async.methods.SimpleHttpResponse;
 import org.apache.hc.client5.http.impl.async.CloseableHttpAsyncClient;
@@ -47,24 +49,33 @@ public final class LookupServiceShardClientImpl implements LookupServiceShardCli
 
   private final CloseableHttpAsyncClient httpClient;
   private final LookupProtoFormatHandler lookupProtoFormatHandler;
+  private final int lookupRequestMaxSec;
 
   /** Constructor for {@link LookupServiceShardClientImpl}. */
   @Inject
   public LookupServiceShardClientImpl(
       @LookupServiceShardClientHttpClient CloseableHttpAsyncClient httpClient,
+      @LookupRequestMaxSec int lookupRequestMaxSec,
       LookupProtoFormatHandler lookupProtoFormatHandler) {
     this.httpClient = httpClient;
+    this.lookupRequestMaxSec = lookupRequestMaxSec;
     this.lookupProtoFormatHandler = lookupProtoFormatHandler;
   }
 
   /** {@inheritDoc} */
   @Override
-  public LookupResponse lookupRecords(String shardEndpoint, LookupRequest lookupRequest)
+  public LookupResponse lookupRecords(
+      String shardEndpoint, LookupRequest lookupRequest, boolean allowTimeBoundedRequests)
       throws LookupServiceShardClientException {
     logger.log(
         Level.getLevel(DETAIL.name()),
         "LookupServiceShardClient starting to send request to lookup service for Shard: {}",
         shardEndpoint);
+    logger.log(
+        Level.getLevel(DETAIL.name()),
+        "LookupServiceShardClient allowTimeBoundedRequests: {}, lookupRequestMaxSec {}",
+        allowTimeBoundedRequests,
+        lookupRequestMaxSec);
     Stopwatch stopwatch = Stopwatch.createStarted();
     try {
       var request = SimpleHttpRequest.create(Method.POST, URI.create(shardEndpoint));
@@ -76,7 +87,10 @@ public final class LookupServiceShardClientImpl implements LookupServiceShardCli
       if (Thread.currentThread().isInterrupted()) {
         throw new InterruptedException("Thread was interrupted.");
       }
-      SimpleHttpResponse response = httpClient.execute(request, null).get();
+      SimpleHttpResponse response =
+          allowTimeBoundedRequests
+              ? httpClient.execute(request, null).get(lookupRequestMaxSec, TimeUnit.SECONDS)
+              : httpClient.execute(request, null).get();
       long totalRequestTimeMs = stopwatch.elapsed(TimeUnit.MILLISECONDS);
 
       if (!Code.isSuccessStatusCode(response.getCode())) {
@@ -126,11 +140,15 @@ public final class LookupServiceShardClientImpl implements LookupServiceShardCli
 
     } catch (ExecutionException ex) {
       String message = "LookupServiceShardClient threw an exception.";
-      logger.error(message);
+      logger.error(message, ex);
       throw new LookupServiceShardClientException(Code.UNKNOWN.name(), message, ex.getCause());
     } catch (InterruptedException | IOException ex) {
       String message = "LookupServiceShardClient threw an exception.";
-      logger.error(message);
+      logger.error(message, ex);
+      throw new LookupServiceShardClientException(Code.UNKNOWN.name(), message, ex);
+    } catch (TimeoutException ex) {
+      String message = "LookupServiceShardClient timed out.";
+      logger.error(message, ex);
       throw new LookupServiceShardClientException(Code.UNKNOWN.name(), message, ex);
     }
   }

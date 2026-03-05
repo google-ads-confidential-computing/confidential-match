@@ -61,4 +61,10 @@ public final class Annotations {
   @Target({FIELD, PARAMETER, METHOD})
   @Retention(RUNTIME)
   public @interface LookupServiceShardClientHttpClient {}
+
+  /** Annotation for binding the max request time for lookup requests in seconds. */
+  @BindingAnnotation
+  @Target({FIELD, PARAMETER, METHOD})
+  @Retention(RUNTIME)
+  public @interface LookupRequestMaxSec {}
 }

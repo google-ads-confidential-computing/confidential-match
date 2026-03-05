@@ -24,6 +24,7 @@ public enum Parameter {
   LOOKUP_CLIENT_CLUSTER_GROUP_ID,
   LOOKUP_CLIENT_MAX_RECORDS_PER_REQUEST,
   LOOKUP_CLIENT_MAX_REQUEST_RETRIES,
+  LOOKUP_REQUEST_MAX_SEC,
   ORCHESTRATOR_ENDPOINT,
   LOOKUP_SERVICE_AUDIENCE,
   MAX_RECORDS_PER_OUTPUT_FILE,
@@ -54,7 +55,10 @@ public enum Parameter {
   // Threshold (in bytes) above which jobs are allocated to dedicated workgroup
   LARGE_JOB_THRESHOLD,
   // Enables batched threads to be cancelled by exceptions
-  THREAD_CANCELLATION_ENABLED;
+  THREAD_CANCELLATION_ENABLED,
+
+  // Enables an upper bound on lookup request times
+  TIMEBOUND_LOOKUP_REQUESTS_ENABLED;
 
   /** String to prefix the parameters. */
   public static final String CFM_PREFIX = "CFM";

@@ -19,6 +19,7 @@ package com.google.cm.mrp.clients.lookupserviceclient;
 import static com.google.common.util.concurrent.MoreExecutors.getExitingExecutorService;
 import static java.util.concurrent.Executors.newFixedThreadPool;
 
+import com.google.cm.mrp.clients.lookupserviceclient.Annotations.LookupRequestMaxSec;
 import com.google.cm.mrp.clients.lookupserviceclient.Annotations.LookupServiceClientClusterGroupId;
 import com.google.cm.mrp.clients.lookupserviceclient.Annotations.LookupServiceClientExecutor;
 import com.google.cm.mrp.clients.lookupserviceclient.Annotations.LookupServiceClientMaxRecordsPerRequest;
@@ -36,13 +37,15 @@ public abstract class LookupServiceClientModule extends AbstractModule {
   private final int threadCount;
   private final int maxRecordsPerRequest;
   private final String clusterGroupId;
+  private final int lookupRequestMaxSec;
 
   /** Constructor for {@link LookupServiceClientModule}. */
   public LookupServiceClientModule(
-      int threadCount, int maxRecordsPerRequest, String clusterGroupId) {
+      int threadCount, int maxRecordsPerRequest, String clusterGroupId, int lookupRequestMaxSec) {
     this.threadCount = threadCount;
     this.maxRecordsPerRequest = maxRecordsPerRequest;
     this.clusterGroupId = clusterGroupId;
+    this.lookupRequestMaxSec = lookupRequestMaxSec;
   }
 
   /** Returns a module that provides an implementation of {@link OrchestratorClient}. */
@@ -79,5 +82,11 @@ public abstract class LookupServiceClientModule extends AbstractModule {
   @LookupServiceClientMaxRecordsPerRequest
   int provideMaxRecordsPerRequest() {
     return maxRecordsPerRequest;
+  }
+
+  @Provides
+  @LookupRequestMaxSec
+  int provideLookupRequestMaxSec() {
+    return lookupRequestMaxSec;
   }
 }

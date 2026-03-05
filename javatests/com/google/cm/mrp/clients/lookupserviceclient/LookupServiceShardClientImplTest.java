@@ -25,6 +25,7 @@ import static com.google.cm.util.ProtoUtils.getJsonFromProto;
 import static com.google.common.truth.Truth.assertThat;
 import static org.junit.Assert.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
@@ -38,6 +39,9 @@ import com.google.cm.lookupserver.api.LookupProto.LookupResponse;
 import com.google.cm.lookupserver.api.LookupProto.LookupResult;
 import com.google.cm.mrp.clients.lookupserviceclient.LookupServiceShardClient.LookupServiceShardClientException;
 import com.google.common.util.concurrent.Futures;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.apache.hc.client5.http.async.methods.SimpleHttpResponse;
 import org.apache.hc.client5.http.impl.async.CloseableHttpAsyncClient;
 import org.junit.Before;
@@ -53,9 +57,12 @@ import org.mockito.junit.MockitoRule;
 public class LookupServiceShardClientImplTest {
 
   private static final String SIMPLE_URL = "http://unused";
+  private static final int MAX_SEC = 60;
+  private static final boolean ALLOW_TIMEBOUND_REQ = false;
 
   @Rule public final MockitoRule mockito = MockitoJUnit.rule();
   @Mock private CloseableHttpAsyncClient httpClient;
+  @Mock private Future<SimpleHttpResponse> futureMock;
   private LookupServiceShardClient jsonShardClient;
   private LookupServiceShardClient binaryShardClient;
 
@@ -63,11 +70,11 @@ public class LookupServiceShardClientImplTest {
   public void setUp() {
     jsonShardClient =
         jsonShardClient == null
-            ? new LookupServiceShardClientImpl(httpClient, JSON.getFormatHandler())
+            ? new LookupServiceShardClientImpl(httpClient, MAX_SEC, JSON.getFormatHandler())
             : jsonShardClient;
     binaryShardClient =
         binaryShardClient == null
-            ? new LookupServiceShardClientImpl(httpClient, BINARY.getFormatHandler())
+            ? new LookupServiceShardClientImpl(httpClient, MAX_SEC, BINARY.getFormatHandler())
             : binaryShardClient;
   }
 
@@ -88,7 +95,8 @@ public class LookupServiceShardClientImplTest {
         SimpleHttpResponse.create(OK.getHttpStatusCode(), getJsonFromProto(lookupResponseExpected));
     when(httpClient.execute(any(), any())).thenReturn(Futures.immediateFuture(response));
 
-    LookupResponse lookupResponseActual = jsonShardClient.lookupRecords(SIMPLE_URL, lookupRequest);
+    LookupResponse lookupResponseActual =
+        jsonShardClient.lookupRecords(SIMPLE_URL, lookupRequest, ALLOW_TIMEBOUND_REQ);
 
     assertThat(lookupResponseActual.getLookupResultsList()).hasSize(1);
     assertThat(lookupResponseActual.getLookupResults(0).getClientDataRecord())
@@ -104,11 +112,11 @@ public class LookupServiceShardClientImplTest {
     var ex =
         assertThrows(
             LookupServiceShardClientException.class,
-            () -> jsonShardClient.lookupRecords(SIMPLE_URL, LookupRequest.getDefaultInstance()));
+            () ->
+                jsonShardClient.lookupRecords(
+                    SIMPLE_URL, LookupRequest.getDefaultInstance(), ALLOW_TIMEBOUND_REQ));
 
-    assertThat(ex)
-        .hasMessageThat()
-        .startsWith("LookupServiceShardClient threw an exception.");
+    assertThat(ex).hasMessageThat().startsWith("LookupServiceShardClient threw an exception.");
     assertThat(ex.getErrorCode()).isEqualTo(UNKNOWN.name());
     assertThat(ex.getCause()).isInstanceOf(InterruptedException.class);
     verifyNoMoreInteractions(httpClient);
@@ -123,7 +131,7 @@ public class LookupServiceShardClientImplTest {
     var ex =
         assertThrows(
             LookupServiceShardClientException.class,
-            () -> jsonShardClient.lookupRecords(SIMPLE_URL, lookupRequest));
+            () -> jsonShardClient.lookupRecords(SIMPLE_URL, lookupRequest, ALLOW_TIMEBOUND_REQ));
 
     assertThat(ex)
         .hasMessageThat()
@@ -147,7 +155,7 @@ public class LookupServiceShardClientImplTest {
     var ex =
         assertThrows(
             LookupServiceShardClientException.class,
-            () -> jsonShardClient.lookupRecords(SIMPLE_URL, lookupRequest));
+            () -> jsonShardClient.lookupRecords(SIMPLE_URL, lookupRequest, ALLOW_TIMEBOUND_REQ));
 
     assertThat(ex).hasMessageThat().isEqualTo("LookupServiceShardClient threw an exception.");
     assertThat(ex).hasCauseThat().isInstanceOf(java.io.IOException.class);
@@ -174,7 +182,7 @@ public class LookupServiceShardClientImplTest {
     when(httpClient.execute(any(), any())).thenReturn(Futures.immediateFuture(response));
 
     LookupResponse lookupResponseActual =
-        binaryShardClient.lookupRecords(SIMPLE_URL, lookupRequest);
+        binaryShardClient.lookupRecords(SIMPLE_URL, lookupRequest, ALLOW_TIMEBOUND_REQ);
 
     assertThat(lookupResponseActual.getLookupResultsList()).hasSize(1);
     assertThat(lookupResponseActual.getLookupResults(0).getClientDataRecord())
@@ -193,7 +201,7 @@ public class LookupServiceShardClientImplTest {
     var ex =
         assertThrows(
             LookupServiceShardClientException.class,
-            () -> binaryShardClient.lookupRecords(SIMPLE_URL, lookupRequest));
+            () -> binaryShardClient.lookupRecords(SIMPLE_URL, lookupRequest, ALLOW_TIMEBOUND_REQ));
 
     assertThat(ex)
         .hasMessageThat()
@@ -217,11 +225,32 @@ public class LookupServiceShardClientImplTest {
     var ex =
         assertThrows(
             LookupServiceShardClientException.class,
-            () -> binaryShardClient.lookupRecords(SIMPLE_URL, lookupRequest));
+            () -> binaryShardClient.lookupRecords(SIMPLE_URL, lookupRequest, ALLOW_TIMEBOUND_REQ));
 
     assertThat(ex).hasMessageThat().isEqualTo("LookupServiceShardClient threw an exception.");
     assertThat(ex).hasCauseThat().isInstanceOf(java.io.IOException.class);
     assertThat(ex.getErrorCode()).isEqualTo(UNKNOWN.name());
+    verify(httpClient, times(1)).execute(any(), any());
+    verifyNoMoreInteractions(httpClient);
+  }
+
+  @Test
+  public void lookupRecords_json_futureTimeout_throwsException() throws Exception {
+    LookupRequest lookupRequest = LookupRequest.getDefaultInstance();
+    when(futureMock.get(anyLong(), any(TimeUnit.class)))
+        .thenThrow(new TimeoutException("Simulated network drop"));
+    when(httpClient.execute(any(), any())).thenReturn(futureMock);
+
+    var ex =
+        assertThrows(
+            LookupServiceShardClientException.class,
+            () ->
+                jsonShardClient.lookupRecords(
+                    SIMPLE_URL, lookupRequest, /* allowTimeboundLookup= */ true));
+
+    assertThat(ex).hasMessageThat().isEqualTo("LookupServiceShardClient timed out.");
+    assertThat(ex.getErrorCode()).isEqualTo(UNKNOWN.name());
+    assertThat(ex.getCause()).isInstanceOf(TimeoutException.class);
     verify(httpClient, times(1)).execute(any(), any());
     verifyNoMoreInteractions(httpClient);
   }

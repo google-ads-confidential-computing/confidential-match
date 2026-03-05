@@ -23,8 +23,11 @@ import com.google.cm.mrp.clients.lookupserviceclient.model.LookupServiceClientRe
 public interface LookupServiceClient {
 
   /** Sends lookup requests to the lookup service, and returns the responses. */
-  LookupServiceClientResponse lookupRecords(LookupServiceClientRequest request,
-      boolean allowFutureCancellation) throws LookupServiceClientException;
+  LookupServiceClientResponse lookupRecords(
+      LookupServiceClientRequest request,
+      boolean allowFutureCancellation,
+      boolean allowTimeBoundedRequests)
+      throws LookupServiceClientException;
 
   /** Wrapper for exceptions thrown by a {@link LookupServiceClient}. */
   class LookupServiceClientException extends Exception {

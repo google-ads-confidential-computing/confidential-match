@@ -124,6 +124,8 @@ public final class LocalGcpWorkerApplication {
     private static final Timeout DEFAULT_TIMEOUT = Timeout.ofMilliseconds(500);
     private static final TimeValue BASE_RETRY_DELAY = TimeValue.ofMilliseconds(10);
     private static final int RETRY_DELAY_MULTIPLIER = 2;
+
+    private static final int LOOKUP_REQ_MAX_SEC = 60;
     private static final String GCS_ENDPOINT = System.getenv("GCS_ENDPOINT");
     private static final Optional<String> PUBSUB_ENDPOINT =
         Optional.ofNullable(System.getenv("PUBSUB_ENDPOINT"));
@@ -192,7 +194,8 @@ public final class LocalGcpWorkerApplication {
       return new LookupServiceClientImpl(
           new OrchestratorClientImpl(
               new NetHttpTransport().createRequestFactory(), ORCHESTRATOR_ENDPOINT),
-          new LookupServiceShardClientImpl(shardHttpClient, JSON.getFormatHandler()),
+          new LookupServiceShardClientImpl(
+              shardHttpClient, LOOKUP_REQ_MAX_SEC, JSON.getFormatHandler()),
           newFixedThreadPool(LOOKUP_CLIENT_THREADS),
           LOOKUP_CLIENT_MAX_RECORDS_PER_REQUEST,
           CLUSTER_GROUP_ID);

@@ -36,8 +36,9 @@ public final class LookupServiceClientGcpModule extends LookupServiceClientModul
       int threadCount,
       int maxRecordsPerRequest,
       int maxRequestRetries,
-      String clusterGroupId) {
-    super(threadCount, maxRecordsPerRequest, clusterGroupId);
+      String clusterGroupId,
+      int lookupRequestMaxSec) {
+    super(threadCount, maxRecordsPerRequest, clusterGroupId, lookupRequestMaxSec);
     this.orchestratorEndpoint = orchestratorEndpoint;
     this.lookupServiceAudience = lookupServiceAudience;
     this.maxRequestRetries = maxRequestRetries;

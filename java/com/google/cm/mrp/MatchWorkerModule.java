@@ -120,7 +120,8 @@ public final class MatchWorkerModule extends AbstractModule {
             getLookupClientThreadPoolSize(),
             getLookupClientMaxRecordsPerRequest(),
             getLookupClientMaxRequestRetries(),
-            getLookupClientClusterGroupId()));
+            getLookupClientClusterGroupId(),
+            getLookupRequestMaxSec()));
     bind(FeatureFlagProvider.class).to(FeatureFlagProviderImpl.class);
     bind(StartupConfigProvider.class).to(StartupConfigProviderImpl.class);
     bind(Integer.class)
@@ -226,6 +227,12 @@ public final class MatchWorkerModule extends AbstractModule {
     return getValue(Parameter.LOOKUP_CLIENT_MAX_REQUEST_RETRIES)
         .map(Integer::parseInt)
         .orElse(args.getLookupClientMaxRequestRetries());
+  }
+
+  private int getLookupRequestMaxSec() {
+    return getValue(Parameter.LOOKUP_REQUEST_MAX_SEC)
+        .map(Integer::parseInt)
+        .orElse(args.getLookupRequestMaxSec());
   }
 
   private LookupProtoFormatSelector getLookupProtoFormat() {

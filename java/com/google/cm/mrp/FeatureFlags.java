@@ -38,7 +38,8 @@ public abstract class FeatureFlags {
         .setMaxRecordsPerProtoOutputFile(100000)
         .setProtoPassthroughMetadataEnabled(false)
         .setProtoMetadataMaxCount(100)
-        .setThreadCancellationEnabled(false);
+        .setThreadCancellationEnabled(false)
+        .setTimeboundLookupRequestEnabled(false);
   }
 
   /** Returns the flag for MIC feature. */
@@ -68,8 +69,11 @@ public abstract class FeatureFlags {
   /** Returns the max number of key-value pairs allowed in proto metadata. */
   public abstract int protoMetadataMaxCount();
 
-  /** Enables batched threads to be cancelled by exceptions. **/
+  /** Enables batched threads to be cancelled by exceptions. */
   public abstract boolean threadCancellationEnabled();
+
+  /** Enables an upper bound on lookup request times. */
+  public abstract boolean timeboundLookupRequestEnabled();
 
   /** Builder for {@link FeatureFlags}. */
   @AutoValue.Builder
@@ -89,7 +93,8 @@ public abstract class FeatureFlags {
     public abstract Builder setWorkgroupsEnabled(boolean workgroupsEnabled);
 
     /** Sets the metadata passthrough feature flag for proto format. */
-    public abstract Builder setProtoPassthroughMetadataEnabled(boolean protoPassthroughMetadataEnabled);
+    public abstract Builder setProtoPassthroughMetadataEnabled(
+        boolean protoPassthroughMetadataEnabled);
 
     /** Sets the max number of key-value pairs allowed in proto metadata. */
     public abstract Builder setProtoMetadataMaxCount(int protoMetadataMaxCount);
@@ -118,8 +123,11 @@ public abstract class FeatureFlags {
     /** Sets the max records to output for proto files. */
     public abstract Builder setMaxRecordsPerProtoOutputFile(int maxRecordsPerProtoOutputFile);
 
-    /** Enables batched threads to be cancelled by exceptions. **/
+    /** Enables batched threads to be cancelled by exceptions. */
     public abstract Builder setThreadCancellationEnabled(boolean threadCancellationEnabled);
+
+    /** Enables an upper bound on lookup request times. */
+    public abstract Builder setTimeboundLookupRequestEnabled(boolean timeboundLookupRequestEnabled);
 
     /** Builder for applicationIdWorkgroups map */
     public abstract ImmutableMap.Builder<String, String> applicationIdWorkgroupsBuilder();
