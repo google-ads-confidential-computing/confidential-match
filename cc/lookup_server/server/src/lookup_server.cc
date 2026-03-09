@@ -819,11 +819,13 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
   blob_storage_client_options.transfer_stall_timeout =
       kBlobStorageClientTransferStallTimeout;
   blob_storage_client_options.retry_limit = kBlobStorageClientRetryLimit;
+  blob_storage_client_options.enable_new_gcp_error_code_converter = true;
   blob_storage_client_ =
       BlobStorageClientFactory::Create(blob_storage_client_options);
 
   KmsClientOptions gcp_kms_client_options;
   gcp_kms_client_options.enable_gcp_kms_client_retries = true;
+  gcp_kms_client_options.enable_new_gcp_error_code_converter = true;
   gcp_kms_client_ = std::make_shared<KmsClient>(
       KmsClientFactory::Create(gcp_kms_client_options));
   gcp_cached_kms_client_ =
@@ -839,6 +841,7 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
 
   PrivateKeyClientOptions private_key_client_options;
   private_key_client_options.enable_gcp_kms_client_retries = true;
+  private_key_client_options.enable_new_gcp_error_code_converter = true;
   private_key_client_ =
       PrivateKeyClientFactory::Create(private_key_client_options);
   coordinator_client_ =
