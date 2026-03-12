@@ -13,6 +13,8 @@
 # limitations under the License.
 
 load("@aspect_bazel_lib//lib:tar.bzl", "tar")
+load("@rules_java//java:java_binary.bzl", "java_binary")
+load("@rules_java//java:java_library.bzl", "java_library")
 load("@rules_oci//oci:defs.bzl", "oci_image", "oci_load")
 load("@rules_pkg//:pkg.bzl", "pkg_tar")
 

@@ -25,5 +25,6 @@ buildifier(
 buildifier(
     name = "buildifier_fix",
     exclude_patterns = ["./WORKSPACE"],  # Don't reformat WORKSPACE
+    lint_mode = "fix",
     mode = "fix",
 )
