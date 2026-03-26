@@ -14,6 +14,7 @@
 
 #include "cc/lookup_server/server/src/lookup_server.h"
 
+#include <chrono>
 #include <list>
 #include <memory>
 #include <string>
@@ -193,6 +194,10 @@ constexpr char kHttp2ServerLookupServiceMetricName[] = "HttpRequest";
 // Configures the metric name used by Healthcheck Service Http2Server.
 constexpr char kHttp2ServerHealthServiceMetricName[] =
     "HealthServiceHttpRequest";
+// Config for CPIO GCP KMS client
+constexpr std::chrono::milliseconds kGcpKmsClientRetryInitialInterval =
+    std::chrono::milliseconds(200);
+constexpr size_t kGcpKmsClientRetryTotalRetries = 5;
 
 // The issuer to use for authentication of incoming request JWTs.
 constexpr absl::string_view kJwtIssuer = "https://accounts.google.com";
@@ -825,6 +830,10 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
 
   KmsClientOptions gcp_kms_client_options;
   gcp_kms_client_options.enable_gcp_kms_client_retries = true;
+  gcp_kms_client_options.gcp_kms_client_retry_initial_interval =
+      kGcpKmsClientRetryInitialInterval;
+  gcp_kms_client_options.gcp_kms_client_retry_total_retries =
+      kGcpKmsClientRetryTotalRetries;
   gcp_kms_client_options.enable_new_gcp_error_code_converter = true;
   gcp_kms_client_ = std::make_shared<KmsClient>(
       KmsClientFactory::Create(gcp_kms_client_options));

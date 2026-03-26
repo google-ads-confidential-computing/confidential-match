@@ -19,7 +19,7 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_file"
 # Download all http_archives and git_repositories: Begin
 ################################################################################
 
-SCP_VERSION = "v0.373.0"  # latest as of Wed Jan 21 13:31:25 2026 -0800
+SCP_VERSION = "v0.388.0"  # latest as of Tue Mar 10 00:43:43 2026 -0700
 
 SCP_REPOSITORY = "https://github.com/google-ads-confidential-computing/conf-data-processing-architecture-reference"
 
@@ -79,9 +79,9 @@ git_repository(
 
 # Declare explicit protobuf version and hash, to override any implicit dependencies.
 # Please update both while upgrading to new versions.
-PROTOBUF_CORE_VERSION = "28.0"
+PROTOBUF_CORE_VERSION = "29.5"
 
-PROTOBUF_SHA_256 = "13e7749c30bc24af6ee93e092422f9dc08491c7097efa69461f88eb5f61805ce"
+PROTOBUF_SHA_256 = "955ef3235be41120db4d367be81efe6891c9544b3a71194d80c3055865b26e09"
 
 load("//build_defs/cc:cfm.bzl", "cfm_dependencies")
 
@@ -224,15 +224,15 @@ load("@rules_jvm_external//:defs.bzl", "maven_install")
 load("@rules_jvm_external//:specs.bzl", "maven")
 load("@com_google_adm_cloud_scp//build_defs/tink:tink_defs.bzl", "TINK_MAVEN_ARTIFACTS")
 
-JACKSON_VERSION = "2.12.2"
+JACKSON_VERSION = "2.21.0"
 
-AUTO_VALUE_VERSION = "1.7.4"
+AUTO_VALUE_VERSION = "1.10.4"
 
 AWS_SDK_VERSION = "2.17.239"
 
 GOOGLE_GAX_VERSION = "2.47.0"
 
-AUTO_SERVICE_VERSION = "1.0"
+AUTO_SERVICE_VERSION = "1.1.1"
 
 GUICE_VERSION = "5.1.0"  # latest as of Jan 25, 2022
 
@@ -244,18 +244,11 @@ maven_install(
     artifacts = [
         # Specify the protobuf-java explicitly to make sure
         # the version will be upgraded with protobuf cc.
-        "com.google.protobuf:protobuf-java:4.28.0",
-        "com.google.protobuf:protobuf-java-util:4.28.0",
-        "com.google.protobuf:protobuf-javalite:4.28.0",
-        "com.amazonaws:aws-lambda-java-core:1.2.1",
-        "com.amazonaws:aws-lambda-java-events:3.8.0",
-        "com.amazonaws:aws-lambda-java-events-sdk-transformer:3.1.0",
-        "com.amazonaws:aws-java-sdk-sqs:1.11.860",
-        "com.amazonaws:aws-java-sdk-s3:1.11.860",
-        "com.amazonaws:aws-java-sdk-kms:1.11.860",
-        "com.amazonaws:aws-java-sdk-core:1.11.860",
+        "com.google.protobuf:protobuf-java:4.29.5",
+        "com.google.protobuf:protobuf-java-util:4.29.5",
+        "com.google.protobuf:protobuf-javalite:4.29.5",
         "com.beust:jcommander:1.81",
-        "com.fasterxml.jackson.core:jackson-annotations:" + JACKSON_VERSION,
+        "com.fasterxml.jackson.core:jackson-annotations:2.21",
         "com.fasterxml.jackson.core:jackson-core:" + JACKSON_VERSION,
         "com.fasterxml.jackson.core:jackson-databind:" + JACKSON_VERSION,
         "com.fasterxml.jackson.datatype:jackson-datatype-guava:" + JACKSON_VERSION,
@@ -277,7 +270,7 @@ maven_install(
         "com.google.cloud:google-cloudevent-types:0.14.0",
         "com.google.api.grpc:proto-google-cloud-compute-v1:1.58.0",
         "com.google.api-client:google-api-client:2.7.0",
-        "com.google.cloud.functions.invoker:java-function-invoker:1.3.1",
+        "com.google.cloud.functions.invoker:java-function-invoker:1.4.3",
         "com.google.auth:google-auth-library-oauth2-http:1.24.1",
         "com.google.cloud.functions:functions-framework-api:1.1.0",
         "commons-logging:commons-logging:1.1.1",
@@ -297,7 +290,6 @@ maven_install(
         "com.google.truth.extensions:truth-java8-extension:1.1.2",
         "com.google.truth.extensions:truth-proto-extension:1.1.2",
         "com.google.truth:truth:1.1.2",
-        "com.jayway.jsonpath:json-path:2.5.0",
         "com.kohlschutter.junixsocket:junixsocket-core:2.10.1",
         "io.github.resilience4j:resilience4j-core:" + RESILIENCE4J_VERSION,
         "io.github.resilience4j:resilience4j-retry:" + RESILIENCE4J_VERSION,
@@ -336,25 +328,14 @@ maven_install(
         "org.testcontainers:testcontainers:1.18.1",
         "org.testcontainers:localstack:1.18.1",
         "org.testcontainers:mockserver:1.18.1",
-        "software.amazon.awssdk:apigateway:" + AWS_SDK_VERSION,
-        "software.amazon.awssdk:arns:" + AWS_SDK_VERSION,
-        "software.amazon.awssdk:autoscaling:" + AWS_SDK_VERSION,
-        "software.amazon.awssdk:aws-sdk-java:" + AWS_SDK_VERSION,
-        "software.amazon.awssdk:dynamodb-enhanced:" + AWS_SDK_VERSION,
-        "software.amazon.awssdk:dynamodb:" + AWS_SDK_VERSION,
-        "software.amazon.awssdk:cloudwatch:" + AWS_SDK_VERSION,
-        "software.amazon.awssdk:ec2:" + AWS_SDK_VERSION,
-        "software.amazon.awssdk:regions:" + AWS_SDK_VERSION,
-        "software.amazon.awssdk:s3:" + AWS_SDK_VERSION,
-        "software.amazon.awssdk:aws-core:" + AWS_SDK_VERSION,
-        "software.amazon.awssdk:kms:" + AWS_SDK_VERSION,
-        "software.amazon.awssdk:ssm:" + AWS_SDK_VERSION,
-        "software.amazon.awssdk:sts:" + AWS_SDK_VERSION,
-        "software.amazon.awssdk:sqs:" + AWS_SDK_VERSION,
-        "software.amazon.awssdk:url-connection-client:" + AWS_SDK_VERSION,
-        "software.amazon.awssdk:utils:" + AWS_SDK_VERSION,
+        "software.amazon.awssdk:apache-client:" + AWS_SDK_VERSION,
         "software.amazon.awssdk:auth:" + AWS_SDK_VERSION,
-        "software.amazon.awssdk:lambda:" + AWS_SDK_VERSION,
+        "software.amazon.awssdk:http-client-spi:" + AWS_SDK_VERSION,
+        "software.amazon.awssdk:kms:" + AWS_SDK_VERSION,
+        "software.amazon.awssdk:regions:" + AWS_SDK_VERSION,
+        "software.amazon.awssdk:sdk-core:" + AWS_SDK_VERSION,
+        "software.amazon.awssdk:sts:" + AWS_SDK_VERSION,
+        "software.amazon.awssdk:utils:" + AWS_SDK_VERSION,
         # maven_install can't generate the right url to download this library
         # with com.google.apis:google-api-services-cloudkms:<version>
         maven.artifact(

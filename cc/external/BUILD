@@ -483,6 +483,16 @@ alias(
 )
 
 alias(
+    name = "tink_cc_hybrid",
+    actual = "@tink_cc//tink/hybrid:hybrid_config",
+)
+
+alias(
+    name = "tink_cc_hpke",
+    actual = "@tink_cc//tink/hybrid:hpke_config",
+)
+
+alias(
     name = "tink_jwt_jwk_set_converter",
     actual = "@tink_cc//tink/jwt:jwk_set_converter",
 )

@@ -12,12 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Use `aws_sdk_cpp_static_lib_deps` when building inside container
+load("@com_google_adm_cloud_scp//build_defs/cc/aws:aws_c_common_source_code.bzl", "aws_c_common")
+load("@com_google_adm_cloud_scp//build_defs/cc/aws:aws_sdk_cpp_source_code_deps.bzl", "import_aws_sdk_cpp")
 load("@com_google_adm_cloud_scp//build_defs/cc/shared:bazel_rules_cpp.bzl", "bazel_rules_cpp")
 load("@com_google_adm_cloud_scp//build_defs/cc/shared:bazelisk.bzl", "bazelisk")
 load("@com_google_adm_cloud_scp//build_defs/cc/shared:boost.bzl", "boost")
 load("@com_google_adm_cloud_scp//build_defs/cc/shared:boringssl.bzl", "boringssl")
 load("@com_google_adm_cloud_scp//build_defs/cc/shared:cc_utils.bzl", "cc_utils")
 load("@com_google_adm_cloud_scp//build_defs/cc/shared:google_cloud_cpp.bzl", "import_google_cloud_cpp")
+load("@com_google_adm_cloud_scp//build_defs/cc/shared:grpc_cpp.bzl", "import_grpc_cpp")
 load("@com_google_adm_cloud_scp//build_defs/cc/shared:nghttp2.bzl", "nghttp2")
 load("@com_google_adm_cloud_scp//build_defs/shared:absl.bzl", "absl")
 load("@com_google_adm_cloud_scp//build_defs/shared:bazel_build_tools.bzl", "bazel_build_tools")
@@ -27,14 +31,8 @@ load("@com_google_adm_cloud_scp//build_defs/shared:bazel_rules_pkg.bzl", "bazel_
 load("@com_google_adm_cloud_scp//build_defs/shared:golang.bzl", "go_deps")
 load("@com_google_adm_cloud_scp//build_defs/shared:google_cloud_sdk.bzl", "google_cloud_sdk")
 load("@com_google_adm_cloud_scp//build_defs/shared:java_grpc.bzl", "java_grpc")
-load("@com_google_adm_cloud_scp//build_defs/shared:packer.bzl", "packer")
 load("@com_google_adm_cloud_scp//build_defs/shared:protobuf.bzl", "protobuf")
-load("@com_google_adm_cloud_scp//build_defs/shared:rpm.bzl", "rpm")
 load("@com_google_adm_cloud_scp//build_defs/tink:tink_defs.bzl", "import_tink_git")
-
-# Use `aws_sdk_cpp_static_lib_deps` when building inside container
-load("@com_google_adm_cloud_scp//build_defs/cc/aws:aws_c_common_source_code.bzl", "aws_c_common")
-load("@com_google_adm_cloud_scp//build_defs/cc/aws:aws_sdk_cpp_source_code_deps.bzl", "import_aws_sdk_cpp")
 
 # CFM build defs
 load("//build_defs/cc/shared:jemalloc.bzl", "jemalloc")
@@ -55,11 +53,10 @@ def cfm_dependencies(protobuf_version, protobuf_repo_hash):
     java_grpc()
     jemalloc()
     nghttp2()
-    packer()
     protobuf(protobuf_version, protobuf_repo_hash)
-    rpm()
     import_google_cloud_cpp()
     import_tink_git()
+    import_grpc_cpp()
 
     aws_c_common()
     import_aws_sdk_cpp()
