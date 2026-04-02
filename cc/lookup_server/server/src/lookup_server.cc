@@ -850,6 +850,10 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
 
   PrivateKeyClientOptions private_key_client_options;
   private_key_client_options.enable_gcp_kms_client_retries = true;
+  private_key_client_options.gcp_kms_client_retry_initial_interval =
+      kGcpKmsClientRetryInitialInterval;
+  private_key_client_options.gcp_kms_client_retry_total_retries =
+      kGcpKmsClientRetryTotalRetries;
   private_key_client_options.enable_new_gcp_error_code_converter = true;
   private_key_client_ =
       PrivateKeyClientFactory::Create(private_key_client_options);
