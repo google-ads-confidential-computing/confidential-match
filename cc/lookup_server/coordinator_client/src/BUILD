@@ -36,7 +36,7 @@ cc_library(
         "//cc/external:scp_core_interface_lib",
         "//cc/external:scp_core_test_utils",
         "//cc/external:scp_cpio_private_key_client_interface",
-        "//cc/external:scp_cpio_private_key_service_proto",
+        "//cc/external:scp_cpio_private_key_service_cc_proto",
         "//cc/external:scp_cpio_sync_utils",
         "//cc/lookup_server/interface:lookup_server_interface_lib",
         "//cc/lookup_server/public/src:errors_lib",

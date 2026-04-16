@@ -333,6 +333,16 @@ alias(
 )
 
 alias(
+    name = "scp_test_utils",
+    actual = "@com_google_adm_cloud_scp//cc/core/test/utils:utils_lib",
+)
+
+alias(
+    name = "scp_cpio_configuration_fetcher",
+    actual = "@com_google_adm_cloud_scp//cc/public/cpio/utils/configuration_fetcher/src:configuration_fetcher",
+)
+
+alias(
     name = "scp_cpio_blob_storage_client_interface",
     actual = "@com_google_adm_cloud_scp//cc/public/cpio/interface/blob_storage_client:blob_storage_client",
 )
@@ -439,6 +449,11 @@ alias(
 
 alias(
     name = "scp_cpio_private_key_service_proto",
+    actual = "@com_google_adm_cloud_scp//cc/public/cpio/proto/private_key_service/v1:private_key_service_proto",
+)
+
+alias(
+    name = "scp_cpio_private_key_service_cc_proto",
     actual = "@com_google_adm_cloud_scp//cc/public/cpio/proto/private_key_service/v1:private_key_service_cc_proto",
 )
 
