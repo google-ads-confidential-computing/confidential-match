@@ -458,6 +458,11 @@ alias(
 )
 
 alias(
+    name = "scp_cpio_encryption_key_prefetch_config_proto",
+    actual = "@com_google_adm_cloud_scp//cc/public/cpio/utils/key_fetching/proto:encryption_key_prefetch_config_proto",
+)
+
+alias(
     name = "scp_cpio_interface_lib",
     actual = "@com_google_adm_cloud_scp//cc/public/cpio/interface:cpio",
 )
