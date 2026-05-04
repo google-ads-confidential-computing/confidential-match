@@ -438,6 +438,21 @@ alias(
 )
 
 alias(
+    name = "scp_cpio_dual_writing_metric_client_interface",
+    actual = "@com_google_adm_cloud_scp//cc/public/cpio/utils/dual_writing_metric_client/interface:dual_writing_metric_client_interface",
+)
+
+alias(
+    name = "scp_cpio_dual_writing_metric_client",
+    actual = "@com_google_adm_cloud_scp//cc/public/cpio/utils/dual_writing_metric_client/src:dual_writing_metric_client",
+)
+
+alias(
+    name = "scp_cpio_noop_dual_writing_metric_client",
+    actual = "@com_google_adm_cloud_scp//cc/public/cpio/utils/dual_writing_metric_client/noop:noop_dual_writing_metric_client",
+)
+
+alias(
     name = "scp_cpio_private_key_client_interface",
     actual = "@com_google_adm_cloud_scp//cc/public/cpio/interface/private_key_client:private_key_client",
 )
@@ -458,8 +473,23 @@ alias(
 )
 
 alias(
+    name = "scp_cpio_key_fetcher_interface",
+    actual = "@com_google_adm_cloud_scp//cc/public/cpio/utils/key_fetching/interface:key_fetcher_with_cache_interface",
+)
+
+alias(
+    name = "scp_cpio_ondemand_key_fetcher",
+    actual = "@com_google_adm_cloud_scp//cc/public/cpio/utils/key_fetching/src:ondemand_key_fetcher_with_cache",
+)
+
+alias(
     name = "scp_cpio_encryption_key_prefetch_config_proto",
     actual = "@com_google_adm_cloud_scp//cc/public/cpio/utils/key_fetching/proto:encryption_key_prefetch_config_proto",
+)
+
+alias(
+    name = "scp_cpio_encryption_key_prefetch_config_cc_proto",
+    actual = "@com_google_adm_cloud_scp//cc/public/cpio/utils/key_fetching/proto:encryption_key_prefetch_config_cc_proto",
 )
 
 alias(
