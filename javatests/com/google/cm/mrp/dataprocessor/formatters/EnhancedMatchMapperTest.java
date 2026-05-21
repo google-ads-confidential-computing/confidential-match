@@ -369,6 +369,28 @@ public final class EnhancedMatchMapperTest {
   }
 
   @Test
+  public void mapGtagToDataRecord_newPiiKeys_ignores() {
+    // New PII keys defined in enhanced match gtag should be ignored.
+    DataRecord record =
+        EnhancedMatchMapper.mapGtagToDataRecord(
+            String.format(
+                "tv.1~em.%s~rem.%s~rpn.%s~rfn0.%s~rln1.%s~rsa2.%s",
+                EMAIL_HASH.getWebHashBase64(),
+                EMAIL_HASH.getWebHashBase64Padding(),
+                PHONE_NUMBER_HASH.getWebHashBase64Padding(),
+                FIRST_NAME_HASH.getWebHashBase64Padding(),
+                LAST_NAME_HASH.getWebHashBase64Padding(),
+                new Hashes("My Address").getWebHashBase64Padding()));
+
+    assertThat(record.getKeyValuesList())
+        .containsExactly(
+            KeyValue.newBuilder()
+                .setKey("em")
+                .setStringValue(EMAIL_HASH.getCfmHashBase64())
+                .build());
+  }
+
+  @Test
   public void mapGtagToDataRecord_nullInput_throws() {
     Exception e =
         assertThrows(
@@ -439,6 +461,7 @@ public final class EnhancedMatchMapperTest {
   public static class Hashes {
 
     final String input;
+    final String webHashBase64Padding;
     final String webHashBase64;
     final String webHashHex;
     final String cfmHashBase64;
@@ -446,16 +469,19 @@ public final class EnhancedMatchMapperTest {
     public Hashes(String input) {
       this.input = input;
       // Url-safe Base64, with padding removed
-      this.webHashBase64 =
-          BaseEncoding.base64Url()
-              .encode(sha256().hashBytes(input.getBytes(UTF_8)).asBytes())
-              .substring(0, 43);
+      this.webHashBase64Padding =
+          BaseEncoding.base64Url().encode(sha256().hashBytes(input.getBytes(UTF_8)).asBytes());
+      this.webHashBase64 = webHashBase64Padding.substring(0, 43);
       this.webHashHex =
           BaseEncoding.base16()
               .encode(sha256().hashBytes(input.getBytes(UTF_8)).asBytes())
               .toLowerCase();
       this.cfmHashBase64 =
           BaseEncoding.base64().encode(sha256().hashBytes(input.getBytes(UTF_8)).asBytes());
+    }
+
+    public String getWebHashBase64Padding() {
+      return webHashBase64Padding;
     }
 
     public String getWebHashBase64() {
