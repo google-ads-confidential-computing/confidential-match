@@ -74,6 +74,7 @@ fi
 
 # Create output folder using current user permissions
 mkdir -p "${out_dir}"
+mkdir -p "${out_dir}/sandbox"
 
 # The first bash commands to run inside the container
 # * Requires GCP credentials for Docker to pull the base image
@@ -82,10 +83,11 @@ container_init_command="
   echo startup --output_user_root=${out_dir}/bazel >> ~/.bazelrc
   echo common --override_repository=com_google_adm_cloud_scp=/scp >> ~/.bazelrc
   echo build --config=run-within-container >> ~/.bazelrc
+  echo build --sandbox_base=${out_dir}/sandbox >> ~/.bazelrc
   echo $(gcloud auth print-access-token) | docker login -u oauth2accesstoken \
     --password-stdin https://marketplace.gcr.io &> /dev/null
-  trap 'chown --recursive --reference=${out_dir} ${out_dir} \
-        && chmod --recursive --reference=${out_dir} ${out_dir}' EXIT
+  trap 'chown --recursive --reference=${out_dir} ${out_dir} || true; \
+        chmod --recursive --reference=${out_dir} ${out_dir} || true' EXIT
   chown --silent --recursive root:root ${out_dir}/bazel
   bazel sync --only=com_google_adm_cloud_scp
   "

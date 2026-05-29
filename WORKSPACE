@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository", "new_git_repository")
+load("@bazel_tools//tools/build_defs/repo:git.bzl", "git_repository")
 load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_file")
 
 ################################################################################
@@ -77,15 +77,9 @@ git_repository(
 # SDK Dependencies Rules #
 ################
 
-# Declare explicit protobuf version and hash, to override any implicit dependencies.
-# Please update both while upgrading to new versions.
-PROTOBUF_CORE_VERSION = "29.5"
-
-PROTOBUF_SHA_256 = "955ef3235be41120db4d367be81efe6891c9544b3a71194d80c3055865b26e09"
-
 load("//build_defs/cc:cfm.bzl", "cfm_dependencies")
 
-cfm_dependencies(PROTOBUF_CORE_VERSION, PROTOBUF_SHA_256)
+cfm_dependencies()
 
 ####################
 # Distroless rules #
@@ -183,13 +177,6 @@ bind(
     name = "madler_zlib",
     actual = "@zlib//:zlib",
 )
-###############
-# Proto rules #
-###############
-
-load("@com_google_protobuf//:protobuf_deps.bzl", "protobuf_deps")
-
-protobuf_deps()
 
 ###########################
 # CC Dependencies (cont.) #
@@ -325,9 +312,9 @@ maven_install(
         "org.mockito:mockito-core:5.4.0",
         "org.slf4j:slf4j-api:" + SLF4J_VERSION,
         "org.slf4j:slf4j-simple:" + SLF4J_VERSION,
-        "org.testcontainers:testcontainers:1.18.1",
-        "org.testcontainers:localstack:1.18.1",
-        "org.testcontainers:mockserver:1.18.1",
+        "org.testcontainers:testcontainers:1.21.4",
+        "org.testcontainers:localstack:1.21.4",
+        "org.testcontainers:mockserver:1.21.4",
         "software.amazon.awssdk:apache-client:" + AWS_SDK_VERSION,
         "software.amazon.awssdk:auth:" + AWS_SDK_VERSION,
         "software.amazon.awssdk:http-client-spi:" + AWS_SDK_VERSION,
@@ -352,17 +339,6 @@ maven_install(
 ################################################################################
 # Download Maven Dependencies: End
 ################################################################################
-
-############
-# Go rules #
-############
-# Need to be after grpc_extra_deps to share go_register_toolchains.
-load("@io_bazel_rules_go//go:deps.bzl", "go_rules_dependencies")
-load("@bazel_gazelle//:deps.bzl", "gazelle_dependencies")
-
-go_rules_dependencies()
-
-gazelle_dependencies()
 
 ###################
 # Container rules #

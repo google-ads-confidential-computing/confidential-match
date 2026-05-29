@@ -19,3 +19,8 @@ bazel-*
 /.factorypath
 /target
 /bin
+
+tools/opensource/deps.txt
+tools/opensource/resolved.py
+
+MODULE.bazel.lock
