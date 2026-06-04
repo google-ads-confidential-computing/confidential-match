@@ -1,3 +1,5 @@
+<!--ATTENTION: THIS IS A PUBLIC DOCUMENT WHICH IS OPEN SOURCED-->
+
 # Confidential Match
 
 Confidential Match allows matching between two sets of data on specific keys
@@ -23,8 +25,8 @@ dependencies:
     * * `sudo apt install docker.io`
     * Manage Docker as non-root: https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user
 
-* Bazel 6.5.0
-    * https://bazel.build/versions/6.5.0/install/ubuntu
+* Bazel 7.7.1
+    * https://bazel.build/versions/7.7.0/install/ubuntu
         * Follow until Step 2
     * If installing Bazelisk, it must be callable with the command `bazel`
 * OpenJDK JDK 17
@@ -38,9 +40,9 @@ dependencies:
     * * `sudo apt install golang-1.19`
 * Google Cloud SDK (gcloud) 530.0.0
     * https://cloud.google.com/sdk/docs/install
-* Clang 13
-    * Install the package [clang-13](https://packages.debian.org/bookworm/clang-13) from Debian 12.
-    * * `sudo apt install clang-13`
+* Clang 19
+    * Install the package [clang-19](https://packages.debian.org/bookworm/clang-19) from Debian 12.
+    * * `sudo apt install clang-19`
 ### Google Cloud Platform (GCP) Authentication
 
 These commands will authenticate your account using gcloud and configure its

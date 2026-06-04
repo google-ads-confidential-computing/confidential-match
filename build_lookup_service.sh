@@ -15,5 +15,4 @@
 
 # Build the Lookup Service image and load it as
 # bazel/cc/lookup_server/deploy:lookup_server_gcp_image_48_vcpu
-"${BASH_SOURCE[0]%/*}/cc/tools/build/run_within_container.sh" \
-  //cc/lookup_server/deploy:lookup_server_gcp_image_48_vcpu.tar
+bazel run --config=gcp-tee-build -- //cc/lookup_server/deploy:lookup_server_gcp_image_48_vcpu_load

@@ -200,6 +200,28 @@ load("@com_github_nelhage_rules_boost//:boost/boost.bzl", "boost_deps")
 
 boost_deps()
 
+###########################
+# CC Hermetic Toolchain  #
+###########################
+
+load("@com_google_adm_cloud_scp//build_defs/cc:sysroot_ext.bzl", "chromium_sysroot")
+
+chromium_sysroot()
+
+load("@toolchains_llvm//toolchain:rules.bzl", "llvm_toolchain")
+
+llvm_toolchain(
+    name = "llvm_toolchain",
+    llvm_version = "19.1.0",
+    sysroot = {
+        "linux-x86_64": "@chromium_sysroot//:sysroot",
+    },
+)
+
+load("@llvm_toolchain//:toolchains.bzl", "llvm_register_toolchains")
+
+llvm_register_toolchains()
+
 ################################################################################
 # Download Indirect Dependencies: End
 ################################################################################

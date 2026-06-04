@@ -2,6 +2,7 @@
 build --output_filter='^//((?!(external):).)*$'
 
 # C++
+build --extra_toolchains=@llvm_toolchain//:all
 build --repo_env=BAZEL_CXXOPTS=-std=c++17
 build --action_env=BAZEL_CXXOPTS=-std=c++17
 build --client_env=BAZEL_CXXOPTS=-std=c++17
@@ -25,8 +26,8 @@ build --tool_java_runtime_version=remotejdk_21
 # Fix non-deterministic Java compilation failures
 build --incompatible_sandbox_hermetic_tmp
 
-# Config for Lookup Service's run_within_container.sh
-# Enable with --config=run-within-container
-build:run-within-container --//cc/lookup_server/server/src:platform=gcp
-build:run-within-container --@com_google_adm_cloud_scp//cc/public/cpio/interface:platform=gcp
-build:run-within-container --@com_google_adm_cloud_scp//cc/public/cpio/interface:run_inside_tee=True
+# Config for Lookup Service's GCP TEE runtime.
+# Enable with --config=gcp-tee-build
+build:gcp-tee-build --//cc/lookup_server/server/src:platform=gcp
+build:gcp-tee-build --@com_google_adm_cloud_scp//cc/public/cpio/interface:platform=gcp
+build:gcp-tee-build --@com_google_adm_cloud_scp//cc/public/cpio/interface:run_inside_tee=True
