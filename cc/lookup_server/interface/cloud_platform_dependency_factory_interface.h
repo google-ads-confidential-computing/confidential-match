@@ -24,7 +24,6 @@
 #include "cc/core/interface/http_client_interface.h"
 #include "cc/core/interface/initializable_interface.h"
 #include "cc/core/interface/service_interface.h"
-
 #include "cc/lookup_server/interface/jwt_validator_interface.h"
 
 namespace google::confidential_match::lookup_server {
@@ -45,7 +44,8 @@ class CloudPlatformDependencyFactoryInterface
   ConstructAuthorizationProxyClient(
       std::shared_ptr<scp::core::AsyncExecutorInterface> async_executor,
       std::shared_ptr<scp::core::HttpClientInterface> http_client,
-      std::shared_ptr<JwtValidatorInterface> jwt_validator) noexcept = 0;
+      std::shared_ptr<JwtValidatorInterface> jwt_validator,
+      uint64_t auth_cache_entry_lifetime_seconds) noexcept = 0;
 };
 
 }  // namespace google::confidential_match::lookup_server

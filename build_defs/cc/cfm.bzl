@@ -22,7 +22,6 @@ load("@com_google_adm_cloud_scp//build_defs/cc/shared:cc_utils.bzl", "cc_utils")
 load("@com_google_adm_cloud_scp//build_defs/cc/shared:google_cloud_cpp.bzl", "import_google_cloud_cpp")
 load("@com_google_adm_cloud_scp//build_defs/cc/shared:grpc_cpp.bzl", "import_grpc_cpp")
 load("@com_google_adm_cloud_scp//build_defs/cc/shared:nghttp2.bzl", "nghttp2")
-load("@com_google_adm_cloud_scp//build_defs/shared:bazel_build_tools.bzl", "bazel_build_tools")
 load("@com_google_adm_cloud_scp//build_defs/shared:bazel_rules_java.bzl", "bazel_rules_java")
 load("@com_google_adm_cloud_scp//build_defs/shared:bazel_rules_pkg.bzl", "bazel_rules_pkg")
 load("@com_google_adm_cloud_scp//build_defs/shared:google_cloud_sdk.bzl", "google_cloud_sdk")
@@ -33,7 +32,6 @@ load("@com_google_adm_cloud_scp//build_defs/tink:tink_defs.bzl", "import_tink_gi
 load("//build_defs/cc/shared:jemalloc.bzl", "jemalloc")
 
 def cfm_dependencies():
-    bazel_build_tools()
     bazel_rules_cpp()
     bazel_rules_java()
     bazel_rules_pkg()

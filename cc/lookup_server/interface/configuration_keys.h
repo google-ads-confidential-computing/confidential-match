@@ -90,6 +90,9 @@ inline constexpr char kStorageHashBucketCount[] = "storage_hash_bucket_count";
 // The maximum number of files to stream concurrently when loading match data.
 inline constexpr char kMaxConcurrentStreamedFileReads[] =
     "max_concurrent_streamed_file_reads";
+// The authorization cache entry lifetime in seconds.
+inline constexpr char kAuthCacheEntryLifetimeSeconds[] =
+    "auth_cache_entry_lifetime_seconds";
 
 }  // namespace google::confidential_match::lookup_server
 

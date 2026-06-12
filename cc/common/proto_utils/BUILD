@@ -1,4 +1,4 @@
-# Copyright 2025 Google LLC
+# Copyright 2026 Google LLC
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,19 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@buildifier_prebuilt//:rules.bzl", "buildifier")
+load("@rules_cc//cc:cc_test.bzl", "cc_test")
+load("@rules_cc//cc:defs.bzl", "cc_library")
 
 package(default_visibility = ["//visibility:public"])
 
-buildifier(
-    name = "buildifier_check",
-    exclude_patterns = ["./WORKSPACE"],  # Don't reformat WORKSPACE
-    mode = "check",
+cc_library(
+    name = "proto_utils",
+    srcs = ["proto_utils.cc"],
+    hdrs = ["proto_utils.h"],
+    deps = [
+        "//cc/external:google_protobuf",
+    ],
 )
 
-buildifier(
-    name = "buildifier_fix",
-    exclude_patterns = ["./WORKSPACE"],  # Don't reformat WORKSPACE
-    lint_mode = "fix",
-    mode = "fix",
+cc_test(
+    name = "proto_utils_test",
+    srcs = ["proto_utils_test.cc"],
+    deps = [
+        ":proto_utils",
+        "//cc/external:google_gtest",
+        "//cc/external:google_gtest_main",
+        "//protos/lookup_server/api:cc_proto",
+    ],
 )

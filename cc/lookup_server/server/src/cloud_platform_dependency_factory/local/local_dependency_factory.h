@@ -20,10 +20,9 @@
 #include <memory>
 
 #include "cc/core/interface/config_provider_interface.h"
-#include "public/core/interface/execution_result.h"
-
 #include "cc/lookup_server/interface/cloud_platform_dependency_factory_interface.h"
 #include "cc/lookup_server/interface/jwt_validator_interface.h"
+#include "public/core/interface/execution_result.h"
 
 namespace google::confidential_match::lookup_server {
 
@@ -40,7 +39,8 @@ class LocalDependencyFactory : public CloudPlatformDependencyFactoryInterface {
   ConstructAuthorizationProxyClient(
       std::shared_ptr<scp::core::AsyncExecutorInterface> async_executor,
       std::shared_ptr<scp::core::HttpClientInterface> http_client,
-      std::shared_ptr<JwtValidatorInterface> jwt_validator) noexcept override;
+      std::shared_ptr<JwtValidatorInterface> jwt_validator,
+      uint64_t auth_cache_entry_lifetime_seconds) noexcept override;
 
  private:
   std::shared_ptr<scp::core::ConfigProviderInterface> config_provider_;

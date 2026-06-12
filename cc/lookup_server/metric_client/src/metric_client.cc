@@ -22,15 +22,15 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "cc/common/proto_utils/proto_utils.h"
 #include "cc/core/common/global_logger/src/global_logger.h"
 #include "cc/core/common/uuid/src/uuid.h"
 #include "cc/core/interface/async_context.h"
 #include "cc/core/interface/errors.h"
+#include "cc/lookup_server/metric_client/src/error_codes.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "cc/public/cpio/interface/metric_client/metric_client_interface.h"
 #include "cc/public/cpio/proto/metric_service/v1/metric_service.pb.h"
-
-#include "cc/lookup_server/metric_client/src/error_codes.h"
 
 namespace google::confidential_match::lookup_server {
 namespace {
@@ -110,11 +110,11 @@ ExecutionResult MetricClient::RecordMetric(
 
   put_metrics_context.callback = [](auto& context) -> void {
     if (!context.result.Successful()) {
-      SCP_ERROR(
-          kComponentName, kZeroUuid, context.result,
-          absl::StrFormat("Failed to record metric. Error: %s, metric: %s",
-                          GetErrorMessage(context.result.status_code),
-                          context.request->DebugString()));
+      SCP_ERROR(kComponentName, kZeroUuid, context.result,
+                absl::StrFormat(
+                    "Failed to record metric. Error: %s, metric: %s",
+                    GetErrorMessage(context.result.status_code),
+                    common::ProtoUtils::TextProtoString(*context.request)));
     }
   };
 

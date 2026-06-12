@@ -28,6 +28,7 @@ cc_library(
         "-std=c++17",
     ],
     deps = [
+        "//cc/common/proto_utils",
         "//cc/external:absl_flat_hash_map",
         "//cc/external:absl_str_format",
         "//cc/external:absl_strings",

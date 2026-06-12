@@ -24,10 +24,18 @@
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
+#include "cc/common/proto_utils/proto_utils.h"
 #include "cc/core/common/global_logger/src/global_logger.h"
 #include "cc/core/common/uuid/src/uuid.h"
 #include "cc/core/interface/errors.h"
 #include "cc/core/interface/http_types.h"
+#include "cc/lookup_server/converters/src/matched_data_record_converter.h"
+#include "cc/lookup_server/converters/src/sharding_scheme_converter.h"
+#include "cc/lookup_server/interface/metric_client_interface.h"
+#include "cc/lookup_server/public/src/error_codes.h"
+#include "cc/lookup_server/service/src/error_codes.h"
+#include "cc/lookup_server/service/src/json_serialization_functions.h"
+#include "cc/lookup_server/service/src/public_error_response_functions.h"
 #include "cc/public/core/interface/execution_result_macros.h"
 #include "cc/public/core/interface/execution_result_or_macros.h"
 #include "cc/public/cpio/interface/metric_client/metric_client_interface.h"
@@ -36,14 +44,6 @@
 #include "cc/public/cpio/utils/metric_instance/interface/type_def.h"
 #include "cc/public/cpio/utils/metric_instance/src/aggregate_metric.h"
 #include "cc/public/cpio/utils/metric_instance/src/metric_utils.h"
-
-#include "cc/lookup_server/converters/src/matched_data_record_converter.h"
-#include "cc/lookup_server/converters/src/sharding_scheme_converter.h"
-#include "cc/lookup_server/interface/metric_client_interface.h"
-#include "cc/lookup_server/public/src/error_codes.h"
-#include "cc/lookup_server/service/src/error_codes.h"
-#include "cc/lookup_server/service/src/json_serialization_functions.h"
-#include "cc/lookup_server/service/src/public_error_response_functions.h"
 #include "protos/lookup_server/api/healthcheck.pb.h"
 #include "protos/lookup_server/api/lookup.pb.h"
 #include "protos/lookup_server/backend/service_status.pb.h"
@@ -344,7 +344,7 @@ void LookupService::PostLookupHandler(
         kComponentName, context,
         absl::StrFormat(
             "Request rejected due to unsupported sharding scheme: '%s'.",
-            request_scheme.DebugString()));
+            common::ProtoUtils::TextProtoString(request_scheme)));
     context.result =
         FailureExecutionResult(LOOKUP_SERVICE_INVALID_REQUEST_SCHEME);
     context.Finish();

@@ -18,7 +18,6 @@
 
 #include "cc/core/authorization_proxy/src/pass_thru_authorization_proxy.h"
 #include "cc/core/interface/config_provider_interface.h"
-
 #include "cc/lookup_server/interface/jwt_validator_interface.h"
 
 namespace google::confidential_match::lookup_server {
@@ -43,7 +42,8 @@ std::unique_ptr<AuthorizationProxyInterface>
 LocalDependencyFactory::ConstructAuthorizationProxyClient(
     std::shared_ptr<AsyncExecutorInterface> async_executor,
     std::shared_ptr<HttpClientInterface> http_client,
-    std::shared_ptr<JwtValidatorInterface> jwt_validator) noexcept {
+    std::shared_ptr<JwtValidatorInterface> jwt_validator,
+    uint64_t auth_cache_entry_lifetime_seconds) noexcept {
   return std::make_unique<PassThruAuthorizationProxy>();
 }
 

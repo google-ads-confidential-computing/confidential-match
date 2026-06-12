@@ -27,11 +27,6 @@
 #include "cc/core/interface/config_provider_interface.h"
 #include "cc/core/interface/http_client_interface.h"
 #include "cc/core/interface/http_server_interface.h"
-#include "cc/public/core/interface/execution_result.h"
-#include "cc/public/cpio/interface/blob_storage_client/blob_storage_client_interface.h"
-#include "cc/public/cpio/interface/private_key_client/private_key_client_interface.h"
-#include "cc/public/cpio/utils/metric_instance/interface/metric_instance_factory_interface.h"
-
 #include "cc/lookup_server/health_service/src/health_service.h"
 #include "cc/lookup_server/interface/coordinator_client_interface.h"
 #include "cc/lookup_server/interface/crypto_client_interface.h"
@@ -46,6 +41,10 @@
 #include "cc/lookup_server/interface/parameter_client_interface.h"
 #include "cc/lookup_server/interface/streamed_match_data_provider_interface.h"
 #include "cc/lookup_server/service/src/lookup_service.h"
+#include "cc/public/core/interface/execution_result.h"
+#include "cc/public/cpio/interface/blob_storage_client/blob_storage_client_interface.h"
+#include "cc/public/cpio/interface/private_key_client/private_key_client_interface.h"
+#include "cc/public/cpio/utils/metric_instance/interface/metric_instance_factory_interface.h"
 
 namespace google::confidential_match::lookup_server {
 
@@ -97,6 +96,9 @@ struct LookupServerParameters {
   uint64_t storage_hash_bucket_count_ = 0;
   // Configures the maximum number of match data files to read concurrently.
   uint64_t max_concurrent_streamed_file_reads = 100;
+
+  // Configures the authorization cache entry lifetime.
+  uint64_t auth_cache_entry_lifetime_seconds = 150;
 
   // TLS context for HTTP2 Server
   bool http2_server_use_tls = false;

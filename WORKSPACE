@@ -19,7 +19,7 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive", "http_file"
 # Download all http_archives and git_repositories: Begin
 ################################################################################
 
-SCP_VERSION = "v0.399.0"  # latest as of Tue Apr 14 01:55:49 2026 -0700
+SCP_VERSION = "v0.414.0"  # latest as of Tue Apr 14 01:55:49 2026 -0700
 
 SCP_REPOSITORY = "https://github.com/google-ads-confidential-computing/conf-data-processing-architecture-reference"
 
@@ -460,18 +460,6 @@ apt.install(
 load("@lookup_server_apt//:packages.bzl", "lookup_server_apt_packages")
 
 lookup_server_apt_packages()
-
-# Packages for the Lookup Server builder image
-# To update, follow instructions in the manifest file
-apt.install(
-    name = "lookup_server_builder_apt",
-    lock = "//cc/tools/build:lookup_server_builder_apt.lock.json",
-    manifest = "//cc/tools/build:lookup_server_builder_apt.yaml",
-)
-
-load("@lookup_server_builder_apt//:packages.bzl", "lookup_server_builder_apt_packages")
-
-lookup_server_builder_apt_packages()
 
 # Packages for the Match Service base image
 # To update, follow instructions in the manifest file

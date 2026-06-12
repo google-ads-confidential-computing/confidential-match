@@ -14,14 +14,15 @@
 
 #include "cc/lookup_server/server/src/cloud_platform_dependency_factory/gcp/gcp_dependency_factory.h"
 
+#include <chrono>
 #include <memory>
 
 #include "cc/core/authorization_proxy/src/authorization_proxy.h"
 #include "cc/core/authorization_proxy/src/pass_thru_authorization_proxy.h"
-#include "public/core/interface/execution_result.h"
-
 #include "cc/lookup_server/auth/src/gcp/gcp_http_request_response_auth_interceptor.h"
+#include "cc/lookup_server/interface/configuration_keys.h"
 #include "cc/lookup_server/interface/jwt_validator_interface.h"
+#include "public/core/interface/execution_result.h"
 
 namespace google::confidential_match::lookup_server {
 namespace {
@@ -51,10 +52,17 @@ std::unique_ptr<AuthorizationProxyInterface>
 GcpDependencyFactory::ConstructAuthorizationProxyClient(
     std::shared_ptr<AsyncExecutorInterface> async_executor,
     std::shared_ptr<HttpClientInterface> http_client,
-    std::shared_ptr<JwtValidatorInterface> jwt_validator) noexcept {
+    std::shared_ptr<JwtValidatorInterface> jwt_validator,
+    uint64_t auth_cache_entry_lifetime_seconds) noexcept {
+  SCP_INFO(kGcpDependencyProvider, kZeroUuid,
+           "Constructing AuthorizationProxy with "
+           "auth_cache_entry_lifetime_seconds: %lu",
+           auth_cache_entry_lifetime_seconds);
+
   return std::make_unique<AuthorizationProxy>(
       kAuthServiceEndpoint, async_executor, http_client,
-      std::make_unique<GcpHttpRequestResponseAuthInterceptor>(jwt_validator));
+      std::make_unique<GcpHttpRequestResponseAuthInterceptor>(jwt_validator),
+      std::chrono::seconds(auth_cache_entry_lifetime_seconds));
 }
 
 }  // namespace google::confidential_match::lookup_server

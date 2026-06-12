@@ -36,20 +36,6 @@
 #include "cc/core/http2_server/src/http2_server.h"
 #include "cc/core/interface/type_def.h"
 #include "cc/core/logger/src/log_utils.h"
-#include "cc/public/core/interface/execution_result_macros.h"
-#include "cc/public/core/interface/execution_result_or_macros.h"
-#include "cc/public/cpio/interface/blob_storage_client/blob_storage_client_interface.h"
-#include "cc/public/cpio/interface/cloud_initializer/cloud_initializer_factory.h"
-#include "cc/public/cpio/interface/cpio.h"
-#include "cc/public/cpio/interface/kms_client/aws/aws_kms_client_factory.h"
-#include "cc/public/cpio/interface/kms_client/aws/type_def.h"
-#include "cc/public/cpio/interface/kms_client/kms_client_interface.h"
-#include "cc/public/cpio/interface/kms_client/type_def.h"
-#include "cc/public/cpio/interface/metric_client/metric_client_interface.h"
-#include "cc/public/cpio/interface/parameter_client/parameter_client_interface.h"
-#include "cc/public/cpio/utils/metric_instance/interface/metric_instance_factory_interface.h"
-#include "cc/public/cpio/utils/metric_instance/src/metric_instance_factory.h"
-
 #include "cc/lookup_server/auth/src/jwt_validator.h"
 #include "cc/lookup_server/coordinator_client/src/cached_coordinator_client.h"
 #include "cc/lookup_server/coordinator_client/src/coordinator_client.h"
@@ -68,6 +54,19 @@
 #include "cc/lookup_server/parameter_client/src/parameter_client.h"
 #include "cc/lookup_server/server/src/error_codes.h"
 #include "cc/lookup_server/service/src/lookup_service.h"
+#include "cc/public/core/interface/execution_result_macros.h"
+#include "cc/public/core/interface/execution_result_or_macros.h"
+#include "cc/public/cpio/interface/blob_storage_client/blob_storage_client_interface.h"
+#include "cc/public/cpio/interface/cloud_initializer/cloud_initializer_factory.h"
+#include "cc/public/cpio/interface/cpio.h"
+#include "cc/public/cpio/interface/kms_client/aws/aws_kms_client_factory.h"
+#include "cc/public/cpio/interface/kms_client/aws/type_def.h"
+#include "cc/public/cpio/interface/kms_client/kms_client_interface.h"
+#include "cc/public/cpio/interface/kms_client/type_def.h"
+#include "cc/public/cpio/interface/metric_client/metric_client_interface.h"
+#include "cc/public/cpio/interface/parameter_client/parameter_client_interface.h"
+#include "cc/public/cpio/utils/metric_instance/interface/metric_instance_factory_interface.h"
+#include "cc/public/cpio/utils/metric_instance/src/metric_instance_factory.h"
 
 #if defined(CLOUD_PLATFORM_GCP)
 #include "cc/lookup_server/server/src/cloud_platform_dependency_factory/gcp/gcp_dependency_factory.h"
@@ -719,6 +718,27 @@ ExecutionResult LookupServer::LoadParameters() noexcept {
         max_concurrent_streamed_file_reads;
   }
 
+  parameters_.auth_cache_entry_lifetime_seconds = 150;
+  if (!parameter_client_
+           ->GetSizeT(kAuthCacheEntryLifetimeSeconds,
+                      parameters_.auth_cache_entry_lifetime_seconds)
+           .Successful()) {
+    SCP_WARNING(kComponentName, kZeroUuid,
+                absl::StrFormat(
+                    "Failed to fetch %s from parameter client. Trying env vars",
+                    kAuthCacheEntryLifetimeSeconds));
+    ExecutionResult result =
+        config_provider_->Get(std::string(kAuthCacheEntryLifetimeSeconds),
+                              parameters_.auth_cache_entry_lifetime_seconds);
+    if (!result.Successful()) {
+      SCP_WARNING(
+          kComponentName, kZeroUuid,
+          absl::StrFormat("Failed to read the auth cache entry lifetime, using "
+                          "default of %lu.",
+                          parameters_.auth_cache_entry_lifetime_seconds));
+    }
+  }
+
   parameters_.http2_server_private_key_file_path =
       std::make_shared<std::string>("");
   parameters_.http2_server_certificate_file_path =
@@ -816,7 +836,8 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
 
   authorization_proxy_ =
       platform_dependency_factory->ConstructAuthorizationProxyClient(
-          async_executor_, http2_client_, jwt_validator_);
+          async_executor_, http2_client_, jwt_validator_,
+          parameters_.auth_cache_entry_lifetime_seconds);
   pass_thru_authorization_proxy_ =
       std::make_shared<PassThruAuthorizationProxy>();
 

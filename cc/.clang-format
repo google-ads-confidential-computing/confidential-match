@@ -8,7 +8,6 @@ SeparateDefinitionBlocks: Always
 # allow empty blocks on single line.
 AllowShortBlocksOnASingleLine: Empty
 SortIncludes: true
-IncludeBlocks: Preserve
 IncludeCategories:
   # gtest, this should be put first in tests.
   - Regex:           '^<gtest\/'

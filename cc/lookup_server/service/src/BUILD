@@ -31,6 +31,7 @@ cc_library(
         "-latomic",
     ],
     deps = [
+        "//cc/common/proto_utils",
         "//cc/external:absl_flat_hash_map",
         "//cc/external:absl_status",
         "//cc/external:absl_strings",
