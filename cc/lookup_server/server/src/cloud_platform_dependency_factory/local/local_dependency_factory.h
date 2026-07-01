@@ -40,7 +40,9 @@ class LocalDependencyFactory : public CloudPlatformDependencyFactoryInterface {
       std::shared_ptr<scp::core::AsyncExecutorInterface> async_executor,
       std::shared_ptr<scp::core::HttpClientInterface> http_client,
       std::shared_ptr<JwtValidatorInterface> jwt_validator,
-      uint64_t auth_cache_entry_lifetime_seconds) noexcept override;
+      uint64_t auth_cache_entry_lifetime_seconds,
+      bool enable_jwk_cache_auth_proxy, uint64_t key_refresh_interval_seconds,
+      uint64_t key_expiration_safety_period_seconds) noexcept override;
 
  private:
   std::shared_ptr<scp::core::ConfigProviderInterface> config_provider_;

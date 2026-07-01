@@ -739,6 +739,94 @@ ExecutionResult LookupServer::LoadParameters() noexcept {
     }
   }
 
+  parameters_.enable_jwk_cache_auth_proxy = false;
+  if (!parameter_client_
+           ->GetBool(kEnableJwkCacheAuthProxy,
+                     parameters_.enable_jwk_cache_auth_proxy)
+           .Successful()) {
+    SCP_WARNING(kComponentName, kZeroUuid,
+                absl::StrFormat(
+                    "Failed to fetch %s from parameter client. Trying env vars",
+                    kEnableJwkCacheAuthProxy));
+    ExecutionResult result =
+        config_provider_->Get(std::string(kEnableJwkCacheAuthProxy),
+                              parameters_.enable_jwk_cache_auth_proxy);
+    if (!result.Successful()) {
+      SCP_WARNING(
+          kComponentName, kZeroUuid,
+          absl::StrFormat(
+              "Failed to read whether to enable JWK cache auth proxy, using "
+              "default of %s.",
+              parameters_.enable_jwk_cache_auth_proxy ? "true" : "false"));
+    }
+  }
+
+  parameters_.key_refresh_interval_seconds = 3600;
+  if (!parameter_client_
+           ->GetSizeT(kJwkCacheKeyRefreshIntervalSeconds,
+                      parameters_.key_refresh_interval_seconds)
+           .Successful()) {
+    SCP_WARNING(kComponentName, kZeroUuid,
+                absl::StrFormat(
+                    "Failed to fetch %s from parameter client. Trying env vars",
+                    kJwkCacheKeyRefreshIntervalSeconds));
+    ExecutionResult result =
+        config_provider_->Get(std::string(kJwkCacheKeyRefreshIntervalSeconds),
+                              parameters_.key_refresh_interval_seconds);
+    if (!result.Successful()) {
+      SCP_WARNING(
+          kComponentName, kZeroUuid,
+          absl::StrFormat(
+              "Failed to read the JWK cache key refresh interval, using "
+              "default of %lu.",
+              parameters_.key_refresh_interval_seconds));
+    }
+  }
+
+  parameters_.key_expiration_safety_period_seconds = 600;
+  if (!parameter_client_
+           ->GetSizeT(kJwkCacheKeyExpirationSafetyPeriodSeconds,
+                      parameters_.key_expiration_safety_period_seconds)
+           .Successful()) {
+    SCP_WARNING(kComponentName, kZeroUuid,
+                absl::StrFormat(
+                    "Failed to fetch %s from parameter client. Trying env vars",
+                    kJwkCacheKeyExpirationSafetyPeriodSeconds));
+    ExecutionResult result = config_provider_->Get(
+        std::string(kJwkCacheKeyExpirationSafetyPeriodSeconds),
+        parameters_.key_expiration_safety_period_seconds);
+    if (!result.Successful()) {
+      SCP_WARNING(
+          kComponentName, kZeroUuid,
+          absl::StrFormat("Failed to read the JWK cache key expiration safety "
+                          "period, using "
+                          "default of %lu.",
+                          parameters_.key_expiration_safety_period_seconds));
+    }
+  }
+
+  parameters_.jwt_validator_min_jwk_duration_seconds = 4200;
+  if (!parameter_client_
+           ->GetSizeT(kJwtValidatorMinJwkDurationSeconds,
+                      parameters_.jwt_validator_min_jwk_duration_seconds)
+           .Successful()) {
+    SCP_WARNING(kComponentName, kZeroUuid,
+                absl::StrFormat(
+                    "Failed to fetch %s from parameter client. Trying env vars",
+                    kJwtValidatorMinJwkDurationSeconds));
+    ExecutionResult result = config_provider_->Get(
+        std::string(kJwtValidatorMinJwkDurationSeconds),
+        parameters_.jwt_validator_min_jwk_duration_seconds);
+    if (!result.Successful()) {
+      SCP_WARNING(
+          kComponentName, kZeroUuid,
+          absl::StrFormat(
+              "Failed to read the JWT validator min JWK duration, using "
+              "default of %lu.",
+              parameters_.jwt_validator_min_jwk_duration_seconds));
+    }
+  }
+
   parameters_.http2_server_private_key_file_path =
       std::make_shared<std::string>("");
   parameters_.http2_server_certificate_file_path =
@@ -824,9 +912,11 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
       cpio_metric_client, kMetricClientNamespace, metric_client_base_labels);
 
   ExecutionResultOr<std::unique_ptr<JwtValidator>> jwt_validator_or =
-      JwtValidator::Create(kJwtIssuer, *parameters_.jwt_audience,
-                           *parameters_.jwt_allowed_emails,
-                           *parameters_.jwt_allowed_subjects);
+      JwtValidator::Create(
+          kJwtIssuer, *parameters_.jwt_audience,
+          *parameters_.jwt_allowed_emails, *parameters_.jwt_allowed_subjects,
+          std::chrono::seconds(
+              parameters_.jwt_validator_min_jwk_duration_seconds));
   if (!jwt_validator_or.Successful()) {
     SCP_CRITICAL(kComponentName, kZeroUuid, factory_result,
                  "Failed to initialize the JWT validator.");
@@ -837,7 +927,10 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
   authorization_proxy_ =
       platform_dependency_factory->ConstructAuthorizationProxyClient(
           async_executor_, http2_client_, jwt_validator_,
-          parameters_.auth_cache_entry_lifetime_seconds);
+          parameters_.auth_cache_entry_lifetime_seconds,
+          parameters_.enable_jwk_cache_auth_proxy,
+          parameters_.key_refresh_interval_seconds,
+          parameters_.key_expiration_safety_period_seconds);
   pass_thru_authorization_proxy_ =
       std::make_shared<PassThruAuthorizationProxy>();
 

@@ -17,16 +17,16 @@
 #ifndef CC_LOOKUP_SERVER_AUTH_SRC_JWT_VALIDATOR_H_
 #define CC_LOOKUP_SERVER_AUTH_SRC_JWT_VALIDATOR_H_
 
+#include <chrono>
 #include <memory>
 #include <string>
 #include <vector>
 
 #include "absl/container/flat_hash_set.h"
 #include "absl/strings/string_view.h"
+#include "cc/lookup_server/interface/jwt_validator_interface.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "tink/jwt/verified_jwt.h"
-
-#include "cc/lookup_server/interface/jwt_validator_interface.h"
 
 namespace google::confidential_match::lookup_server {
 
@@ -46,7 +46,9 @@ class JwtValidator : public JwtValidatorInterface {
   static scp::core::ExecutionResultOr<std::unique_ptr<JwtValidator>> Create(
       absl::string_view issuer, absl::string_view audience,
       const std::vector<std::string>& allowed_emails,
-      const std::vector<std::string>& allowed_subjects) noexcept;
+      const std::vector<std::string>& allowed_subjects,
+      std::chrono::seconds min_jwk_duration =
+          std::chrono::minutes(60 + 10)) noexcept;
 
   /**
    * @brief Validates a JSON web token (JWT).
@@ -59,14 +61,20 @@ class JwtValidator : public JwtValidatorInterface {
   scp::core::ExecutionResult Validate(
       absl::string_view jwk_set, absl::string_view token) noexcept override;
 
+  scp::core::ExecutionResult ValidateJwkSet(
+      absl::string_view jwk_set,
+      std::chrono::seconds jwk_duration) noexcept override;
+
  private:
   JwtValidator(absl::string_view issuer, absl::string_view audience,
                const std::vector<std::string>& allowed_emails,
-               const std::vector<std::string>& allowed_subjects)
+               const std::vector<std::string>& allowed_subjects,
+               std::chrono::seconds min_jwk_duration)
       : issuer_(issuer),
         audience_(audience),
         allowed_emails_(allowed_emails.begin(), allowed_emails.end()),
-        allowed_subjects_(allowed_subjects.begin(), allowed_subjects.end()) {}
+        allowed_subjects_(allowed_subjects.begin(), allowed_subjects.end()),
+        min_jwk_duration_(min_jwk_duration) {}
 
   /**
    * Checks whether the subject or email within a verified JWT is authorized to
@@ -83,6 +91,7 @@ class JwtValidator : public JwtValidatorInterface {
   const std::string audience_;
   const absl::flat_hash_set<std::string> allowed_emails_;
   const absl::flat_hash_set<std::string> allowed_subjects_;
+  const std::chrono::seconds min_jwk_duration_;
 };
 
 }  // namespace google::confidential_match::lookup_server

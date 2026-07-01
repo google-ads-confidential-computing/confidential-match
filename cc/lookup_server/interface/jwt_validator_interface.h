@@ -24,7 +24,6 @@
 #include "cc/core/interface/async_context.h"
 #include "cc/core/interface/service_interface.h"
 #include "cc/public/core/interface/execution_result.h"
-
 #include "protos/lookup_server/backend/data_export_info.pb.h"
 
 namespace google::confidential_match::lookup_server {
@@ -44,6 +43,19 @@ class JwtValidatorInterface {
    */
   virtual scp::core::ExecutionResult Validate(
       absl::string_view jwk_set, absl::string_view token) noexcept = 0;
+
+  /**
+   * @brief Validates that a keyset in JWK format is valid.
+   *
+   * @param jwk_set the keyset in JWK format
+   * @param jwk_duration the minimum duration for which to consider the keyset
+   * valid
+   * @return a SuccessExecutionResult if the keyset is valid, or a
+   * FailureExecutionResult on error
+   */
+  virtual scp::core::ExecutionResult ValidateJwkSet(
+      absl::string_view jwk_set,
+      std::chrono::seconds jwk_duration) noexcept = 0;
 };
 
 }  // namespace google::confidential_match::lookup_server

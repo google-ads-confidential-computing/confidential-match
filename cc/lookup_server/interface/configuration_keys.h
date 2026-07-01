@@ -93,6 +93,18 @@ inline constexpr char kMaxConcurrentStreamedFileReads[] =
 // The authorization cache entry lifetime in seconds.
 inline constexpr char kAuthCacheEntryLifetimeSeconds[] =
     "auth_cache_entry_lifetime_seconds";
+// Configuration key for whether to enable JWK Cache Auth Proxy.
+inline constexpr char kEnableJwkCacheAuthProxy[] =
+    "enable_jwk_cache_auth_proxy";
+// Configuration key for JWK Cache Key Refresh Interval in seconds.
+inline constexpr char kJwkCacheKeyRefreshIntervalSeconds[] =
+    "jwk_cache_key_refresh_interval_seconds";
+// Configuration key for JWK Cache Key Expiration Safety Period in seconds.
+inline constexpr char kJwkCacheKeyExpirationSafetyPeriodSeconds[] =
+    "jwk_cache_key_expiration_safety_period_seconds";
+// Configuration key for JWT Validator Min JWK Duration in seconds.
+inline constexpr char kJwtValidatorMinJwkDurationSeconds[] =
+    "jwt_validator_min_jwk_duration_seconds";
 
 }  // namespace google::confidential_match::lookup_server
 

@@ -100,6 +100,15 @@ struct LookupServerParameters {
   // Configures the authorization cache entry lifetime.
   uint64_t auth_cache_entry_lifetime_seconds = 150;
 
+  // Whether to enable JWK cache authorization proxy.
+  bool enable_jwk_cache_auth_proxy = false;
+  // Key refresh interval in seconds for the JWK cache.
+  uint64_t key_refresh_interval_seconds = 3600;
+  // Key expiration safety period in seconds for the JWK cache.
+  uint64_t key_expiration_safety_period_seconds = 600;
+  // Min JWK duration in seconds for the JWT Validator.
+  uint64_t jwt_validator_min_jwk_duration_seconds = 4200;
+
   // TLS context for HTTP2 Server
   bool http2_server_use_tls = false;
   std::shared_ptr<std::string> http2_server_private_key_file_path;

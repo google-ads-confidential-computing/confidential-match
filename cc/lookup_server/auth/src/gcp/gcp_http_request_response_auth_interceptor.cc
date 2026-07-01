@@ -47,6 +47,8 @@ constexpr absl::string_view kComponentName = "GcpAuthInterceptor";
 ExecutionResult GcpHttpRequestResponseAuthInterceptor::PrepareRequest(
     const AuthorizationMetadata& authorization_metadata,
     HttpRequest& http_request) {
+  SCP_INFO(kComponentName, kZeroUuid,
+           "Fetching JWK set for token verification.");
   http_request.method = HttpMethod::GET;
   http_request.query = std::make_shared<std::string>("");
   return SuccessExecutionResult();

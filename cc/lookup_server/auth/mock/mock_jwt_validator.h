@@ -18,10 +18,9 @@
 #define CC_LOOKUP_SERVER_AUTH_MOCK_MOCK_JWT_VALIDATOR_H_
 
 #include "absl/strings/string_view.h"
+#include "cc/lookup_server/interface/jwt_validator_interface.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "gmock/gmock.h"
-
-#include "cc/lookup_server/interface/jwt_validator_interface.h"
 #include "protos/lookup_server/backend/data_export_info.pb.h"
 
 namespace google::confidential_match::lookup_server {
@@ -30,6 +29,8 @@ class MockJwtValidator : public JwtValidatorInterface {
  public:
   MOCK_METHOD(scp::core::ExecutionResult, Validate,
               (absl::string_view, absl::string_view), (noexcept, override));
+  MOCK_METHOD(scp::core::ExecutionResult, ValidateJwkSet,
+              (absl::string_view, std::chrono::seconds), (noexcept, override));
 };
 
 }  // namespace google::confidential_match::lookup_server

@@ -43,7 +43,9 @@ LocalDependencyFactory::ConstructAuthorizationProxyClient(
     std::shared_ptr<AsyncExecutorInterface> async_executor,
     std::shared_ptr<HttpClientInterface> http_client,
     std::shared_ptr<JwtValidatorInterface> jwt_validator,
-    uint64_t auth_cache_entry_lifetime_seconds) noexcept {
+    uint64_t auth_cache_entry_lifetime_seconds,
+    bool enable_jwk_cache_auth_proxy, uint64_t key_refresh_interval_seconds,
+    uint64_t key_expiration_safety_period_seconds) noexcept {
   return std::make_unique<PassThruAuthorizationProxy>();
 }
 

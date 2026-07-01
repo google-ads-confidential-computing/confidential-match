@@ -15,4 +15,4 @@
 
 # Build and load the image into Docker as
 # bazel/java/com/google/cm/mrp:mrp_app_gcp_image
-bazel run //java/com/google/cm/mrp:mrp_app_gcp_image_load
+bazel run ${CFM_BAZEL_FLAGS} -- //java/com/google/cm/mrp:mrp_app_gcp_image_load

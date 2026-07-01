@@ -21,3 +21,10 @@ def jemalloc():
         sha256 = "1f35888bad9fd331f5a03445bc1bff808a59378be61fef01e9736179d76f2fab",
         url = "https://github.com/jemalloc/jemalloc/archive/refs/tags/5.3.0.zip",
     )
+
+def _jemalloc_impl(ctx):
+    jemalloc()
+
+jemalloc_extension = module_extension(
+    implementation = _jemalloc_impl,
+)

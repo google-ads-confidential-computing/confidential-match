@@ -35,7 +35,7 @@
 #include "cc/core/interface/type_def.h"
 #include "cc/public/core/interface/execution_result_macros.h"
 #include "cc/public/core/interface/execution_result_or_macros.h"
-#include "external/tink_cc/proto/tink.pb.h"
+#include "proto/tink.pb.h"
 
 #include "cc/lookup_server/match_data_loader/src/error_codes.h"
 #include "cc/lookup_server/match_data_storage/src/error_codes.h"

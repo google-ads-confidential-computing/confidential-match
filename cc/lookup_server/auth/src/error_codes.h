@@ -38,6 +38,14 @@ DEFINE_ERROR_CODE(AUTH_JWT_NOT_AUTHORIZED, AUTH, 0x0004,
                   "The email or subject in the token is not authorized.",
                   scp::core::errors::HttpStatusCode::INTERNAL_SERVER_ERROR)
 
+DEFINE_ERROR_CODE(AUTH_INVALID_JWK_DURATION, AUTH, 0x0005,
+                  "The JWK validation failed due to unsafe JWK duration.",
+                  scp::core::errors::HttpStatusCode::INTERNAL_SERVER_ERROR)
+
+DEFINE_ERROR_CODE(AUTH_MISSING_CACHE_CONTROL_MAX_AGE, AUTH, 0x0006,
+                  "Cache-Control max-age header is missing or invalid.",
+                  scp::core::errors::HttpStatusCode::INTERNAL_SERVER_ERROR)
+
 }  // namespace google::confidential_match::lookup_server
 
 #endif  // CC_LOOKUP_SERVER_AUTH_SRC_ERROR_CODES_H_

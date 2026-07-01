@@ -19,6 +19,7 @@
 
 #include "cc/core/authorization_proxy/src/authorization_proxy.h"
 #include "cc/core/authorization_proxy/src/pass_thru_authorization_proxy.h"
+#include "cc/lookup_server/auth/src/gcp/authorization_proxy_with_cached_public_keys.h"
 #include "cc/lookup_server/auth/src/gcp/gcp_http_request_response_auth_interceptor.h"
 #include "cc/lookup_server/interface/configuration_keys.h"
 #include "cc/lookup_server/interface/jwt_validator_interface.h"
@@ -53,7 +54,25 @@ GcpDependencyFactory::ConstructAuthorizationProxyClient(
     std::shared_ptr<AsyncExecutorInterface> async_executor,
     std::shared_ptr<HttpClientInterface> http_client,
     std::shared_ptr<JwtValidatorInterface> jwt_validator,
-    uint64_t auth_cache_entry_lifetime_seconds) noexcept {
+    uint64_t auth_cache_entry_lifetime_seconds,
+    bool enable_jwk_cache_auth_proxy, uint64_t key_refresh_interval_seconds,
+    uint64_t key_expiration_safety_period_seconds) noexcept {
+  if (enable_jwk_cache_auth_proxy) {
+    SCP_INFO(kGcpDependencyProvider, kZeroUuid,
+             "Constructing AuthorizationProxyWithCachedPublicKeys with "
+             "key_refresh_interval_seconds: %lu, "
+             "key_expiration_safety_period_seconds: %lu, "
+             "auth_cache_entry_lifetime_seconds: %lu",
+             key_refresh_interval_seconds, key_expiration_safety_period_seconds,
+             auth_cache_entry_lifetime_seconds);
+
+    return std::make_unique<auth::gcp::AuthorizationProxyWithCachedPublicKeys>(
+        async_executor, http_client, jwt_validator, kAuthServiceEndpoint,
+        std::chrono::seconds(key_refresh_interval_seconds),
+        std::chrono::seconds(key_expiration_safety_period_seconds),
+        std::chrono::seconds(auth_cache_entry_lifetime_seconds));
+  }
+
   SCP_INFO(kGcpDependencyProvider, kZeroUuid,
            "Constructing AuthorizationProxy with "
            "auth_cache_entry_lifetime_seconds: %lu",

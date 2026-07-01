@@ -19,7 +19,6 @@
 #include <utility>
 
 #include "absl/strings/string_view.h"
-
 #include "cc/core/common/auto_expiry_concurrent_map/src/auto_expiry_concurrent_map.h"
 #include "cc/core/common/auto_expiry_concurrent_map/src/error_codes.h"
 #include "cc/core/common/concurrent_map/src/error_codes.h"
@@ -27,11 +26,10 @@
 #include "cc/core/interface/async_context.h"
 #include "cc/core/interface/async_executor_interface.h"
 #include "cc/core/interface/errors.h"
+#include "cc/lookup_server/kms_client/src/error_codes.h"
 #include "cc/public/core/interface/execution_result_macros.h"
 #include "cc/public/core/interface/execution_result_or_macros.h"
 #include "cc/public/cpio/utils/sync_utils/src/sync_utils.h"
-
-#include "cc/lookup_server/kms_client/src/error_codes.h"
 
 namespace google::confidential_match::lookup_server {
 namespace {
@@ -143,7 +141,8 @@ void CachedKmsClient::HandleKmsDecryptionCallback(
   std::string cache_key = GetCacheKey(*output_context.request);
   ExecutionResult cache_result =
       InsertToCache(cache_key, *kms_decrypt_context.response);
-  if (!cache_result.Successful()) {
+  if (!cache_result.Successful() &&
+      cache_result.status_code != KMS_CLIENT_CACHE_ENTRY_ALREADY_EXISTS) {
     SCP_WARNING_CONTEXT(
         kComponentName, kms_decrypt_context,
         absl::StrFormat(

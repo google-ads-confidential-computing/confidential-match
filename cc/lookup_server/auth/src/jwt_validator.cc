@@ -24,6 +24,7 @@
 #include "cc/core/common/global_logger/src/global_logger.h"
 #include "cc/core/common/uuid/src/uuid.h"
 #include "cc/core/interface/errors.h"
+#include "cc/lookup_server/auth/src/error_codes.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "tink/jwt/jwk_set_converter.h"
 #include "tink/jwt/jwt_public_key_verify.h"
@@ -31,8 +32,6 @@
 #include "tink/jwt/jwt_validator.h"
 #include "tink/jwt/verified_jwt.h"
 #include "tink/keyset_handle.h"
-
-#include "cc/lookup_server/auth/src/error_codes.h"
 
 namespace google::confidential_match::lookup_server {
 namespace {
@@ -63,10 +62,10 @@ static constexpr absl::Duration kJwtClockSkew = absl::Minutes(5);
 }  // namespace
 
 scp::core::ExecutionResultOr<std::unique_ptr<JwtValidator>>
-JwtValidator::Create(
-    absl::string_view issuer, absl::string_view audience,
-    const std::vector<std::string>& allowed_emails,
-    const std::vector<std::string>& allowed_subjects) noexcept {
+JwtValidator::Create(absl::string_view issuer, absl::string_view audience,
+                     const std::vector<std::string>& allowed_emails,
+                     const std::vector<std::string>& allowed_subjects,
+                     std::chrono::seconds min_jwk_duration) noexcept {
   // Register the module exactly once when the first object is first constructed
   static const Status register_status = JwtSignatureRegister();
   if (!register_status.ok()) {
@@ -78,8 +77,8 @@ JwtValidator::Create(
     return failure_result;
   }
 
-  return std::unique_ptr<JwtValidator>(
-      new JwtValidator(issuer, audience, allowed_emails, allowed_subjects));
+  return std::unique_ptr<JwtValidator>(new JwtValidator(
+      issuer, audience, allowed_emails, allowed_subjects, min_jwk_duration));
 }
 
 ExecutionResult JwtValidator::Validate(absl::string_view jwk_set,
@@ -129,6 +128,27 @@ ExecutionResult JwtValidator::Validate(absl::string_view jwk_set,
   }
 
   return AuthorizeClaims(*verified_jwt_or);
+}
+
+ExecutionResult JwtValidator::ValidateJwkSet(
+    absl::string_view jwk_set, std::chrono::seconds jwk_duration) noexcept {
+  if (jwk_duration < min_jwk_duration_) {
+    auto result = FailureExecutionResult(AUTH_INVALID_JWK_DURATION);
+    SCP_ERROR(kComponentName, kZeroUuid, result,
+              "JWK validation failed: jwk_duration (%llds) is smaller than "
+              "min_jwk_duration (%llds)",
+              jwk_duration.count(), min_jwk_duration_.count());
+    return result;
+  }
+  StatusOr<std::unique_ptr<KeysetHandle>> keyset_handle_or =
+      JwkSetToPublicKeysetHandle(jwk_set);
+  if (!keyset_handle_or.ok()) {
+    SCP_INFO(kComponentName, kZeroUuid,
+             absl::StrCat("Failed to parse the JWK into a keyset handle: ",
+                          keyset_handle_or.status().ToString()));
+    return FailureExecutionResult(AUTH_INVALID_JWK);
+  }
+  return SuccessExecutionResult();
 }
 
 // Checks whether the subject or email within a verified JWT is authorized to

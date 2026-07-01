@@ -19,11 +19,10 @@
 
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "cc/lookup_server/auth/src/error_codes.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "gtest/gtest.h"
 #include "public/core/test/interface/execution_result_matchers.h"
-
-#include "cc/lookup_server/auth/src/error_codes.h"
 
 namespace google::confidential_match::lookup_server {
 
@@ -367,6 +366,92 @@ TEST(JwtValidatorTest, ValidateIssuedInFutureJwtReturnsFailure) {
       (*auth_validator_or)->Validate(kJwkSet, kIssuedInFutureJwt);
 
   EXPECT_THAT(result, ResultIs(FailureExecutionResult(AUTH_INVALID_JWT)));
+}
+
+TEST(JwtValidatorTest, ValidateJwkSetReturnsSuccessForValidJwkSet) {
+  std::vector<std::string> allowed_emails = {};
+  std::vector<std::string> allowed_subjects = {};
+  ExecutionResultOr<std::unique_ptr<JwtValidator>> auth_validator_or =
+      JwtValidator::Create(kIssuer, kAudience, allowed_emails,
+                           allowed_subjects);
+  EXPECT_SUCCESS(auth_validator_or.result());
+
+  ExecutionResult result =
+      (*auth_validator_or)->ValidateJwkSet(kJwkSet, std::chrono::seconds(5000));
+
+  EXPECT_SUCCESS(result);
+}
+
+TEST(JwtValidatorTest, ValidateJwkSetReturnsFailureForInvalidJwkSetJson) {
+  std::vector<std::string> allowed_emails = {};
+  std::vector<std::string> allowed_subjects = {};
+  ExecutionResultOr<std::unique_ptr<JwtValidator>> auth_validator_or =
+      JwtValidator::Create(kIssuer, kAudience, allowed_emails,
+                           allowed_subjects);
+  EXPECT_SUCCESS(auth_validator_or.result());
+
+  ExecutionResult result =
+      (*auth_validator_or)
+          ->ValidateJwkSet("invalid-garbage", std::chrono::seconds(5000));
+
+  EXPECT_THAT(result, ResultIs(FailureExecutionResult(AUTH_INVALID_JWK)));
+}
+
+TEST(JwtValidatorTest, ValidateJwkSetReturnsFailureForMissingParameters) {
+  std::vector<std::string> allowed_emails = {};
+  std::vector<std::string> allowed_subjects = {};
+  ExecutionResultOr<std::unique_ptr<JwtValidator>> auth_validator_or =
+      JwtValidator::Create(kIssuer, kAudience, allowed_emails,
+                           allowed_subjects);
+  EXPECT_SUCCESS(auth_validator_or.result());
+
+  // Missing public parameters 'e' and 'n'
+  constexpr absl::string_view kIncompleteJwkSet = R"({
+  "keys": [
+    {
+      "kty": "RSA",
+      "use": "sig",
+      "kid": "test",
+      "alg": "RS256"
+    }
+  ]})";
+
+  ExecutionResult result =
+      (*auth_validator_or)
+          ->ValidateJwkSet(kIncompleteJwkSet, std::chrono::seconds(5000));
+
+  EXPECT_THAT(result, ResultIs(FailureExecutionResult(AUTH_INVALID_JWK)));
+}
+
+TEST(JwtValidatorTest, ValidateJwkSetReturnsFailureForInsufficientJwkDuration) {
+  std::vector<std::string> allowed_emails = {};
+  std::vector<std::string> allowed_subjects = {};
+  // min_jwk_duration is 70 min. Let's pass 69 min.
+  ExecutionResultOr<std::unique_ptr<JwtValidator>> auth_validator_or =
+      JwtValidator::Create(kIssuer, kAudience, allowed_emails, allowed_subjects,
+                           std::chrono::minutes(70));
+  EXPECT_SUCCESS(auth_validator_or.result());
+
+  ExecutionResult result =
+      (*auth_validator_or)->ValidateJwkSet(kJwkSet, std::chrono::minutes(69));
+
+  EXPECT_THAT(result,
+              ResultIs(FailureExecutionResult(AUTH_INVALID_JWK_DURATION)));
+}
+
+TEST(JwtValidatorTest, ValidateJwkSetReturnsFailureForNegativeJwkDuration) {
+  std::vector<std::string> allowed_emails = {};
+  std::vector<std::string> allowed_subjects = {};
+  ExecutionResultOr<std::unique_ptr<JwtValidator>> auth_validator_or =
+      JwtValidator::Create(kIssuer, kAudience, allowed_emails,
+                           allowed_subjects);
+  EXPECT_SUCCESS(auth_validator_or.result());
+
+  ExecutionResult result =
+      (*auth_validator_or)->ValidateJwkSet(kJwkSet, std::chrono::seconds(-1));
+
+  EXPECT_THAT(result,
+              ResultIs(FailureExecutionResult(AUTH_INVALID_JWK_DURATION)));
 }
 
 }  // namespace google::confidential_match::lookup_server

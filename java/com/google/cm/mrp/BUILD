@@ -250,11 +250,3 @@ oci_load(
     repo_tags = ["bazel/java/com/google/cm/mrp:mrp_app_gcp_image"],
     tags = ["manual"],
 )
-
-# Legacy target for building tar files directly
-filegroup(
-    name = "mrp_app_gcp_image.tar",
-    srcs = [":mrp_app_gcp_image_load"],
-    output_group = "tarball",
-    tags = ["manual"],
-)

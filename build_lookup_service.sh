@@ -15,4 +15,4 @@
 
 # Build the Lookup Service image and load it as
 # bazel/cc/lookup_server/deploy:lookup_server_gcp_image_48_vcpu
-bazel run --config=gcp-tee-build -- //cc/lookup_server/deploy:lookup_server_gcp_image_48_vcpu_load
+bazel run --config=gcp-tee-build ${CFM_BAZEL_FLAGS} -- //cc/lookup_server/deploy:lookup_server_gcp_image_48_vcpu_load

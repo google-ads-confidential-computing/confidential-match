@@ -17,11 +17,90 @@ module(
     version = "0.0.0",
 )
 
-bazel_dep(name = "protobuf", version = "29.5", repo_name = "com_google_protobuf")
-bazel_dep(name = "abseil-cpp", version = "20250127.0", repo_name = "com_google_absl")
-bazel_dep(name = "rules_python", version = "0.33.2")
-bazel_dep(name = "googletest", version = "1.16.0.bcr.1", repo_name = "com_google_googletest")
+SCP_VERSION = "0.417.0"  # latest as of June 11, 2026
+
+bazel_dep(name = "google_ads_confidential_computing_scp", version = SCP_VERSION, repo_name = "com_google_adm_cloud_scp")
+archive_override(
+    module_name = "google_ads_confidential_computing_scp",
+    integrity = "sha256-9sNq4yy2feFqVtT32zwyskLPVZcHC1LAZPP2xsPDcBk=",
+    strip_prefix = "conf-data-processing-architecture-reference-" + SCP_VERSION,
+    urls = [
+        "https://github.com/google-ads-confidential-computing/conf-data-processing-architecture-reference/archive/v" + SCP_VERSION + ".tar.gz",
+    ],
+)
+
+bazel_dep(name = "rules_cc", version = "0.2.15")
+bazel_dep(name = "rules_java", version = "8.16.1")
+bazel_dep(name = "opentelemetry-cpp", version = "1.24.0", repo_name = "io_opentelemetry_cpp")
+bazel_dep(name = "rules_pkg", version = "1.0.1")
+bazel_dep(name = "aspect_bazel_lib", version = "2.22.5")
+bazel_dep(name = "rules_distroless", version = "0.8.0")
+bazel_dep(name = "grpc", version = "1.80.0", repo_name = "com_github_grpc_grpc")
+bazel_dep(name = "rules_oci", version = "2.2.7")
+bazel_dep(name = "bazel_skylib", version = "1.9.0")
+bazel_dep(name = "rules_jvm_external", version = "6.8")
+bazel_dep(name = "tink_cc", version = "2.4.0")
+bazel_dep(name = "re2", version = "2025-11-05.bcr.1", repo_name = "com_googlesource_code_re2")
+bazel_dep(name = "boringssl", version = "0.20251124.0")
+bazel_dep(name = "onetbb", version = "2021.10.0")
+bazel_dep(name = "googleapis", version = "0.0.0-20260422-20ac242a", repo_name = "com_google_googleapis")
+bazel_dep(name = "rules_foreign_cc", version = "0.15.1")
+bazel_dep(name = "rules_boost", version = "0.0.0", repo_name = "com_github_nelhage_rules_boost")
+
+PROTOBUF_VERSION = "33.1"
+
+bazel_dep(name = "protobuf", version = PROTOBUF_VERSION, repo_name = "com_google_protobuf")
+bazel_dep(name = "abseil-cpp", version = "20250814.2", repo_name = "com_google_absl")
+bazel_dep(name = "rules_python", version = "1.6.3")
+bazel_dep(name = "googletest", version = "1.17.0.bcr.2", repo_name = "com_google_googletest")
 bazel_dep(name = "toolchains_llvm", version = "1.3.0")
+
+#### Patches are not inherited automatically, so we copy these patches from SCP
+single_version_override(
+    module_name = "curl",
+    patch_strip = 1,
+    patches = ["//build_defs/cc/shared:curl_visibility.patch"],
+)
+
+single_version_override(
+    module_name = "google_cloud_cpp",
+    patch_strip = 1,
+    patches = ["//build_defs/cc/shared:google_cloud_cpp_visibility.patch"],
+)
+#### SCP Patches end
+
+archive_override(
+    module_name = "rules_boost",
+    integrity = "sha256-Tz5agJHE0tNpF24jp0Smux7m9bQr6xrxkqYxHMNAKs4=",  # Latest as of June 2026 (commited on Dec 16, 2025)
+    strip_prefix = "rules_boost-d4d306ef48b7dbddf0389e48b90f6eb74ec18a71",
+    urls = ["https://github.com/nelhage/rules_boost/archive/d4d306ef48b7dbddf0389e48b90f6eb74ec18a71.tar.gz"],
+)
+
+boost_deps = use_extension("@com_github_nelhage_rules_boost//:boost/repositories.bzl", "non_module_dependencies")
+use_repo(
+    boost_deps,
+    "boost",
+)
+
+llvm = use_extension("@toolchains_llvm//toolchain/extensions:llvm.bzl", "llvm", dev_dependency = True)
+llvm.toolchain(
+    llvm_version = "19.1.0",
+)
+
+sysroot_ext = use_extension("@com_google_adm_cloud_scp//build_defs/cc:sysroot_ext.bzl", "sysroot_ext")
+use_repo(sysroot_ext, "chromium_sysroot")
+
+llvm.sysroot(
+    name = "llvm_toolchain",
+    label = "@chromium_sysroot//:sysroot",
+    targets = ["linux-x86_64"],
+)
+use_repo(llvm, "llvm_toolchain")
+
+register_toolchains(
+    "@llvm_toolchain//:all",
+    dev_dependency = True,
+)
 
 python = use_extension("@rules_python//python/extensions:python.bzl", "python")
 
@@ -34,3 +113,193 @@ python.toolchain(
 
 # Dev bazel dependencies
 bazel_dep(name = "buildifier_prebuilt", version = "8.5.1.2", dev_dependency = True)
+
+JACKSON_VERSION = "2.21.0"
+
+AUTO_VALUE_VERSION = "1.10.4"
+
+AWS_SDK_VERSION = "2.17.239"
+
+GOOGLE_GAX_VERSION = "2.47.0"
+
+AUTO_SERVICE_VERSION = "1.1.1"
+
+GUICE_VERSION = "5.1.0"
+
+RESILIENCE4J_VERSION = "1.7.1"
+
+SLF4J_VERSION = "2.0.16"
+
+TINK_JAVA_VERSION = "1.18.0"
+
+TINK_GCP_KMS_VERSION = "1.10.0"
+
+maven = use_extension("@rules_jvm_external//:extensions.bzl", "maven")
+
+# Note: When updating dependencies, you must update the lockfile by running:
+# `REPIN=1 bazel run @maven//:pin`
+maven.install(
+    artifacts = [
+        "com.google.protobuf:protobuf-java:4." + PROTOBUF_VERSION,
+        "com.google.protobuf:protobuf-java-util:4." + PROTOBUF_VERSION,
+        "com.google.protobuf:protobuf-javalite:4." + PROTOBUF_VERSION,
+        "com.beust:jcommander:1.81",
+        "com.fasterxml.jackson.core:jackson-annotations:2.21",
+        "com.fasterxml.jackson.core:jackson-core:" + JACKSON_VERSION,
+        "com.fasterxml.jackson.core:jackson-databind:" + JACKSON_VERSION,
+        "com.fasterxml.jackson.datatype:jackson-datatype-guava:" + JACKSON_VERSION,
+        "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:" + JACKSON_VERSION,
+        "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:" + JACKSON_VERSION,
+        "com.google.acai:acai:1.1",
+        "com.google.auto.factory:auto-factory:1.0",
+        "com.google.auto.service:auto-service-annotations:" + AUTO_SERVICE_VERSION,
+        "com.google.auto.service:auto-service:" + AUTO_SERVICE_VERSION,
+        "com.google.auto.value:auto-value-annotations:" + AUTO_VALUE_VERSION,
+        "com.google.auto.value:auto-value:" + AUTO_VALUE_VERSION,
+        "com.google.code.findbugs:jsr305:3.0.2",
+        "com.google.cloud:google-cloud-kms:2.48.0",
+        "com.google.cloud:google-cloud-pubsub:1.132.0",
+        "com.google.cloud:google-cloud-storage:2.41.0",
+        "com.google.cloud:google-cloud-spanner:6.71.0",
+        "com.google.cloud:google-cloud-secretmanager:2.46.0",
+        "com.google.cloud:google-cloud-compute:1.57.0",
+        "com.google.cloud:google-cloudevent-types:0.14.0",
+        "com.google.api.grpc:proto-google-cloud-compute-v1:1.58.0",
+        "com.google.api-client:google-api-client:2.7.0",
+        "com.google.cloud.functions.invoker:java-function-invoker:1.4.3",
+        "com.google.auth:google-auth-library-oauth2-http:1.24.1",
+        "com.google.cloud.functions:functions-framework-api:1.1.0",
+        "commons-logging:commons-logging:1.1.1",
+        "com.google.api:gax:" + GOOGLE_GAX_VERSION,
+        "com.google.http-client:google-http-client:1.42.3",
+        "com.google.http-client:google-http-client-gson:1.42.3",
+        "com.google.cloud:google-cloud-monitoring:3.38.0",
+        "com.google.api.grpc:proto-google-cloud-monitoring-v3:3.4.1",
+        "com.google.api.grpc:proto-google-common-protos:2.27.0",
+        "com.google.guava:guava:30.1-jre",
+        "com.google.guava:guava-testlib:30.1-jre",
+        "com.google.inject.extensions:guice-assistedinject:" + GUICE_VERSION,
+        "com.google.inject:guice:" + GUICE_VERSION,
+        "com.google.inject.extensions:guice-testlib:" + GUICE_VERSION,
+        "com.google.jimfs:jimfs:1.2",
+        "com.google.testparameterinjector:test-parameter-injector:1.1",
+        "com.google.truth.extensions:truth-java8-extension:1.1.2",
+        "com.google.truth.extensions:truth-proto-extension:1.1.2",
+        "com.google.truth:truth:1.1.2",
+        "com.kohlschutter.junixsocket:junixsocket-core:2.10.1",
+        "io.github.resilience4j:resilience4j-core:" + RESILIENCE4J_VERSION,
+        "io.github.resilience4j:resilience4j-retry:" + RESILIENCE4J_VERSION,
+        "io.opentelemetry:opentelemetry-api:1.31.0",
+        "io.opentelemetry:opentelemetry-exporter-otlp:1.31.0",
+        "io.opentelemetry:opentelemetry-sdk:1.31.0",
+        "io.opentelemetry:opentelemetry-sdk-common:1.31.0",
+        "io.opentelemetry:opentelemetry-sdk-metrics:1.31.0",
+        "io.opentelemetry:opentelemetry-sdk-extension-autoconfigure:1.31.0",
+        "com.google.cloud.opentelemetry:exporter-metrics:0.26.0",
+        "com.google.cloud.opentelemetry:detector-resources:0.26.0-alpha",
+        "javax.annotation:javax.annotation-api:1.3.2",
+        "javax.inject:javax.inject:1",
+        "junit:junit:4.12",
+        "org.apache.avro:avro:1.10.2",
+        "org.apache.commons:commons-csv:jar:1.10.0",
+        "org.apache.commons:commons-lang3:3.14.0",
+        "org.apache.commons:commons-math3:3.6.1",
+        "org.apache.httpcomponents:httpcore:4.4.14",
+        "org.apache.httpcomponents:httpclient:4.5.13",
+        "org.apache.httpcomponents.client5:httpclient5:5.3.1",
+        "org.apache.httpcomponents.core5:httpcore5:5.1.4",
+        "org.apache.httpcomponents.core5:httpcore5-h2:5.1.4",
+        "org.apache.logging.log4j:log4j-api:2.19.0",
+        "org.apache.logging.log4j:log4j-core:2.19.0",
+        "org.apache.logging.log4j:log4j-slf4j2-impl:2.19.0",
+        "org.awaitility:awaitility:3.0.0",
+        "org.conscrypt:conscrypt-openjdk-uber:2.5.2",
+        "org.mock-server:mockserver-core:5.15.0",
+        "org.mock-server:mockserver-junit-rule:5.15.0",
+        "org.mock-server:mockserver-client-java:5.15.0",
+        "org.hamcrest:hamcrest-library:1.3",
+        "org.mockito:mockito-core:5.4.0",
+        "org.slf4j:slf4j-api:" + SLF4J_VERSION,
+        "org.slf4j:slf4j-simple:" + SLF4J_VERSION,
+        "org.testcontainers:testcontainers:1.21.4",
+        "org.testcontainers:localstack:1.21.4",
+        "org.testcontainers:mockserver:1.21.4",
+        "software.amazon.awssdk:apache-client:" + AWS_SDK_VERSION,
+        "software.amazon.awssdk:auth:" + AWS_SDK_VERSION,
+        "software.amazon.awssdk:http-client-spi:" + AWS_SDK_VERSION,
+        "software.amazon.awssdk:kms:" + AWS_SDK_VERSION,
+        "software.amazon.awssdk:regions:" + AWS_SDK_VERSION,
+        "software.amazon.awssdk:sdk-core:" + AWS_SDK_VERSION,
+        "software.amazon.awssdk:sts:" + AWS_SDK_VERSION,
+        "software.amazon.awssdk:utils:" + AWS_SDK_VERSION,
+        "com.google.crypto.tink:tink:" + TINK_JAVA_VERSION,
+        "com.google.crypto.tink:tink-gcpkms:" + TINK_GCP_KMS_VERSION,
+    ],
+    lock_file = "//:maven_install.json",
+    repositories = [
+        "https://repo1.maven.org/maven2",
+    ],
+)
+maven.artifact(
+    artifact = "google-api-services-cloudkms",
+    group = "com.google.apis",
+    version = "v1-rev20240808-2.0.0",
+)
+use_repo(maven, "maven")
+
+jemalloc = use_extension("//build_defs/cc/shared:jemalloc.bzl", "jemalloc_extension")
+use_repo(jemalloc, "jemalloc")
+
+oci = use_extension("@rules_oci//oci:extensions.bzl", "oci")
+oci.pull(
+    name = "java_base",
+    digest = "sha256:379b83f022ff660e09976b6680f05dbd4a4e751dc747a122aebd348402f11e4b",
+    image = "gcr.io/distroless/java21-debian12",
+)
+oci.pull(
+    name = "debian12_base",
+    # Most recent amd64 version as of June 25 2026
+    digest = "sha256:8705219e4580f8c36633a84b491d35a66c3e788e81161d6b5f370daa948b9402",
+    image = "marketplace.gcr.io/google/debian12",
+)
+oci.pull(
+    name = "pubsub_emulator",
+    digest = "sha256:e71213061230d222941d4107b92cc2889507a832f076de24b822fc2f7f137f2c",
+    image = "gcr.io/google.com/cloudsdktool/google-cloud-cli",
+)
+oci.pull(
+    name = "spanner_emulator",
+    digest = "sha256:84871f164cfb6f5cc1776671286f7f2006399ddb99bc714d651bce61db427b82",
+    image = "gcr.io/cloud-spanner-emulator/emulator",
+)
+oci.pull(
+    name = "gcs_emulator",
+    digest = "sha256:bfe7af2ecf0c6b1ea0188e938953ec81a49555c4e1ba7d18f43c331723b4d6b0",
+    image = "gcr.io/cloud-devrel-public-resources/storage-testbench",
+)
+use_repo(
+    oci,
+    "debian12_base",
+    "gcs_emulator",
+    "java_base",
+    "oci_crane_toolchains",
+    "pubsub_emulator",
+    "spanner_emulator",
+)
+
+apt = use_extension("@rules_distroless//apt:extensions.bzl", "apt")
+apt.install(
+    name = "lookup_server_apt",
+    lock = "//cc/lookup_server/deploy:lookup_server_apt.lock.json",
+    manifest = "//cc/lookup_server/deploy:lookup_server_apt.yaml",
+)
+apt.install(
+    name = "match_service_apt",
+    lock = "//build_defs/cc/match_service:match_service_apt.lock.json",
+    manifest = "//build_defs/cc/match_service:match_service_apt.yaml",
+)
+use_repo(
+    apt,
+    "lookup_server_apt",
+    "match_service_apt",
+)

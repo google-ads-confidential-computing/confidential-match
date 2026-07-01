@@ -24,8 +24,8 @@
 #include "cc/core/test/utils/proto_test_utils.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "cc/public/core/test/interface/execution_result_matchers.h"
-#include "external/tink_cc/proto/aes_gcm.pb.h"
-#include "external/tink_cc/proto/tink.pb.h"
+#include "proto/aes_gcm.pb.h"
+#include "proto/tink.pb.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
