@@ -106,9 +106,17 @@ constexpr absl::string_view kErrorReasonInvalidScheme = "INVALID_SCHEME";
 constexpr char kMetricNameSpace[] = "gce_instance";
 constexpr uint64_t kMetricWriteDelayMs = 10000;
 constexpr absl::string_view kRequestCountMetricName = "request_count";
-constexpr char kRequestCountMetricLabel[] = "Count";
 constexpr char kRequestErrorMetricLabel[] = "Error";
 constexpr char kRequestInvalidSchemeMetricLabel[] = "InvalidScheme";
+constexpr char kKeyFormatUnspecifiedMetricLabel[] = "UNSPECIFIED";
+constexpr char kKeyFormatHashedMetricLabel[] = "HASHED";
+constexpr char kKeyFormatHashedEncryptedMetricLabel[] = "HASHED_ENCRYPTED";
+constexpr char kKeyFormatHashedEncryptedCoordinatorMetricLabel[] =
+    "HASHED_ENCRYPTED_COORDINATOR_KEY";
+constexpr char kKeyFormatHashedEncryptedAwsWrappedMetricLabel[] =
+    "HASHED_ENCRYPTED_AWS_WRAPPED_KEY";
+constexpr char kKeyFormatHashedEncryptedGcpWrappedMetricLabel[] =
+    "HASHED_ENCRYPTED_GCP_WRAPPED_KEY";
 // Metric measuring latency of requests.
 constexpr absl::string_view kRequestLatencyMetricName = "request_latency";
 // Metric measuring request errors requiring oncall investigation.
@@ -210,6 +218,31 @@ std::shared_ptr<AggregateMetricInterface> CreateAggregateMetric(
       std::move(metric_info), label_list);
 }
 
+std::string GetKeyFormatMetricLabel(const LookupRequest& request) {
+  switch (request.key_format()) {
+    case LookupRequest::KEY_FORMAT_HASHED:
+      return kKeyFormatHashedMetricLabel;
+    case LookupRequest::KEY_FORMAT_HASHED_ENCRYPTED: {
+      if (request.encryption_key_info().has_coordinator_key_info()) {
+        return kKeyFormatHashedEncryptedCoordinatorMetricLabel;
+      }
+      if (request.encryption_key_info().has_wrapped_key_info()) {
+        const auto& wrapped = request.encryption_key_info().wrapped_key_info();
+        if (wrapped.has_aws_wrapped_key_info()) {
+          return kKeyFormatHashedEncryptedAwsWrappedMetricLabel;
+        }
+        if (wrapped.has_gcp_wrapped_key_info()) {
+          return kKeyFormatHashedEncryptedGcpWrappedMetricLabel;
+        }
+      }
+      return kKeyFormatHashedEncryptedMetricLabel;
+    }
+    case LookupRequest::KEY_FORMAT_UNSPECIFIED:
+    default:
+      return kKeyFormatUnspecifiedMetricLabel;
+  }
+}
+
 }  // namespace
 
 ExecutionResult LookupService::Init() noexcept {
@@ -288,7 +321,6 @@ ExecutionResult LookupService::GetHealthcheck(
 
 ExecutionResult LookupService::PostLookup(
     AsyncContext<HttpRequest, HttpResponse>& http_context) noexcept {
-  request_count_metrics_->Increment(kRequestCountMetricLabel);
   const absl::Time request_start_time = absl::Now();
 
   auto request = std::make_shared<LookupRequest>();
@@ -304,6 +336,7 @@ ExecutionResult LookupService::PostLookup(
         JsonBytesBufferToProto(http_context.request->body, request.get()).ok();
   }
   if (!request_parsed_successfully) {
+    request_count_metrics_->Increment(kKeyFormatUnspecifiedMetricLabel);
     request_error_metrics_->Increment(kRequestErrorMetricLabel);
     PutLatencyMetrics(request_start_time);
     ExecutionResult result =
@@ -319,6 +352,7 @@ ExecutionResult LookupService::PostLookup(
     http_context.Finish();
     return SuccessExecutionResult();
   }
+  request_count_metrics_->Increment(GetKeyFormatMetricLabel(*request));
 
   AsyncContext<LookupRequest, LookupResponse> lookup_context;
   lookup_context.request = request;
@@ -450,7 +484,13 @@ void LookupService::OnPostLookupHandlerCallback(
 }
 
 ExecutionResult LookupService::BuildAggregateMetrics() noexcept {
-  std::vector<std::string> count_event_list = {kRequestCountMetricLabel};
+  std::vector<std::string> count_event_list = {
+      kKeyFormatUnspecifiedMetricLabel,
+      kKeyFormatHashedMetricLabel,
+      kKeyFormatHashedEncryptedMetricLabel,
+      kKeyFormatHashedEncryptedCoordinatorMetricLabel,
+      kKeyFormatHashedEncryptedAwsWrappedMetricLabel,
+      kKeyFormatHashedEncryptedGcpWrappedMetricLabel};
   request_count_metrics_ = CreateAggregateMetric(
       metric_instance_factory_, kRequestCountMetricName, count_event_list);
 

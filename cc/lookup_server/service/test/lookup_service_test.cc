@@ -89,26 +89,17 @@ using HashInfo = ::google::confidential_match::lookup_server::proto_api::
 using SerializableDataRecords = ::google::confidential_match::lookup_server::
     proto_api::LookupRequest::SerializableDataRecords;
 
-constexpr char kRequestCountMetricLabel[] = "Count";
 constexpr char kRequestErrorMetricLabel[] = "Error";
 constexpr char kRequestInvalidSchemeMetricLabel[] = "InvalidScheme";
-constexpr absl::string_view kKeyId = "testKeyId";
-constexpr absl::string_view kKeyServiceEndpoint1 =
-    "https://test-privatekeyservice-1.google.com/v1alpha";
-constexpr absl::string_view kKeyServiceEndpoint2 =
-    "https://test-privatekeyservice-2.google.com/v1alpha";
-constexpr absl::string_view kAccountIdentity1 =
-    "test-verified-user@coordinator1.iam.gserviceaccount.com";
-constexpr absl::string_view kAccountIdentity2 =
-    "test-verified-user@coordinator2.iam.gserviceaccount.com";
-constexpr absl::string_view kWipProvider1 =
-    "projects/1/locations/global/workloadIdentityPools/wip/providers/provider";
-constexpr absl::string_view kWipProvider2 =
-    "projects/2/locations/global/workloadIdentityPools/wip/providers/provider";
-constexpr absl::string_view kKeyServiceAudienceUrl1 =
-    "https://test-key-service-audience-url-1.a.run.app";
-constexpr absl::string_view kKeyServiceAudienceUrl2 =
-    "https://test-key-service-audience-url-2.a.run.app";
+constexpr char kKeyFormatHashed[] = "HASHED";
+constexpr char kKeyFormatHashedEncrypted[] = "HASHED_ENCRYPTED";
+constexpr char kKeyFormatHashedEncryptedCoordinator[] =
+    "HASHED_ENCRYPTED_COORDINATOR_KEY";
+constexpr char kKeyFormatHashedEncryptedGcp[] =
+    "HASHED_ENCRYPTED_GCP_WRAPPED_KEY";
+constexpr char kKeyFormatHashedEncryptedAws[] =
+    "HASHED_ENCRYPTED_AWS_WRAPPED_KEY";
+constexpr char kKeyFormatUnspecified[] = "UNSPECIFIED";
 
 class LookupServiceTest : public testing::Test {
  protected:
@@ -271,8 +262,7 @@ TEST_F(LookupServiceTest, PostLookupWithValidRequestNoMatches) {
       .WillOnce(Return(true));
   EXPECT_CALL(*mock_metric_client_, RecordMetric)
       .WillOnce(Return(SuccessExecutionResult()));
-  EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+  EXPECT_CALL(*mock_request_aggregate_metric_, Increment(kKeyFormatHashed))
       .Times(1);
 
   std::atomic<bool> finished = false;
@@ -344,8 +334,7 @@ TEST_F(LookupServiceTest,
       .WillOnce(Return(true));
   EXPECT_CALL(*mock_metric_client_, RecordMetric)
       .WillOnce(Return(SuccessExecutionResult()));
-  EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+  EXPECT_CALL(*mock_request_aggregate_metric_, Increment(kKeyFormatHashed))
       .Times(1);
 
   std::atomic<bool> finished = false;
@@ -417,8 +406,7 @@ TEST_F(LookupServiceTest, PostLookupWithValidRequestSingleMatch) {
       .WillOnce(Return(true));
   EXPECT_CALL(*mock_metric_client_, RecordMetric)
       .WillOnce(Return(SuccessExecutionResult()));
-  EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+  EXPECT_CALL(*mock_request_aggregate_metric_, Increment(kKeyFormatHashed))
       .Times(1);
 
   std::atomic<bool> finished = false;
@@ -518,8 +506,7 @@ TEST_F(LookupServiceTest, PostLookupWithValidRequestMultipleRecords) {
       .WillOnce(Return(true));
   EXPECT_CALL(*mock_metric_client_, RecordMetric)
       .WillOnce(Return(SuccessExecutionResult()));
-  EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+  EXPECT_CALL(*mock_request_aggregate_metric_, Increment(kKeyFormatHashed))
       .Times(1);
 
   std::atomic<bool> finished = false;
@@ -602,8 +589,7 @@ TEST_F(LookupServiceTest, PostLookupWithValidBinaryFormatRequestSingleMatch) {
       .WillOnce(Return(true));
   EXPECT_CALL(*mock_metric_client_, RecordMetric)
       .WillOnce(Return(SuccessExecutionResult()));
-  EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+  EXPECT_CALL(*mock_request_aggregate_metric_, Increment(kKeyFormatHashed))
       .Times(1);
 
   std::atomic<bool> finished = false;
@@ -646,8 +632,7 @@ TEST_F(LookupServiceTest, PostLookupWithInvalidRequest) {
   EXPECT_CALL(*mock_match_data_storage_, Get).Times(0);
   EXPECT_CALL(*mock_metric_client_, RecordMetric)
       .WillOnce(Return(SuccessExecutionResult()));
-  EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+  EXPECT_CALL(*mock_request_aggregate_metric_, Increment(kKeyFormatUnspecified))
       .Times(1);
   EXPECT_CALL(*mock_error_aggregate_metric_,
               Increment(kRequestErrorMetricLabel))
@@ -701,8 +686,7 @@ TEST_F(LookupServiceTest, PostLookupValidRequestWithOutdatedShardingScheme) {
       .WillOnce(Return(false));
   EXPECT_CALL(*mock_metric_client_, RecordMetric)
       .WillOnce(Return(SuccessExecutionResult()));
-  EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+  EXPECT_CALL(*mock_request_aggregate_metric_, Increment(kKeyFormatHashed))
       .Times(1);
   EXPECT_CALL(*mock_error_aggregate_metric_,
               Increment(kRequestErrorMetricLabel))
@@ -767,8 +751,7 @@ TEST_F(LookupServiceTest, PostLookupWithInvalidKeyFormat) {
       .WillOnce(Return(true));
   EXPECT_CALL(*mock_metric_client_, RecordMetric)
       .WillOnce(Return(SuccessExecutionResult()));
-  EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+  EXPECT_CALL(*mock_request_aggregate_metric_, Increment(kKeyFormatUnspecified))
       .Times(1);
   EXPECT_CALL(*mock_error_aggregate_metric_,
               Increment(kRequestErrorMetricLabel))
@@ -819,8 +802,7 @@ TEST_F(LookupServiceTest, PostLookupWithMissingHashTypeReturnsError) {
       .WillOnce(Return(true));
   EXPECT_CALL(*mock_metric_client_, RecordMetric)
       .WillOnce(Return(SuccessExecutionResult()));
-  EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+  EXPECT_CALL(*mock_request_aggregate_metric_, Increment(kKeyFormatHashed))
       .Times(1);
   EXPECT_CALL(*mock_error_aggregate_metric_,
               Increment(kRequestErrorMetricLabel))
@@ -878,8 +860,7 @@ TEST_F(LookupServiceTest, PostLookupMultipleMetricCounterIncrements) {
       .WillRepeatedly(Return(true));
   EXPECT_CALL(*mock_metric_client_, RecordMetric)
       .WillOnce(Return(SuccessExecutionResult()));
-  EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+  EXPECT_CALL(*mock_request_aggregate_metric_, Increment(kKeyFormatHashed))
       .Times(2);
 
   std::atomic<bool> finished = false;
@@ -920,8 +901,7 @@ TEST_F(LookupServiceTest,
   http_context.response = std::make_shared<HttpResponse>();
   EXPECT_CALL(*mock_metric_client_, RecordMetric)
       .WillOnce(Return(SuccessExecutionResult()));
-  EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+  EXPECT_CALL(*mock_request_aggregate_metric_, Increment(kKeyFormatUnspecified))
       .Times(1);
   EXPECT_CALL(*mock_error_aggregate_metric_,
               Increment(kRequestErrorMetricLabel))
@@ -979,8 +959,7 @@ TEST_F(LookupServiceTest,
   EXPECT_CALL(*mock_error_aggregate_metric_,
               Increment(kRequestErrorMetricLabel))
       .Times(1);
-  EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+  EXPECT_CALL(*mock_request_aggregate_metric_, Increment(kKeyFormatUnspecified))
       .Times(1);
 
   std::atomic<bool> finished = false;
@@ -1054,7 +1033,7 @@ TEST_F(LookupServiceTest, PostLookupEncryptedWithValidRequestSingleMatch) {
   EXPECT_CALL(*mock_aead_crypto_client_, GetCryptoKey)
       .WillOnce(std::bind(MockGetCryptoKeyWithResponse, mock_crypto_key, _1));
   EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+              Increment(kKeyFormatHashedEncrypted))
       .Times(1);
 
   std::atomic<bool> finished = false;
@@ -1146,7 +1125,7 @@ TEST_F(LookupServiceTest,
   EXPECT_CALL(*mock_aead_crypto_client_, GetCryptoKey)
       .WillOnce(std::bind(MockGetCryptoKeyWithResponse, mock_crypto_key, _1));
   EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+              Increment(kKeyFormatHashedEncryptedGcp))
       .Times(1);
 
   std::atomic<bool> finished = false;
@@ -1232,7 +1211,7 @@ TEST_F(LookupServiceTest, PostLookupEncryptedWithPartialKeyDecryptionError) {
   EXPECT_CALL(*mock_metric_client_, RecordMetric)
       .WillOnce(Return(SuccessExecutionResult()));
   EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+              Increment(kKeyFormatHashedEncrypted))
       .Times(1);
   auto mock_crypto_key = std::make_shared<MockCryptoKey>();
   EXPECT_CALL(*mock_crypto_key, Decrypt)
@@ -1314,7 +1293,7 @@ TEST_F(LookupServiceTest, PostLookupEncryptedWithMissingKeyInfoReturnsError) {
       .WillOnce(Return(SuccessExecutionResult()));
   EXPECT_CALL(*mock_aead_crypto_client_, GetCryptoKey).Times(0);
   EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+              Increment(kKeyFormatHashedEncrypted))
       .Times(1);
   EXPECT_CALL(*mock_error_aggregate_metric_,
               Increment(kRequestErrorMetricLabel))
@@ -1383,7 +1362,7 @@ TEST_F(LookupServiceTest, PostLookupEncryptedWithInvalidKmsReturnsError) {
                           FailureExecutionResult(CRYPTO_CLIENT_GET_AEAD_ERROR),
                           _1));
   EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+              Increment(kKeyFormatHashedEncrypted))
       .Times(1);
   EXPECT_CALL(*mock_error_aggregate_metric_,
               Increment(kRequestErrorMetricLabel))
@@ -1454,7 +1433,7 @@ TEST_F(LookupServiceTest, PostLookupEncryptedWithInvalidDekReturnsError) {
   EXPECT_CALL(*mock_metric_client_, RecordMetric)
       .WillOnce(Return(SuccessExecutionResult()));
   EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+              Increment(kKeyFormatHashedEncrypted))
       .Times(1);
   EXPECT_CALL(*mock_error_aggregate_metric_,
               Increment(kRequestErrorMetricLabel))
@@ -1529,7 +1508,7 @@ TEST_F(LookupServiceTest, PostLookupEncryptedWithInvalidKeyTypeReturnsError) {
   EXPECT_CALL(*mock_metric_client_, RecordMetric)
       .WillOnce(Return(SuccessExecutionResult()));
   EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+              Increment(kKeyFormatHashedEncrypted))
       .Times(1);
   EXPECT_CALL(*mock_error_aggregate_metric_,
               Increment(kRequestErrorMetricLabel))
@@ -1607,7 +1586,7 @@ TEST_F(LookupServiceTest,
   EXPECT_CALL(*mock_metric_client_, RecordMetric)
       .WillOnce(Return(SuccessExecutionResult()));
   EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+              Increment(kKeyFormatHashedEncryptedCoordinator))
       .Times(1);
   SerializableDataRecords serializable_data_records;
   serializable_data_records.add_data_records()->mutable_lookup_key()->set_key(
@@ -1706,7 +1685,7 @@ TEST_F(LookupServiceTest,
   EXPECT_CALL(*mock_metric_client_, RecordMetric)
       .WillOnce(Return(SuccessExecutionResult()));
   EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+              Increment(kKeyFormatHashedEncryptedCoordinator))
       .Times(1);
   auto mock_crypto_key = std::make_shared<MockCryptoKey>();
   EXPECT_CALL(*mock_crypto_key, Decrypt).WillOnce(Return("+16505551234"));
@@ -1791,7 +1770,7 @@ TEST_F(LookupServiceTest,
   EXPECT_CALL(*mock_metric_client_, RecordMetric)
       .WillOnce(Return(SuccessExecutionResult()));
   EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+              Increment(kKeyFormatHashedEncryptedCoordinator))
       .Times(1);
   EXPECT_CALL(*mock_error_aggregate_metric_,
               Increment(kRequestErrorMetricLabel))
@@ -1874,7 +1853,7 @@ TEST_F(LookupServiceTest,
   EXPECT_CALL(*mock_metric_client_, RecordMetric)
       .WillOnce(Return(SuccessExecutionResult()));
   EXPECT_CALL(*mock_request_aggregate_metric_,
-              Increment(kRequestCountMetricLabel))
+              Increment(kKeyFormatHashedEncryptedCoordinator))
       .Times(1);
   auto mock_crypto_key = std::make_shared<MockCryptoKey>();
   EXPECT_CALL(*mock_crypto_key, Decrypt)
