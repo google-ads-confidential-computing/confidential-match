@@ -1,0 +1,138 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+edition = "2023";
+
+package google.confidential_match.match_service.backend;
+
+import "google/protobuf/descriptor.proto";
+import "google/rpc/code.proto";
+
+// Use a closed enum to allow exhaustive switching over enum values.
+option features.enum_type = CLOSED;
+
+extend google.protobuf.EnumValueOptions {
+  google.rpc.Code backend_rpc_code = 70001;
+}
+
+// Error message containing backend error reason enums. This message provides a
+// namespace for the reason enums to avoid collisions, since the enum values
+// are not prefixed.
+message Error {
+  // Internal backend error reasons attached as payloads to absl::Status to
+  // classify failures. The 'backend_rpc_code' value indicates the canonical
+  // RPC code to use if this error bubbles up to fail the entire request. These
+  // reasons may also be intercepted by tasks to drive field-level (PII) error
+  // reporting instead.
+  enum Reason {
+    // An unknown error occurred.
+    UNKNOWN_ERROR = 0 [(backend_rpc_code) = UNKNOWN];
+
+    // An internal error occurred.
+    INTERNAL_ERROR = 1 [(backend_rpc_code) = INTERNAL];
+
+    // The request was cancelled.
+    CANCELLED = 2 [(backend_rpc_code) = CANCELLED];
+
+    // The resource was not found.
+    NOT_FOUND = 16 [(backend_rpc_code) = NOT_FOUND];
+
+    // The resource already exists.
+    ALREADY_EXISTS = 17 [(backend_rpc_code) = ALREADY_EXISTS];
+
+    // The converter could not parse a field.
+    CONVERTER_PARSE_ERROR = 3 [(backend_rpc_code) = INVALID_ARGUMENT];
+
+    // The match key format is invalid.
+    INVALID_MATCH_KEY_FORMAT = 4 [(backend_rpc_code) = INVALID_ARGUMENT];
+
+    // Error from Orchestrator service.
+    ORCHESTRATOR_SERVICE_ERROR = 5 [(backend_rpc_code) = INTERNAL];
+
+    // Error from Lookup service.
+    LOOKUP_SERVICE_ERROR = 6 [(backend_rpc_code) = INTERNAL];
+
+    // The match key encoding is invalid.
+    INVALID_MATCH_KEY_ENCODING = 7 [(backend_rpc_code) = INVALID_ARGUMENT];
+
+    // The match key field is invalid.
+    INVALID_MATCH_KEY_FIELD = 8 [(backend_rpc_code) = INVALID_ARGUMENT];
+
+    // The data could not be decrypted.
+    DECRYPTION_ERROR = 9 [(backend_rpc_code) = INTERNAL];
+
+    // The data could not be encrypted during internal processing. (e.g., when
+    // encrypting the combined hash of a composite field before sending it to
+    // the Lookup Service).
+    ENCRYPTION_ERROR = 21 [(backend_rpc_code) = INTERNAL];
+
+    // A request with encryption key is missing an encryption key field.
+    MISSING_ENCRYPTION_KEY_FIELD = 10 [(backend_rpc_code) = INVALID_ARGUMENT];
+
+    // General error from the auth token client.
+    AUTH_TOKEN_CLIENT_ERROR = 11 [(backend_rpc_code) = INTERNAL];
+
+    // General error from the Lookup Service shard client.
+    LOOKUP_SERVICE_SHARD_CLIENT_ERROR = 12 [(backend_rpc_code) = INTERNAL];
+
+    // The lookup request could not be serialized to JSON.
+    LOOKUP_REQUEST_SERIALIZATION_ERROR = 13 [(backend_rpc_code) = INTERNAL];
+
+    // The lookup response could not be deserialized from JSON.
+    LOOKUP_RESPONSE_DESERIALIZATION_ERROR = 14 [(backend_rpc_code) = INTERNAL];
+
+    // The orchestrator response could not be deserialized from JSON.
+    ORCHESTRATOR_RESPONSE_DESERIALIZATION_ERROR = 15
+        [(backend_rpc_code) = INTERNAL];
+
+    // General error from the KMS client.
+    KMS_CLIENT_ERROR = 18 [(backend_rpc_code) = INVALID_ARGUMENT];
+
+    // General error from the cached KMS client.
+    CACHED_KMS_CLIENT_ERROR = 19 [(backend_rpc_code) = INTERNAL];
+
+    // The resource is currently being deleted.
+    DELETION_IN_PROGRESS = 20 [(backend_rpc_code) = INTERNAL];
+
+    // The provided data encryption key could not be unwrapped.
+    DEK_DECRYPTION_ERROR = 22 [(backend_rpc_code) = INVALID_ARGUMENT];
+
+    // The provided data encryption key was not valid.
+    INVALID_DEK = 23 [(backend_rpc_code) = INVALID_ARGUMENT];
+
+    // The number of coordinator keys fetched was wrong.
+    WRONG_NUMBER_OF_KEYS = 24 [(backend_rpc_code) = INTERNAL];
+
+    // A value was attempted to be decoded that was not properly base64
+    // encoded.
+    BASE64_DECODING_ERROR = 25 [(backend_rpc_code) = INVALID_ARGUMENT];
+
+    // There was an error fetching a coordinator key.
+    KEY_FETCHING_ERROR = 26 [(backend_rpc_code) = INTERNAL];
+
+    // The customer does not have permission to access the provided key.
+    CUSTOMER_KEY_PERMISSION_DENIED = 27
+        [(backend_rpc_code) = PERMISSION_DENIED];
+
+    // The number of requests to STS in the cloud (to access KMS) exceeded the
+    // customer's quota.
+    CUSTOMER_QUOTA_EXCEEDED = 28 [(backend_rpc_code) = RESOURCE_EXHAUSTED];
+
+    // Error while fetching a wrapped key from the KMS.
+    WRAPPED_KEY_FETCHING_ERROR = 29 [(backend_rpc_code) = INTERNAL];
+
+    // There was an error decoding a value.
+    DECODING_ERROR = 30 [(backend_rpc_code) = INVALID_ARGUMENT];
+  }
+}

@@ -1,0 +1,522 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+edition = "2023";
+
+package google.confidential_match.match_service.api.v1;
+
+// The service for Confidential Match.
+service MatchService {
+  // Handles a match request.
+  rpc Match(MatchRequest) returns (MatchResponse);
+}
+
+// The request payload for a matching operation.
+message MatchRequest {
+  // Identifies the calling application.
+  Application application = 1;
+
+  // A list of data records to be matched.
+  repeated DataRecord data_records = 2;
+
+  // The format of the match key values within the fields.
+  MatchKeyFormat match_key_format = 3;
+
+  // Encoding of the match keys in the request.
+  MatchKeyEncoding key_encoding = 4;
+
+  // Optional: The crypto key used to encrypt the match key data in the request.
+  EncryptionKey encryption_key = 5;
+
+  // Optional: Specifies the associated data fields to fetch and include
+  // alongside the matched records in the response.
+  // The `associated_data` field in matched records response will contain one
+  // key-value pair for each key provided in this list.
+  // Examples of associated data include user IDs, privacy info, etc.
+  repeated AssociatedDataType associated_data_types = 6;
+
+  // Optional: Any arbitrary caller-owned data to be passed through and
+  // returned unchanged in the response.
+  repeated KeyValue metadata = 7;
+}
+
+// Response from matching data records.
+message MatchResponse {
+  // A list of matched data records.
+  //
+  // Each result in the response corresponds to the data record sent in the
+  // request at that index.
+  repeated MatchedDataRecord matched_data_records = 1;
+
+  // A combined list of all server-side matched entries that were found.
+  //
+  // Each index represents a unique server-side match, and the matched keys
+  // in `matched_data_records` contain indices that reference the matched
+  // associated data results in this list.
+  //
+  // Specifying all matched results at the top level is an optimization
+  // to avoid bloat from duplicate server-side matches shared across
+  // multiple matched keys.
+  repeated AssociatedData matched_associated_data = 2;
+
+  // The metadata provided in the input request, returned unchanged.
+  repeated KeyValue metadata = 3;
+}
+
+// A data record represents a logical grouping of match data keys
+// to be matched, such as a user.
+message DataRecord {
+  // A list of match data items to be matched.
+  repeated MatchKey match_keys = 1;
+
+  // Optional: The encryption key to use for this data record.
+  // If specified, this key overrides the request level encryption key.
+  EncryptionKey encryption_key = 2;
+
+  // Optional: Any arbitrary caller-owned data to be passed through and
+  // returned unchanged in the response.
+  repeated KeyValue metadata = 3;
+}
+
+// A match key represents a single piece of match data to be matched.
+message MatchKey {
+  oneof field_info {
+    // Match data consisting of a single standalone component.
+    Field field = 1;
+    // Match data consisting of multiple linked components.
+    CompositeField composite_field = 2;
+    // Future use case:
+    // Match data in compressed form that will be fanned out to
+    // multiple individual fields, such as a GTag.
+    FanOutField fan_out_key_field = 3;
+  }
+
+  // Optional: The encryption key to use for this particular field.
+  // If specified, this key overrides the request level and the data record
+  // level encryption key.
+  EncryptionKey encryption_key = 4;
+
+  // Optional: Any arbitrary caller-owned data to be passed through and
+  // returned unchanged in the response.
+  repeated KeyValue metadata = 5;
+}
+
+// One unit of data that can be matched.
+message Field {
+  // The type of data stored within this field.
+  FieldType type = 1;
+
+  // The data to use for matching.
+  string value = 2;
+}
+
+// One unit of data consisting of multiple components that can be matched.
+message CompositeField {
+  // The type of data stored within this composite field.
+  CompositeFieldType type = 1;
+
+  // The data fields to use for matching.
+  repeated Field values = 2;
+}
+
+// Future use case:
+// Multiple units of data contained within a single record, which will be
+// fanned out to multiple fields in the result.
+message FanOutField {
+  // The type of data stored within this field.
+  FanOutFieldType type = 1;
+
+  // The compressed multi-key data to use for matching.
+  string value = 2;
+}
+
+// Encryption keys used to decrypt match key values.
+message EncryptionKey {
+  oneof key {
+    // A wrapped key that can be decrypted by a KMS.
+    WrappedKey wrapped_key = 1;
+    // A coordinator key to be fetched and decrypted in attested TEE.
+    CoordinatorKey coordinator_key = 2;
+  }
+}
+
+// A wrapped key using Google Cloud KMS.
+message WrappedKey {
+  // The encryption algorithm of the DEK.
+  KeyType key_type = 1;
+
+  // A data encryption key (DEK) which is encrypted by the KEK.
+  string encrypted_dek = 2;
+
+  // The KMS resource identifier for the key encryption key (KEK) protecting
+  // the encrypted DEK.
+  string kek_kms_resource_id = 3;
+
+  // GCP-specific info for keys using GCP KMS.
+  message GcpWrappedKeyInfo {
+    // The workload identity pool (WIP) provider used to access the KEK.
+    string wip_provider = 1;
+  }
+
+  // AWS-specific info for keys using AWS KMS.
+  message AwsWrappedKeyInfo {
+    // The ARN of the role required to send KMS requests.
+    string role_arn = 1;
+    // A list of signatures to send with KMS request.
+    repeated string signatures = 2;
+  }
+
+  // Contains additional platform-specific information for the wrapped key.
+  oneof cloud_wrapped_key_info {
+    // Key information for DEKs encrypted with GCP KMS.
+    GcpWrappedKeyInfo gcp_wrapped_key_info = 4;
+    // Key information for DEKs encrypted with AWS KMS.
+    AwsWrappedKeyInfo aws_wrapped_key_info = 5;
+  }
+}
+
+// A coordinator-managed hybrid encryption key.
+message CoordinatorKey {
+  // The identifier for the key used to encrypt the request.
+  string key_id = 1;
+}
+
+// Represents a key-value pair.
+message KeyValue {
+  // The key associated with the key-value pair.
+  string key = 1;
+  // The value associated with the key-value pair.
+  oneof value {
+    string string_value = 2;
+    int64 int_value = 3;
+    double double_value = 4;
+    bool bool_value = 5;
+    bytes bytes_value = 6;
+  }
+}
+
+// The result for a single data record lookup.
+message MatchedDataRecord {
+  // The keys that were matched.
+  //
+  // Each key in the matched record corresponds to the key sent in the
+  // original request record at that index.
+  repeated MatchedKey matched_keys = 1;
+
+  // The metadata provided in the input data record, returned unchanged.
+  repeated KeyValue metadata = 2;
+
+  // Future field:
+  // Contains optional information from the matching process which are populated
+  // at the data record level.
+  //
+  // This can include things like the selected highest-ranked Google user ID
+  // found amongst all matched keys in the data record, for example.
+  DataRecordAssociatedData data_record_associated_data = 3;
+}
+
+// Represents a matched key that corresponds with the MatchKey proto sent in
+// the request at the same index.
+message MatchedKey {
+  oneof field_info {
+    // Match data consisting of a single standalone component.
+    MatchedField field = 1;
+    // Match data consisting of multiple linked components.
+    MatchedCompositeField composite_field = 2;
+    // Match data in compressed form that will be fanned out to
+    // multiple individual fields.
+    MatchedFanOutField fan_out_key_field = 3;
+  }
+
+  // The metadata provided in the input request, returned unchanged.
+  repeated KeyValue metadata = 4;
+}
+
+// Represents the match results for a MatchField.
+message MatchedField {
+  // Indicates whether the match operation was successful, and if so, whether
+  // matches were found.
+  // If failed, error_reason is populated with the failure reason.
+  Status status = 1;
+
+  // Optional: Describes any errors that occurred during matching.
+  // Only set when status == FAILED.
+  ErrorReason error_reason = 2;
+
+  // Contains information related to the field that was matched.
+  MatchedFieldInfo matched_field_info = 3;
+
+  // Metadata describing each match that this field matched against in
+  // the server's ID space.
+  // Each index refers to a record in `MatchResponse.matched_associated_data`.
+  //
+  // This can be empty if there were no matches or if no associated data was
+  // requested.
+  repeated int64 matched_associated_data_indices = 5;
+}
+
+// Represents the match results for a CompositeField.
+message MatchedCompositeField {
+  // Indicates whether the match operation was successful, and if so, whether
+  // matches were found.
+  // If failed, error_reason is populated with the failure reason.
+  Status status = 1;
+
+  // Optional: Describes any errors that occurred during matching.
+  // Only set when status == FAILED.
+  ErrorReason error_reason = 2;
+
+  // Contains information related to each field that was matched.
+  // Each item corresponds to the Field in the request at that index.
+  repeated MatchedFieldInfo matched_field_info = 3;
+
+  // Metadata describing each match that this field matched against in
+  // the server's ID space.
+  // Each index refers to a record in `MatchResponse.matched_associated_data`.
+  //
+  // This can be empty if there were no matches or if no associated data was
+  // requested.
+  repeated int64 matched_associated_data_indices = 4;
+}
+
+// Represents the match results for a FanOutField.
+message MatchedFanOutField {
+  // Indicates whether the match operation was successful, and if so, whether
+  // matches were found.
+  // If failed, error_reason is populated with the failure reason.
+  Status status = 1;
+
+  // Optional: Describes any errors that occurred during matching.
+  // Only set when status == FAILED.
+  ErrorReason error_reason = 2;
+
+  // Contains match results for each of the fanned out keys contained in the
+  // original request field.
+  repeated FannedOutMatchedKey fanned_out_keys = 3;
+}
+
+// Represents a matched key that was fanned out from a fan-out field in the
+// request.
+message FannedOutMatchedKey {
+  oneof field_info {
+    // Match data consisting of a single standalone component.
+    MatchedField field = 1;
+    // Match data consisting of multiple linked components.
+    MatchedCompositeField composite_field = 2;
+  }
+}
+
+// Contains information about the field that was matched.
+message MatchedFieldInfo {
+  // The type of the matched field.
+  FieldType field_type = 1;
+
+  // The decrypted match key provided in the request, when it was provided in
+  // encrypted form. If the field was already sent without encryption,
+  // this will be populated as-is when there is a match.
+  // However, if there is no match, this field is left empty for redaction
+  // whether it was originally encrypted or not.
+  string field_value = 2;
+
+  // Optional: Metadata only provided for fanned-out fields of type GTag.
+  message GTagMetadata {
+    // The index of the PII element within the GTag.
+    int64 index = 1;
+    // Optional: The error code within the GTag field, if any.
+    string error_code = 2;
+  }
+  GTagMetadata gtag_metadata = 3;
+}
+
+// Represents data associated with the matched record.
+message AssociatedData {
+  // The first-party owned identifier (ie. Gaia ID)
+  FirstPartyIdentifier first_party_identifier = 1;
+}
+
+// The first-party owned identifier (ie. Gaia ID)
+message FirstPartyIdentifier {
+  string id = 1;
+}
+
+// Represents data associated with the matched field aggregated at the data
+// record level.
+message DataRecordAssociatedData {
+  // The best selected first-party identifier out of all of the available
+  // matches for the data record.
+  string selected_first_party_identifier = 1;
+}
+
+// Identifiers for the callers of Confidential Match.
+enum Application {
+  // The default value of Application. Should not be used.
+  APPLICATION_UNSPECIFIED = 0;
+  // Identifier for ECL.
+  APPLICATION_ECL = 1;
+  // Identifier for Online EC.
+  APPLICATION_ONLINE_EC = 2;
+  // Identifier for Voyager.
+  APPLICATION_VOYAGER = 3;
+}
+
+enum FieldType {
+  // The default value of FieldType.
+  FIELD_TYPE_UNSPECIFIED = 0;
+  // Indicates an email.
+  FIELD_TYPE_EMAIL = 1;
+  // Indicates a phone.
+  FIELD_TYPE_PHONE = 2;
+  // Indicates a first name.
+  FIELD_TYPE_FIRST_NAME = 3;
+  // Indicates a last (family) name.
+  FIELD_TYPE_LAST_NAME = 4;
+  // Indicates a country code.
+  FIELD_TYPE_COUNTRY_CODE = 5;
+  // Indicates a postal code.
+  FIELD_TYPE_ZIP_CODE = 6;
+}
+
+enum CompositeFieldType {
+  // The default value of CompositeFieldType.
+  COMPOSITE_FIELD_TYPE_UNSPECIFIED = 0;
+  // Indicates an address, which consists of a first name, last name,
+  // country code, and zip code.
+  COMPOSITE_FIELD_TYPE_ADDRESS = 1;
+}
+
+enum FanOutFieldType {
+  // The default value of FanOutFieldType.
+  FAN_OUT_FIELD_TYPE_UNSPECIFIED = 0;
+  // Indicates a GTag.
+  FAN_OUT_FIELD_TYPE_GTAG = 1;
+  // Indicates an encrypted GTag.
+  FAN_OUT_FIELD_TYPE_ENCRYPTED_GTAG = 2;
+}
+
+// The format of all lookup keys in the request.
+enum MatchKeyFormat {
+  // The default value for MatchKeyFormat. Should not be used.
+  MATCH_KEY_FORMAT_UNSPECIFIED = 0;
+
+  // The key is hashed and encoded.
+  MATCH_KEY_FORMAT_HASHED = 1;
+
+  // The key is hashed, encoded, then encrypted, then encoded.
+  MATCH_KEY_FORMAT_HASHED_ENCRYPTED = 2;
+}
+
+// Encoding of the match key values.
+// For hashed encrypted payloads, this indicates the outermost encoding of the
+// encrypted bytes. The decrypted contents of these bytes should contain a
+// base-64 encoded hash.
+enum MatchKeyEncoding {
+  // The default value of MatchKeyEncoding. Should not be used.
+  MATCH_KEY_ENCODING_UNSPECIFIED = 0;
+
+  // Indicates base-64 (RFC 4648 section 4) encoding.
+  MATCH_KEY_ENCODING_BASE64 = 1;
+
+  // Indicates "web-safe" base-64 (RFC 4648 section 5) encoding.
+  MATCH_KEY_ENCODING_BASE64_WEB_SAFE = 2;
+
+  // Indicates hexadecimal (base-16) encoding.
+  MATCH_KEY_ENCODING_HEX = 3;
+}
+
+// The type of the encryption key.
+enum KeyType {
+  // The default key type. Should not be used.
+  KEY_TYPE_UNSPECIFIED = 0;
+
+  // ChaCha20-Poly1305 algorithm.
+  KEY_TYPE_XCHACHA20_POLY1305 = 1;
+}
+
+// The types of associated data which can be included in a match response.
+enum AssociatedDataType {
+  // The default value for AssociatedDataType. Should not be used.
+  ASSOCIATED_DATA_TYPE_UNSPECIFIED = 0;
+
+  // Type for an encrypted Google user identifier (ie. Gaia).
+  ASSOCIATED_DATA_TYPE_FIRST_PARTY_IDENTIFIER = 1;
+
+  // Type for privacy information tied to the record.
+  ASSOCIATED_DATA_TYPE_PRIVACY_INFO = 2;
+}
+
+enum Status {
+  // The default value for a status. Should not be used.
+  STATUS_UNSPECIFIED = 0;
+
+  // The request was successful and one or more matches were found.
+  STATUS_SUCCESS_MATCHED = 1;
+
+  // The request was successful but no matches were found.
+  STATUS_SUCCESS_UNMATCHED = 2;
+
+  // The request failed due to an error. Error reason is specified in
+  // error_reason.
+  STATUS_FAILED = 3;
+}
+
+enum ErrorReason {
+  // An unknown error occurred.
+  ERROR_REASON_UNKNOWN = 0;
+
+  // An internal error occurred.
+  ERROR_REASON_INTERNAL_ERROR = 1;
+
+  // The encrypted field could not be decrypted.
+  ERROR_REASON_DECRYPTION_ERROR = 2;
+
+  // The KMS referenced by the KEK could not decrypt the DEK.
+  ERROR_REASON_DEK_DECRYPTION_ERROR = 3;
+
+  // The DEK could not be decrypted because it was invalid.
+  ERROR_REASON_INVALID_DEK = 4;
+
+  // The number of coordinator keys fetched was wrong.
+  ERROR_REASON_WRONG_NUMBER_OF_KEYS = 5;
+
+  // A value was attempted to be decoded that was not properly base64 encoded.
+  ERROR_REASON_BASE64_DECODING_ERROR = 6;
+
+  // There was an error fetching a coordinator key.
+  ERROR_REASON_KEY_FETCHING_ERROR = 7;
+
+  // The match key field or composite field is invalid.
+  ERROR_REASON_INVALID_MATCH_KEY_FIELD = 8;
+
+  // The customer does not have permission to access the provided key.
+  ERROR_REASON_CUSTOMER_KEY_PERMISSION_DENIED = 9;
+
+  // The number of requests to STS in the cloud (to access KMS) exceeded the
+  // customer's quota.
+  ERROR_REASON_CUSTOMER_QUOTA_EXCEEDED = 10;
+
+  // Error while fetching a wrapped key from the KMS.
+  ERROR_REASON_WRAPPED_KEY_FETCHING_ERROR = 11;
+
+  // The Lookup Service encountered a crypto error (e.g. KMS
+  // decryption failure).
+  ERROR_REASON_LOOKUP_SERVICE_CRYPTO_ERROR = 12;
+
+  // The field could not be encrypted. This can occur, for example, when
+  // encrypting the combined hash of a composite field before sending it to the
+  // Lookup Service fails.
+  ERROR_REASON_ENCRYPTION_ERROR = 13;
+
+  // There was an error decoding a value.
+  ERROR_REASON_DECODING_ERROR = 14;
+}

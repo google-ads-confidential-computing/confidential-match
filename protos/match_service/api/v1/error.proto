@@ -1,0 +1,144 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+edition = "2023";
+
+package google.confidential_match.match_service.api.v1;
+
+import "google/protobuf/descriptor.proto";
+import "google/rpc/code.proto";
+
+extend google.protobuf.EnumValueOptions {
+  google.rpc.Code external_rpc_code = 60001;
+  string external_message = 60002;
+}
+
+// ExternalError message containing external error reason enums. This message
+// provides a namespace for the reason enums to avoid collisions, since the enum
+// values are not prefixed.
+message ExternalError {
+  // Request-level external error reasons. The `external_rpc_code` and
+  // `external_message` values indicate the canonical error code and the
+  // default message to be returned with this error type.
+  enum Reason {
+    UNKNOWN_ERROR = 0 [
+      (external_rpc_code) = UNKNOWN,
+      (external_message) = "An unknown error occurred."
+    ];
+
+    INTERNAL_ERROR = 1 [
+      (external_rpc_code) = INTERNAL,
+      (external_message) = "An internal error occurred."
+    ];
+
+    CANCELLED = 2 [
+      (external_rpc_code) = CANCELLED,
+      (external_message) = "The request was cancelled."
+    ];
+
+    SERVICE_UNAVAILABLE = 3 [
+      (external_rpc_code) = UNAVAILABLE,
+      (external_message) = "The service is currently unavailable."
+    ];
+
+    NOT_FOUND = 10 [
+      (external_rpc_code) = NOT_FOUND,
+      (external_message) = "The resource was not found."
+    ];
+
+    ALREADY_EXISTS = 11 [
+      (external_rpc_code) = ALREADY_EXISTS,
+      (external_message) = "The resource already exists."
+    ];
+
+    SERVER_DEADLINE_EXCEEDED = 4 [
+      (external_rpc_code) = DEADLINE_EXCEEDED,
+      (external_message) =
+          "Server deadline exceeded while processing the request."
+    ];
+
+    INVALID_MATCH_KEY_FORMAT = 5 [
+      (external_rpc_code) = INVALID_ARGUMENT,
+      (external_message) = "An invalid match key format was provided."
+    ];
+
+    INVALID_MATCH_KEY_ENCODING = 6 [
+      (external_rpc_code) = INVALID_ARGUMENT,
+      (external_message) = "An invalid match key encoding was provided."
+    ];
+
+    INVALID_MATCH_KEY_FIELD = 7 [
+      (external_rpc_code) = INVALID_ARGUMENT,
+      (external_message) = "An invalid field within a MatchKey was provided."
+    ];
+
+    DECRYPTION_ERROR = 8 [
+      (external_rpc_code) = INVALID_ARGUMENT,
+      (external_message) = "The provided ciphertext could not be decrypted."
+    ];
+
+    ENCRYPTION_ERROR = 12 [
+      (external_rpc_code) = INVALID_ARGUMENT,
+      (external_message) = "The provided plaintext could not be encrypted."
+    ];
+
+    MISSING_ENCRYPTION_KEY_FIELD = 9 [
+      (external_rpc_code) = INVALID_ARGUMENT,
+      (external_message) =
+          "The request contains an encryption key definition but none are actually provided."
+    ];
+
+    DEK_DECRYPTION_ERROR = 13 [
+      (external_rpc_code) = INVALID_ARGUMENT,
+      (external_message) =
+          "An error occurred while unwrapping the data encryption key."
+    ];
+
+    INVALID_DEK = 14 [
+      (external_rpc_code) = INVALID_ARGUMENT,
+      (external_message) = "The provided data encryption key is invalid."
+    ];
+
+    BASE64_DECODING_ERROR = 17 [
+      (external_rpc_code) = INVALID_ARGUMENT,
+      (external_message) = "A base64 decoding error occurred."
+    ];
+
+    KEY_FETCHING_ERROR = 18 [
+      (external_rpc_code) = INTERNAL,
+      (external_message) = "An error occurred while fetching a coordinator key."
+    ];
+
+    CUSTOMER_QUOTA_EXCEEDED = 19 [
+      (external_rpc_code) = RESOURCE_EXHAUSTED,
+      (external_message) = "The customer quota has been exceeded when calling STS."
+    ];
+
+    CUSTOMER_KEY_PERMISSION_DENIED = 20 [
+      (external_rpc_code) = PERMISSION_DENIED,
+      (external_message) =
+          "The customer does not have permission to use the encryption key."
+    ];
+
+    WRAPPED_KEY_FETCHING_ERROR = 21 [
+      (external_rpc_code) = INTERNAL,
+      (external_message) = "An error occurred while fetching a wrapped key from KMS."
+    ];
+
+    DECODING_ERROR = 22 [
+      (external_rpc_code) = INVALID_ARGUMENT,
+      (external_message) = "A decoding error occurred."
+    ];
+  }
+}

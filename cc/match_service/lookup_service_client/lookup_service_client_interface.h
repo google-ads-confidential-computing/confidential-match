@@ -1,0 +1,42 @@
+// Copyright 2025 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#ifndef CC_MATCH_SERVICE_LOOKUP_SERVICE_CLIENT_LOOKUP_SERVICE_CLIENT_INTERFACE_H_  // NOLINT(whitespace/line_length)
+#define CC_MATCH_SERVICE_LOOKUP_SERVICE_CLIENT_LOOKUP_SERVICE_CLIENT_INTERFACE_H_  // NOLINT(whitespace/line_length)
+
+#include "absl/status/status.h"
+#include "cc/core/async/async_context.h"
+#include "protos/match_service/backend/lookup.pb.h"
+
+namespace google::confidential_match::match_service {
+
+// Interface for the client that communicates with Lookup Service.
+class LookupServiceClientInterface {
+ public:
+  virtual ~LookupServiceClientInterface() = default;
+
+  virtual absl::Status Init() noexcept = 0;
+  virtual absl::Status Run() noexcept = 0;
+  virtual absl::Status Stop() noexcept = 0;
+
+  // Sends a LookupServiceRequest to the lookup service asynchronously.
+  virtual void Lookup(AsyncContext<backend::LookupServiceRequest,
+                                   backend::LookupServiceResponse>&
+                          lookup_service_context) noexcept = 0;
+};
+
+}  // namespace google::confidential_match::match_service
+
+// NOLINTNEXTLINE(whitespace/line_length)
+#endif  // CC_MATCH_SERVICE_LOOKUP_SERVICE_CLIENT_LOOKUP_SERVICE_CLIENT_INTERFACE_H_

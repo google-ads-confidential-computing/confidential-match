@@ -1,0 +1,45 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+edition = "2023";
+
+package google.confidential_match.match_service.backend;
+
+import "google/protobuf/duration.proto";
+import "cc/public/cpio/utils/key_fetching/proto/encryption_key_prefetch_config.proto";
+
+// Next ID: 17
+message KeyFetcherOptions {
+    bool prefetch_keys = 1 [default = false];
+    bool prefetch_retry = 2 [default = false];
+    uint64 max_prefetch_wait_time_millis = 3 [default = 10000];
+    // Default: 1209600s (14 days)
+    google.protobuf.Duration prefetch_keys_max_age = 4;
+    // Default: 1209600s (14 days)
+    google.protobuf.Duration key_cache_lifetime = 5;
+    // Default: 300s (5 minutes)
+    google.protobuf.Duration fetching_failure_cache_lifetime = 6;
+    bool enable_key_fetching_metrics = 7 [default = true];
+    bool enable_active_keys_api_for_encryption_keys = 8 [default = false];
+    // Default: 86400s (1 day)
+    google.protobuf.Duration auto_refresh_time_duration = 9;
+    bool enable_on_demand_fetching_for_hmac_key = 10 [default = false];
+    bool enable_on_demand_fetching_lock_for_encryption_key = 11 [default = false];
+    // Default: 2000ms (2 seconds)
+    google.protobuf.Duration on_demand_fetching_waiting_timeout = 12;
+    bool use_read_lock_for_cache_read = 13 [default = false];
+    uint64 auto_refresh_key_cache_valid_in_days = 14 [default = 1];
+    google.cmrt.sdk.v1.EncryptionKeyPrefetchConfig encryption_key_prefetch_config = 15;
+    bool enable_key_selection_timestamp_validation = 16 [default = false];
+}

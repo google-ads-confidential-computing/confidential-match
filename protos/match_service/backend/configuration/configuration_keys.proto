@@ -1,0 +1,35 @@
+// Copyright 2026 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+edition = "2023";
+
+package google.confidential_match.match_service.backend;
+
+// Configuration keys for providing flags to the server.
+// Next ID: 4
+enum ConfigurationKeys {
+  CONFIGURATION_KEYS_UNSPECIFIED = 0;
+  // A textproto of PrivateKeyEndpoints.
+  CONFIGURATION_KEYS_PRIVATE_KEY_ENDPOINTS = 1;
+  // A textproto of KeyFetcherOptions.
+  CONFIGURATION_KEYS_KEY_FETCHER_OPTIONS = 2;
+  // Lifetime of the auth token cache entry in seconds.
+  CONFIGURATION_KEYS_AUTH_TOKEN_CACHE_ENTRY_LIFETIME_SECONDS = 3;
+  // A boolean to disable service account email retrieval.
+  CONFIGURATION_KEYS_DISABLE_SERVICE_ACCOUNT_EMAIL_RETRIEVAL = 4;
+  // The service account email.
+  CONFIGURATION_KEYS_SERVICE_ACCOUNT_EMAIL = 5;
+  // A boolean to enable background refresh for CachedAuthTokenClient.
+  CONFIGURATION_KEYS_ENABLE_BACKGROUND_AUTH_TOKEN_REFRESH = 6;
+}
