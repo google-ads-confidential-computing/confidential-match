@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-load("@rules_cc//cc:defs.bzl", "cc_library")
+load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
 
 package(default_visibility = ["//cc/match_service:__subpackages__"])
 
@@ -23,10 +23,25 @@ cc_library(
     deps = [
         "//cc/core/async",
         "//cc/core/logger",
+        "//cc/external:absl_log",
         "//cc/external:absl_strings",
         "//cc/external:scp_core_errors_lib",
         "//cc/external:scp_core_execution_result",
         "//cc/external:scp_cpio_metric_client_interface",
         "//cc/external:scp_cpio_metric_proto",
+    ],
+)
+
+cc_test(
+    name = "metrics_util_test",
+    size = "small",
+    srcs = ["metrics_util_test.cc"],
+    deps = [
+        ":metrics_util",
+        "//cc/external:absl_log_scoped_mock_log",
+        "//cc/external:absl_time",
+        "//cc/external:google_gtest_main",
+        "//cc/external:scp_core_execution_result",
+        "//cc/external:scp_cpio_metric_client_mock",
     ],
 )

@@ -303,3 +303,15 @@ use_repo(
     "lookup_server_apt",
     "match_service_apt",
 )
+
+http_archive = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
+
+http_archive(
+    name = "terraform",
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+exports_files(["terraform"])
+""",
+    sha256 = "0566a24f5332098b15716ebc394be503f4094acba5ba529bf5eb0698ed5e2a90",
+    url = "https://releases.hashicorp.com/terraform/1.10.5/terraform_1.10.5_linux_amd64.zip",
+)

@@ -49,6 +49,7 @@
 #include "cc/match_service/kms_client/kms_client.h"
 #include "cc/match_service/lookup_service_client/lookup_service_client.h"
 #include "cc/match_service/lookup_service_shard_client/lookup_service_shard_client.h"
+#include "cc/match_service/metrics/metrics_util.h"
 #include "cc/match_service/orchestrator_client/cached_orchestrator_client.h"
 #include "cc/match_service/orchestrator_client/orchestrator_client.h"
 #include "cc/match_service/service/match_service.h"
@@ -517,7 +518,7 @@ absl::Status MatchServer::SetConfigFromParameters() noexcept {
 
   LOG(INFO) << "EnableBackgroundAuthTokenRefresh: "
             << (config_.enable_background_auth_token_refresh ? "true"
-                                                            : "false");
+                                                             : "false");
 
   return absl::OkStatus();
 }
@@ -578,8 +579,7 @@ absl::Status MatchServer::CreateComponents() noexcept {
   cached_auth_token_client_ = std::make_unique<CachedAuthTokenClient>(
       cpu_async_executor_, auth_token_client_,
       config_.auth_token_cache_entry_lifetime_seconds,
-      config_.orchestrator_host_address,
-      config_.lookup_service_auth_audience,
+      config_.orchestrator_host_address, config_.lookup_service_auth_audience,
       config_.enable_background_auth_token_refresh);
   orchestrator_client_ = std::make_shared<OrchestratorClient>(
       cached_auth_token_client_.get(), http2_client_.get(),
@@ -667,6 +667,10 @@ void MatchServer::RunGrpcServer() noexcept {
   builder.AddListeningPort(healthcheck_address,
                            grpc::InsecureServerCredentials());
   grpc_server_ = builder.BuildAndStart();
+  absl::Duration startup_duration = absl::Now() - startup_start_time_;
+  metrics::PutMetric(
+      /*logger=*/nullptr, metric_client_.get(), config_.metric_namespace,
+      metrics::CreateServerStartupLatencyMetric(startup_duration));
   LOG(INFO) << "Server listening on ALTS port " << server_address;
   LOG(INFO) << "Healthcheck service also listening on unauthenticated port "
             << healthcheck_address;
@@ -676,6 +680,8 @@ void MatchServer::RunGrpcServer() noexcept {
 }
 
 absl::Status MatchServer::Init() noexcept {
+  startup_start_time_ = absl::Now();
+
   RETURN_IF_ERROR(SetConfiguration());
   RETURN_IF_ERROR(CreateComponents());
 
@@ -718,30 +724,44 @@ absl::Status MatchServer::Run() noexcept {
     return absl::OkStatus();
   }
   LOG(INFO) << "Running Match Server components...";
-  if (metric_client_ != nullptr) {
-    RETURN_IF_ERROR(RunScpService(*metric_client_, kMetricClientName));
+
+  auto run_components = [this]() noexcept -> absl::Status {
+    if (metric_client_ != nullptr) {
+      RETURN_IF_ERROR(RunScpService(*metric_client_, kMetricClientName));
+    }
+    RETURN_IF_ERROR(RunScpService(*cpu_async_executor_, kCpuAsyncExecutorName));
+    RETURN_IF_ERROR(RunScpService(*io_async_executor_, kIoAsyncExecutorName));
+    RETURN_IF_ERROR(RunScpService(*match_service_async_executor_,
+                                  kMatchServiceAsyncExecutorName));
+    RETURN_IF_ERROR(RunScpService(*http1_client_, kHttp1ClientServiceName));
+    RETURN_IF_ERROR(RunScpService(*http2_client_, kHttp2ClientServiceName));
+    RETURN_IF_ERROR(
+        RunScpService(*private_key_client_, kPrivateKeyClientServiceName));
+    RETURN_IF_ERROR(
+        RunScpService(*key_fetcher_, kOndemandKeyFetcherServiceName));
+    RETURN_IF_ERROR(gcp_kms_client_->Run());
+    RETURN_IF_ERROR(cached_gcp_kms_client_->Run());
+    RETURN_IF_ERROR(aws_kms_client_->Run());
+    RETURN_IF_ERROR(cached_aws_kms_client_->Run());
+    RETURN_IF_ERROR(aead_crypto_client_->Run());
+    RETURN_IF_ERROR(hybrid_crypto_client_->Run());
+    RETURN_IF_ERROR(auth_token_client_->Run());
+    RETURN_IF_ERROR(cached_auth_token_client_->Run());
+    RETURN_IF_ERROR(orchestrator_client_->Run());
+    RETURN_IF_ERROR(cached_orchestrator_client_->Run());
+    RETURN_IF_ERROR(lookup_service_shard_client_->Run());
+    RETURN_IF_ERROR(lookup_service_client_->Run());
+    return absl::OkStatus();
+  };
+
+  absl::Status status = run_components();
+  if (!status.ok()) {
+    metrics::PutMetric(
+        /*logger=*/nullptr, metric_client_.get(), config_.metric_namespace,
+        metrics::CreateServerStartupErrorCountMetric());
+    return status;
   }
-  RETURN_IF_ERROR(RunScpService(*cpu_async_executor_, kCpuAsyncExecutorName));
-  RETURN_IF_ERROR(RunScpService(*io_async_executor_, kIoAsyncExecutorName));
-  RETURN_IF_ERROR(RunScpService(*match_service_async_executor_,
-                                kMatchServiceAsyncExecutorName));
-  RETURN_IF_ERROR(RunScpService(*http1_client_, kHttp1ClientServiceName));
-  RETURN_IF_ERROR(RunScpService(*http2_client_, kHttp2ClientServiceName));
-  RETURN_IF_ERROR(
-      RunScpService(*private_key_client_, kPrivateKeyClientServiceName));
-  RETURN_IF_ERROR(RunScpService(*key_fetcher_, kOndemandKeyFetcherServiceName));
-  RETURN_IF_ERROR(gcp_kms_client_->Run());
-  RETURN_IF_ERROR(cached_gcp_kms_client_->Run());
-  RETURN_IF_ERROR(aws_kms_client_->Run());
-  RETURN_IF_ERROR(cached_aws_kms_client_->Run());
-  RETURN_IF_ERROR(aead_crypto_client_->Run());
-  RETURN_IF_ERROR(hybrid_crypto_client_->Run());
-  RETURN_IF_ERROR(auth_token_client_->Run());
-  RETURN_IF_ERROR(cached_auth_token_client_->Run());
-  RETURN_IF_ERROR(orchestrator_client_->Run());
-  RETURN_IF_ERROR(cached_orchestrator_client_->Run());
-  RETURN_IF_ERROR(lookup_service_shard_client_->Run());
-  RETURN_IF_ERROR(lookup_service_client_->Run());
+
   is_running_ = true;
 
   // Start a thread to monitor the health of the service.

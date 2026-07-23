@@ -52,6 +52,10 @@ inline constexpr absl::string_view kErrorCountMetricName =
     "MatchRequestErrorCount";
 inline constexpr absl::string_view kGrpcErrorCountMetricName =
     "MatchRequestGrpcErrorCount";
+inline constexpr absl::string_view kServerStartupLatencyMetricName =
+    "ServerStartupLatency";
+inline constexpr absl::string_view kServerStartupErrorCountMetricName =
+    "ServerStartupErrorCount";
 
 // Metric labels and values
 inline constexpr absl::string_view kEncryptionTypeLabel = "EncryptionType";
@@ -87,6 +91,12 @@ void PutMetrics(
     google::scp::cpio::MetricClientInterface* metric_client,
     absl::string_view metric_namespace,
     std::vector<google::cmrt::sdk::metric_service::v1::Metric> metrics);
+
+google::cmrt::sdk::metric_service::v1::Metric CreateServerStartupLatencyMetric(
+    absl::Duration duration);
+
+google::cmrt::sdk::metric_service::v1::Metric
+CreateServerStartupErrorCountMetric();
 
 }  // namespace google::confidential_match::match_service::metrics
 

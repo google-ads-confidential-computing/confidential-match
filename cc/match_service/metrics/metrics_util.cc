@@ -15,9 +15,12 @@
 #include "cc/match_service/metrics/metrics_util.h"
 
 #include <memory>
+#include <string>
 #include <utility>
 #include <vector>
 
+#include "absl/log/log.h"
+#include "absl/strings/str_cat.h"
 #include "cc/core/async/async_context.h"
 #include "cc/core/interface/errors.h"
 #include "cc/core/logger/log.h"
@@ -25,6 +28,9 @@
 
 namespace google::confidential_match::match_service::metrics {
 
+using ::google::cmrt::sdk::metric_service::v1::Metric;
+using ::google::cmrt::sdk::metric_service::v1::MetricType;
+using ::google::cmrt::sdk::metric_service::v1::MetricUnit;
 using ::google::cmrt::sdk::metric_service::v1::PutMetricsRequest;
 using ::google::cmrt::sdk::metric_service::v1::PutMetricsResponse;
 using ::google::scp::core::AsyncContext;
@@ -38,7 +44,6 @@ void PutMetric(
   if (metric_client == nullptr) {
     return;
   }
-
   AsyncContext<PutMetricsRequest, PutMetricsResponse> ctx;
   ctx.request = std::make_shared<PutMetricsRequest>();
   *ctx.request->add_metrics() = std::move(metric);
@@ -46,9 +51,15 @@ void PutMetric(
 
   ctx.callback = [logger = std::move(logger)](auto& context) {
     if (!context.result.Successful()) {
-      LOG_ERROR(*logger, "Failed to PutMetric [%s]: %s",
-                context.request->metrics(0).name(),
-                GetErrorMessage(context.result.status_code));
+      if (logger != nullptr) {
+        LOG_ERROR(*logger, "Failed to PutMetric [%s]: %s",
+                  context.request->metrics(0).name(),
+                  GetErrorMessage(context.result.status_code));
+      } else {
+        LOG(ERROR) << "Failed to PutMetric ["
+                   << context.request->metrics(0).name()
+                   << "]: " << GetErrorMessage(context.result.status_code);
+      }
     }
   };
 
@@ -76,12 +87,35 @@ void PutMetrics(
 
   ctx.callback = [logger = std::move(logger)](auto& context) {
     if (!context.result.Successful()) {
-      LOG_ERROR(*logger, "Failed to PutMetrics for a batch of metrics: %s",
-                GetErrorMessage(context.result.status_code));
+      if (logger != nullptr) {
+        LOG_ERROR(*logger, "Failed to PutMetrics for a batch of metrics: %s",
+                  GetErrorMessage(context.result.status_code));
+      } else {
+        LOG(ERROR) << "Failed to PutMetrics for a batch of metrics: "
+                   << GetErrorMessage(context.result.status_code);
+      }
     }
   };
 
   metric_client->PutMetrics(ctx);
+}
+
+Metric CreateServerStartupLatencyMetric(absl::Duration duration) {
+  Metric m;
+  m.set_name(std::string(kServerStartupLatencyMetricName));
+  m.set_type(MetricType::METRIC_TYPE_HISTOGRAM);
+  m.set_value(absl::StrCat(absl::ToInt64Milliseconds(duration)));
+  m.set_unit(MetricUnit::METRIC_UNIT_MILLISECONDS);
+  return m;
+}
+
+Metric CreateServerStartupErrorCountMetric() {
+  Metric m;
+  m.set_name(std::string(kServerStartupErrorCountMetricName));
+  m.set_type(MetricType::METRIC_TYPE_COUNTER);
+  m.set_unit(MetricUnit::METRIC_UNIT_COUNT);
+  m.set_value("1");
+  return m;
 }
 
 }  // namespace google::confidential_match::match_service::metrics

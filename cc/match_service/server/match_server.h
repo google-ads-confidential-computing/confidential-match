@@ -204,6 +204,7 @@ class MatchServer {
 
   bool is_running_ = false;
   ConfigOptions config_;
+  absl::Time startup_start_time_;
 };
 
 }  // namespace google::confidential_match::match_service
