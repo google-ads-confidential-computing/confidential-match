@@ -1572,6 +1572,111 @@ TEST_F(KmsEncryptedMatchTaskTest,
   finished.WaitForNotification();
 }
 
+TEST_F(KmsEncryptedMatchTaskTest,
+       MatchWithCoordinatorKeyRetrievalFailurePartialFailure) {
+  auto request = std::make_shared<MatchRequest>();
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        application: APPLICATION_ECL
+        match_key_format: MATCH_KEY_FORMAT_HASHED_ENCRYPTED
+        key_encoding: MATCH_KEY_ENCODING_BASE64
+        data_records {
+          encryption_key { coordinator_key { key_id: "fail_fetch" } }
+          match_keys { field { type: FIELD_TYPE_EMAIL value: "ZW5j" } }
+        }
+        data_records {
+          encryption_key { coordinator_key { key_id: "fail_invalid" } }
+          match_keys { field { type: FIELD_TYPE_EMAIL value: "ZW5j" } }
+        }
+        data_records {
+          encryption_key { coordinator_key { key_id: "valid_key" } }
+          match_keys {
+            field {
+              type: FIELD_TYPE_EMAIL
+              value: "ZW5jX3JlYzBfa2V5MA=="  # enc_rec0_key0
+            }
+          }
+        }
+      )pb",
+      request.get()));
+
+  auto mock_valid_key = std::make_shared<MockCryptoKey>();
+  EXPECT_CALL(*mock_hybrid_crypto_client_, GetCryptoKeyAsync)
+      .Times(3)
+      .WillRepeatedly(Invoke([&](auto ctx) {
+        if (ctx.request->coordinator_key_info().key_id() == "fail_fetch") {
+          ctx.status = Status(Error::COORDINATOR_KEY_FETCHING_ERROR,
+                              "Coordinator Key Fetching Error");
+          ctx.Finish();
+        } else if (ctx.request->coordinator_key_info().key_id() ==
+                   "fail_invalid") {
+          ctx.status =
+              Status(Error::INVALID_COORDINATOR_KEY, "Invalid Coordinator Key");
+          ctx.Finish();
+        } else {
+          MockGetCryptoKeySuccess(mock_valid_key, ctx);
+        }
+      }));
+
+  EXPECT_CALL(*mock_valid_key, Decrypt("enc_rec0_key0"))
+      .WillOnce(Return("dec_rec0"));
+
+  LookupServiceResponse mock_lookup_response;
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        lookup_results {
+          status: STATUS_SUCCESS
+          client_data_record {
+            lookup_key { key: "ZW5jX3JlYzBfa2V5MA==" }
+            metadata { key: "d" int_value: 2 }  # Index of valid_key record
+            metadata { key: "m" int_value: 0 }
+          }
+          matched_data_records { lookup_key { key: "ZW5jX3JlYzBfa2V5MA==" } }
+        }
+      )pb",
+      &mock_lookup_response));
+
+  EXPECT_CALL(*mock_lookup_service_client_, Lookup)
+      .WillOnce(Invoke([&](auto& ctx) {
+        EXPECT_EQ(ctx.request->data_records_size(), 1);
+        MockLookupSuccess(mock_lookup_response, ctx);
+      }));
+
+  absl::Notification finished;
+  AsyncContext<MatchRequest, MatchResponse> context(
+      request,
+      [&](auto& ctx) {
+        ASSERT_THAT(ctx.status, IsOk());
+
+        // Record 0: Coordinator Key Fetching Error
+        const auto& matched_fail_key_0 =
+            ctx.response->matched_data_records(0).matched_keys(0);
+        EXPECT_EQ(matched_fail_key_0.field().status(), backend::STATUS_FAILED);
+        EXPECT_EQ(matched_fail_key_0.field().error_reason(),
+                  backend::ERROR_REASON_COORDINATOR_KEY_FETCHING_ERROR);
+
+        // Record 1: Invalid Coordinator Key
+        const auto& matched_fail_key_1 =
+            ctx.response->matched_data_records(1).matched_keys(0);
+        EXPECT_EQ(matched_fail_key_1.field().status(), backend::STATUS_FAILED);
+        EXPECT_EQ(matched_fail_key_1.field().error_reason(),
+                  backend::ERROR_REASON_INVALID_COORDINATOR_KEY);
+
+        // Record 2: Success
+        const auto& matched_pass_key =
+            ctx.response->matched_data_records(2).matched_keys(0);
+        EXPECT_EQ(matched_pass_key.field().status(),
+                  backend::STATUS_SUCCESS_MATCHED);
+        EXPECT_EQ(matched_pass_key.field().matched_field_info().field_value(),
+                  "dec_rec0");
+        finished.Notify();
+      },
+      logger_);
+
+  kms_encrypted_match_task_.Match(context);
+  finished.WaitForNotification();
+}
+
 TEST_F(KmsEncryptedMatchTaskTest, MatchWithDecryptionFailure) {
   auto request = std::make_shared<MatchRequest>();
   ASSERT_TRUE(TextFormat::ParseFromString(
@@ -2063,9 +2168,7 @@ TEST_F(KmsEncryptedMatchTaskTest, RecordsKeyFetchingMetrics) {
         match_key_format: MATCH_KEY_FORMAT_HASHED_ENCRYPTED
         key_encoding: MATCH_KEY_ENCODING_BASE64
         data_records {
-          encryption_key {
-            coordinator_key { key_id: "key_A_id" }
-          }
+          encryption_key { coordinator_key { key_id: "key_A_id" } }
           match_keys {
             field {
               type: FIELD_TYPE_EMAIL
@@ -2074,9 +2177,7 @@ TEST_F(KmsEncryptedMatchTaskTest, RecordsKeyFetchingMetrics) {
           }
         }
         data_records {
-          encryption_key {
-            coordinator_key { key_id: "key_B_id" }
-          }
+          encryption_key { coordinator_key { key_id: "key_B_id" } }
           match_keys {
             field {
               type: FIELD_TYPE_EMAIL

@@ -24,6 +24,7 @@
 #include "cc/match_service/crypto_client/hybrid_decrypt_crypto_key.h"
 #include "cc/match_service/crypto_client/tink_utils.h"
 #include "cc/match_service/error/error.h"
+#include "cc/public/cpio/interface/error_codes.h"
 #include "protos/match_service/backend/error.pb.h"
 #include "tink/hybrid/hpke_config.h"
 #include "tink/hybrid_config.h"
@@ -74,10 +75,8 @@ void HybridCryptoClient::GetCryptoKey(
       key_fetcher_->GetKey(context.request->coordinator_key_info().key_id());
 
   if (!key_or.Successful()) {
-    // TODO(b/492229483) will use a different error code after the error mapping
-    // is determined.
     context.status =
-        Status(Error::KEY_FETCHING_ERROR,
+        Status(MapCoordinatorKeyFetchingError(key_or.result().status_code),
                absl::StrFormat("Failed to get private key for key_id %s: %s",
                                context.request->coordinator_key_info().key_id(),
                                GetErrorMessage(key_or.result().status_code)));
@@ -90,7 +89,7 @@ void HybridCryptoClient::GetCryptoKey(
   std::string decoded_key;
   if (!absl::Base64Unescape(key_or->private_key, &decoded_key)) {
     context.status =
-        Status(Error::DECODING_ERROR,
+        Status(Error::INVALID_COORDINATOR_KEY,
                absl::StrCat(
                    "Failed to Base64 unescape private key material for key ID ",
                    key_or->key_id));
@@ -100,7 +99,10 @@ void HybridCryptoClient::GetCryptoKey(
   }
   auto decrypt_or = GetTinkPrimitive<HybridDecrypt>(decoded_key);
   if (!decrypt_or.ok()) {
-    context.status = decrypt_or.status();
+    context.status = Status(
+        Error::INVALID_COORDINATOR_KEY,
+        absl::StrCat("Failed to get tink primitive for key_id ", key_or->key_id,
+                     ": ", decrypt_or.status().message()));
     LOG_ERROR(*context.logger, "%v", context.status);
     context.Finish();
     return;
@@ -109,6 +111,15 @@ void HybridCryptoClient::GetCryptoKey(
   context.response =
       std::make_shared<HybridDecryptCryptoKey>(std::move(*decrypt_or));
   context.Finish();
+}
+
+Error::Reason HybridCryptoClient::MapCoordinatorKeyFetchingError(
+    uint64_t cpio_error_code) {
+  if (cpio_error_code == scp::core::errors::SC_CPIO_INVALID_ARGUMENT ||
+      cpio_error_code == scp::core::errors::SC_CPIO_ENTITY_NOT_FOUND) {
+    return Error::INVALID_COORDINATOR_KEY;
+  }
+  return Error::COORDINATOR_KEY_FETCHING_ERROR;
 }
 
 }  // namespace google::confidential_match::match_service

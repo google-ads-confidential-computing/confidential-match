@@ -18,12 +18,11 @@
 
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "cc/core/logger/log.h"
 #include "google/rpc/code.pb.h"
 #include "google/rpc/error_details.pb.h"
 #include "google/rpc/status.pb.h"
 #include "grpcpp/grpcpp.h"
-
-#include "cc/core/logger/log.h"
 #include "protos/match_service/api/v1/error.pb.h"
 #include "protos/match_service/backend/error.pb.h"
 
@@ -220,6 +219,10 @@ ExternalError::Reason ToExternalErrorReason(
       return ExternalError::INTERNAL_ERROR;
     case backend::Error::KEY_FETCHING_ERROR:
       return ExternalError::KEY_FETCHING_ERROR;
+    case backend::Error::COORDINATOR_KEY_FETCHING_ERROR:
+      return ExternalError::COORDINATOR_KEY_FETCHING_ERROR;
+    case backend::Error::INVALID_COORDINATOR_KEY:
+      return ExternalError::INVALID_COORDINATOR_KEY;
     case backend::Error::BASE64_DECODING_ERROR:
       return ExternalError::BASE64_DECODING_ERROR;
     case backend::Error::DECODING_ERROR:

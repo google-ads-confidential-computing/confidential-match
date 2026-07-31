@@ -122,7 +122,8 @@ message ExternalError {
 
     CUSTOMER_QUOTA_EXCEEDED = 19 [
       (external_rpc_code) = RESOURCE_EXHAUSTED,
-      (external_message) = "The customer quota has been exceeded when calling STS."
+      (external_message) =
+          "The customer quota has been exceeded when calling STS."
     ];
 
     CUSTOMER_KEY_PERMISSION_DENIED = 20 [
@@ -133,12 +134,25 @@ message ExternalError {
 
     WRAPPED_KEY_FETCHING_ERROR = 21 [
       (external_rpc_code) = INTERNAL,
-      (external_message) = "An error occurred while fetching a wrapped key from KMS."
+      (external_message) =
+          "An error occurred while fetching a wrapped key from KMS."
     ];
 
     DECODING_ERROR = 22 [
       (external_rpc_code) = INVALID_ARGUMENT,
       (external_message) = "A decoding error occurred."
+    ];
+
+    COORDINATOR_KEY_FETCHING_ERROR = 23 [
+      (external_rpc_code) = INTERNAL,
+      (external_message) =
+          "An internal error occurred while fetching the coordinator key."
+    ];
+
+    INVALID_COORDINATOR_KEY = 24 [
+      (external_rpc_code) = INVALID_ARGUMENT,
+      (external_message) =
+          "The provided coordinator key is invalid or not found."
     ];
   }
 }

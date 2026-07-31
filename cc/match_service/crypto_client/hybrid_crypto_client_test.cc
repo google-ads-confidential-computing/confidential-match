@@ -19,17 +19,18 @@
 #include <string>
 
 #include "absl/status/status.h"
-#include "cc/core/test/utils/conditional_wait.h"
-#include "cc/public/cpio/proto/private_key_service/v1/private_key_service.pb.h"
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
-
+#include "absl/strings/escaping.h"
 #include "cc/core/async/async_context.h"
+#include "cc/core/test/utils/conditional_wait.h"
 #include "cc/core/test/utils/proto_test_utils.h"
 #include "cc/match_service/crypto_client/crypto_client_interface.h"
 #include "cc/match_service/crypto_client/crypto_key_interface.h"
 #include "cc/match_service/error/error.h"
+#include "cc/public/cpio/interface/error_codes.h"
+#include "cc/public/cpio/proto/private_key_service/v1/private_key_service.pb.h"
 #include "cc/public/cpio/utils/key_fetching/interface/key_fetcher_with_cache_interface.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "protos/core/encryption_key_info.pb.h"
 #include "protos/match_service/backend/error.pb.h"
 
@@ -129,7 +130,7 @@ TEST_F(HybridCryptoClientTest, GetCryptoKeyBadBase64) {
       [&is_complete](AsyncContext<EncryptionKeyInfo, CryptoKeyInterface>& ctx) {
         EXPECT_FALSE(ctx.status.ok());
         EXPECT_EQ(GetBackendErrorReason(ctx.status),
-                  Error::DECODING_ERROR);
+                  Error::INVALID_COORDINATOR_KEY);
         is_complete = true;
       },
       logger_);
@@ -150,7 +151,80 @@ TEST_F(HybridCryptoClientTest, GetCryptoKeyFetcherFailure) {
       request,
       [&is_complete](AsyncContext<EncryptionKeyInfo, CryptoKeyInterface>& ctx) {
         EXPECT_FALSE(ctx.status.ok());
-        EXPECT_EQ(GetBackendErrorReason(ctx.status), Error::KEY_FETCHING_ERROR);
+        EXPECT_EQ(GetBackendErrorReason(ctx.status),
+                  Error::COORDINATOR_KEY_FETCHING_ERROR);
+        is_complete = true;
+      },
+      logger_);
+
+  crypto_client_->GetCryptoKey(context);
+
+  WaitUntil([&]() { return is_complete.load(); });
+}
+
+TEST_F(HybridCryptoClientTest, GetCryptoKeyInvalidKeyset) {
+  auto request = std::make_shared<EncryptionKeyInfo>(GetEncryptionKeyInfo());
+  EXPECT_CALL(mock_key_fetcher_, GetKey(std::string(kKeyId)))
+      .WillOnce([](const std::string& key_id) {
+        Key key;
+        key.key_id = key_id;
+        key.private_key = absl::Base64Escape("invalid_keyset_data");
+        return ExecutionResultOr<Key>(key);
+      });
+  std::atomic<bool> is_complete = false;
+  AsyncContext<EncryptionKeyInfo, CryptoKeyInterface> context(
+      request,
+      [&is_complete](AsyncContext<EncryptionKeyInfo, CryptoKeyInterface>& ctx) {
+        EXPECT_FALSE(ctx.status.ok());
+        EXPECT_EQ(ctx.status.code(), absl::StatusCode::kInvalidArgument);
+        EXPECT_EQ(GetBackendErrorReason(ctx.status),
+                  Error::INVALID_COORDINATOR_KEY);
+        is_complete = true;
+      },
+      logger_);
+
+  crypto_client_->GetCryptoKey(context);
+
+  WaitUntil([&]() { return is_complete.load(); });
+}
+
+TEST_F(HybridCryptoClientTest, GetCryptoKeyFetcherInvalidArgument) {
+  auto request = std::make_shared<EncryptionKeyInfo>(GetEncryptionKeyInfo());
+  EXPECT_CALL(mock_key_fetcher_, GetKey(std::string(kKeyId)))
+      .WillOnce([](const std::string& key_id) {
+        return ExecutionResultOr<Key>(FailureExecutionResult(
+            scp::core::errors::SC_CPIO_INVALID_ARGUMENT));
+      });
+  std::atomic<bool> is_complete = false;
+  AsyncContext<EncryptionKeyInfo, CryptoKeyInterface> context(
+      request,
+      [&is_complete](AsyncContext<EncryptionKeyInfo, CryptoKeyInterface>& ctx) {
+        EXPECT_FALSE(ctx.status.ok());
+        EXPECT_EQ(GetBackendErrorReason(ctx.status),
+                  Error::INVALID_COORDINATOR_KEY);
+        is_complete = true;
+      },
+      logger_);
+
+  crypto_client_->GetCryptoKey(context);
+
+  WaitUntil([&]() { return is_complete.load(); });
+}
+
+TEST_F(HybridCryptoClientTest, GetCryptoKeyFetcherEntityNotFound) {
+  auto request = std::make_shared<EncryptionKeyInfo>(GetEncryptionKeyInfo());
+  EXPECT_CALL(mock_key_fetcher_, GetKey(std::string(kKeyId)))
+      .WillOnce([](const std::string& key_id) {
+        return ExecutionResultOr<Key>(FailureExecutionResult(
+            scp::core::errors::SC_CPIO_ENTITY_NOT_FOUND));
+      });
+  std::atomic<bool> is_complete = false;
+  AsyncContext<EncryptionKeyInfo, CryptoKeyInterface> context(
+      request,
+      [&is_complete](AsyncContext<EncryptionKeyInfo, CryptoKeyInterface>& ctx) {
+        EXPECT_FALSE(ctx.status.ok());
+        EXPECT_EQ(GetBackendErrorReason(ctx.status),
+                  Error::INVALID_COORDINATOR_KEY);
         is_complete = true;
       },
       logger_);

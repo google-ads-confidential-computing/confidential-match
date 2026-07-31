@@ -17,6 +17,7 @@
 
 #include "cc/match_service/crypto_client/crypto_client_interface.h"
 #include "cc/public/cpio/utils/key_fetching/interface/key_fetcher_with_cache_interface.h"
+#include "protos/match_service/backend/error.pb.h"
 
 namespace google::confidential_match::match_service {
 
@@ -35,6 +36,10 @@ class HybridCryptoClient : public CryptoClientInterface {
                         key_context) noexcept override;
 
  private:
+  // Maps the CPIO error code to the backend error reason for coordinator keys.
+  backend::Error::Reason MapCoordinatorKeyFetchingError(
+      uint64_t cpio_error_code);
+
   google::scp::cpio::KeyFetcherWithCacheInterface* key_fetcher_;
 };
 

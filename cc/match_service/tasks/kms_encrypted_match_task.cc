@@ -430,6 +430,10 @@ ErrorReason ToErrorReason(const absl::Status& status) {
       return backend::ERROR_REASON_ENCRYPTION_ERROR;
     case Error::INVALID_MATCH_KEY_ENCODING:
       return backend::ERROR_REASON_DECODING_ERROR;
+    case Error::COORDINATOR_KEY_FETCHING_ERROR:
+      return backend::ERROR_REASON_COORDINATOR_KEY_FETCHING_ERROR;
+    case Error::INVALID_COORDINATOR_KEY:
+      return backend::ERROR_REASON_INVALID_COORDINATOR_KEY;
     case Error::INVALID_MATCH_KEY_FIELD:
       return backend::ERROR_REASON_INVALID_MATCH_KEY_FIELD;
     case Error::INTERNAL_ERROR:

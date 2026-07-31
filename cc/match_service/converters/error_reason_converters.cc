@@ -49,6 +49,12 @@ absl::Status ToBackend(const api::v1::ErrorReason& in,
     case api::v1::ERROR_REASON_KEY_FETCHING_ERROR:
       out = backend::ERROR_REASON_KEY_FETCHING_ERROR;
       return absl::OkStatus();
+    case api::v1::ERROR_REASON_COORDINATOR_KEY_FETCHING_ERROR:
+      out = backend::ERROR_REASON_COORDINATOR_KEY_FETCHING_ERROR;
+      return absl::OkStatus();
+    case api::v1::ERROR_REASON_INVALID_COORDINATOR_KEY:
+      out = backend::ERROR_REASON_INVALID_COORDINATOR_KEY;
+      return absl::OkStatus();
     case api::v1::ERROR_REASON_INVALID_MATCH_KEY_FIELD:
       out = backend::ERROR_REASON_INVALID_MATCH_KEY_FIELD;
       return absl::OkStatus();
@@ -101,6 +107,12 @@ absl::Status ToApi(const backend::ErrorReason& in, api::v1::ErrorReason& out) {
       return absl::OkStatus();
     case backend::ERROR_REASON_KEY_FETCHING_ERROR:
       out = api::v1::ERROR_REASON_KEY_FETCHING_ERROR;
+      return absl::OkStatus();
+    case backend::ERROR_REASON_COORDINATOR_KEY_FETCHING_ERROR:
+      out = api::v1::ERROR_REASON_COORDINATOR_KEY_FETCHING_ERROR;
+      return absl::OkStatus();
+    case backend::ERROR_REASON_INVALID_COORDINATOR_KEY:
+      out = api::v1::ERROR_REASON_INVALID_COORDINATOR_KEY;
       return absl::OkStatus();
     case backend::ERROR_REASON_INVALID_MATCH_KEY_FIELD:
       out = api::v1::ERROR_REASON_INVALID_MATCH_KEY_FIELD;

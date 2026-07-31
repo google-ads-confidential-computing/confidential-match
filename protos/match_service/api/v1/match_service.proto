@@ -519,4 +519,10 @@ enum ErrorReason {
 
   // There was an error decoding a value.
   ERROR_REASON_DECODING_ERROR = 14;
+
+  // There was an internal error fetching a coordinator key.
+  ERROR_REASON_COORDINATOR_KEY_FETCHING_ERROR = 15;
+
+  // The provided coordinator key is invalid or not found.
+  ERROR_REASON_INVALID_COORDINATOR_KEY = 16;
 }

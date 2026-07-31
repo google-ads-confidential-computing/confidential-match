@@ -134,5 +134,11 @@ message Error {
 
     // There was an error decoding a value.
     DECODING_ERROR = 30 [(backend_rpc_code) = INVALID_ARGUMENT];
+
+    // There was an internal error fetching a coordinator key.
+    COORDINATOR_KEY_FETCHING_ERROR = 31 [(backend_rpc_code) = INTERNAL];
+
+    // The provided coordinator key is invalid or not found.
+    INVALID_COORDINATOR_KEY = 32 [(backend_rpc_code) = INVALID_ARGUMENT];
   }
 }
