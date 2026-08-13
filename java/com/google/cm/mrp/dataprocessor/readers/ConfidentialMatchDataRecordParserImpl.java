@@ -717,7 +717,8 @@ public final class ConfidentialMatchDataRecordParserImpl
     }
     // First check config
     if (requestWrappedKeyInfo.isEmpty()) {
-      String msg = "WrappedKeyInfo when reading encryptionKey columns from proto.";
+      String msg =
+          "Missing WrappedKeyInfo in encryption metadata when reading encryption key columns.";
       logger.error(msg);
       throw new JobProcessorException(msg, DATA_READER_CONFIGURATION_ERROR);
     }

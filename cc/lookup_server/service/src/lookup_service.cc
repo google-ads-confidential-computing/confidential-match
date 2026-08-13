@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "absl/strings/escaping.h"
+#include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/time/clock.h"
@@ -32,6 +33,7 @@
 #include "cc/lookup_server/converters/src/matched_data_record_converter.h"
 #include "cc/lookup_server/converters/src/sharding_scheme_converter.h"
 #include "cc/lookup_server/interface/metric_client_interface.h"
+#include "cc/lookup_server/metric_client/src/metric_client.h"
 #include "cc/lookup_server/public/src/error_codes.h"
 #include "cc/lookup_server/service/src/error_codes.h"
 #include "cc/lookup_server/service/src/json_serialization_functions.h"
@@ -108,15 +110,7 @@ constexpr uint64_t kMetricWriteDelayMs = 10000;
 constexpr absl::string_view kRequestCountMetricName = "request_count";
 constexpr char kRequestErrorMetricLabel[] = "Error";
 constexpr char kRequestInvalidSchemeMetricLabel[] = "InvalidScheme";
-constexpr char kKeyFormatUnspecifiedMetricLabel[] = "UNSPECIFIED";
-constexpr char kKeyFormatHashedMetricLabel[] = "HASHED";
-constexpr char kKeyFormatHashedEncryptedMetricLabel[] = "HASHED_ENCRYPTED";
-constexpr char kKeyFormatHashedEncryptedCoordinatorMetricLabel[] =
-    "HASHED_ENCRYPTED_COORDINATOR_KEY";
-constexpr char kKeyFormatHashedEncryptedAwsWrappedMetricLabel[] =
-    "HASHED_ENCRYPTED_AWS_WRAPPED_KEY";
-constexpr char kKeyFormatHashedEncryptedGcpWrappedMetricLabel[] =
-    "HASHED_ENCRYPTED_GCP_WRAPPED_KEY";
+
 // Metric measuring latency of requests.
 constexpr absl::string_view kRequestLatencyMetricName = "request_latency";
 // Metric measuring request errors requiring oncall investigation.
@@ -243,6 +237,53 @@ std::string GetKeyFormatMetricLabel(const LookupRequest& request) {
   }
 }
 
+void RecordLookupServerRequestCount(
+    lookup_server::MetricClientInterface* otel_metric_client,
+    const std::string& key_format) {
+  if (otel_metric_client == nullptr) {
+    return;
+  }
+  absl::flat_hash_map<std::string, std::string> labels;
+  labels[std::string(kKeyFormatLabel)] = key_format;
+  otel_metric_client->RecordMetric(kLookupServerRequestCountMetricName, "1",
+                                   MetricUnit::METRIC_UNIT_COUNT,
+                                   MetricType::METRIC_TYPE_COUNTER, labels);
+}
+
+void RecordLookupServerRequestLatency(
+    lookup_server::MetricClientInterface* otel_metric_client,
+    const std::string& key_format, absl::Duration latency, bool is_successful) {
+  if (otel_metric_client == nullptr) {
+    return;
+  }
+  absl::flat_hash_map<std::string, std::string> labels;
+  labels[std::string(kKeyFormatLabel)] = key_format;
+  labels[std::string(kSuccessfulRequestLabel)] =
+      is_successful ? "True" : "False";
+  otel_metric_client->RecordMetric(
+      kLookupServerRequestLatencyMetricName,
+      absl::StrCat(absl::ToInt64Milliseconds(latency)),
+      MetricUnit::METRIC_UNIT_MILLISECONDS, MetricType::METRIC_TYPE_HISTOGRAM,
+      labels);
+}
+
+void RecordLookupServerRequestErrorCount(
+    lookup_server::MetricClientInterface* otel_metric_client,
+    const std::string& key_format, const ExecutionResult& result) {
+  if (otel_metric_client == nullptr) {
+    return;
+  }
+  absl::flat_hash_map<std::string, std::string> labels;
+  labels[std::string(kKeyFormatLabel)] = key_format;
+  labels[std::string(kBackendErrorReasonLabel)] =
+      GetErrorMessage(result.status_code);
+  // TODO(b/542708218): celisun - Add dimension for caller, mrp or
+  // match_service.
+  otel_metric_client->RecordMetric(kLookupServerRequestErrorCountMetricName,
+                                   "1", MetricUnit::METRIC_UNIT_COUNT,
+                                   MetricType::METRIC_TYPE_COUNTER, labels);
+}
+
 }  // namespace
 
 ExecutionResult LookupService::Init() noexcept {
@@ -341,6 +382,13 @@ ExecutionResult LookupService::PostLookup(
     PutLatencyMetrics(request_start_time);
     ExecutionResult result =
         FailureExecutionResult(LOOKUP_SERVICE_INVALID_REQUEST);
+    RecordLookupServerRequestCount(otel_metric_client_.get(),
+                                   kKeyFormatUnspecifiedMetricLabel);
+    RecordLookupServerRequestErrorCount(
+        otel_metric_client_.get(), kKeyFormatUnspecifiedMetricLabel, result);
+    RecordLookupServerRequestLatency(otel_metric_client_.get(),
+                                     kKeyFormatUnspecifiedMetricLabel,
+                                     absl::Now() - request_start_time, false);
     SCP_ERROR_CONTEXT(
         kComponentName, http_context, result,
         absl::StrFormat("Request error: Failed to parse lookup request. "
@@ -353,6 +401,8 @@ ExecutionResult LookupService::PostLookup(
     return SuccessExecutionResult();
   }
   request_count_metrics_->Increment(GetKeyFormatMetricLabel(*request));
+  RecordLookupServerRequestCount(otel_metric_client_.get(),
+                                 GetKeyFormatMetricLabel(*request));
 
   AsyncContext<LookupRequest, LookupResponse> lookup_context;
   lookup_context.request = request;
@@ -432,6 +482,8 @@ void LookupService::OnPostLookupHandlerCallback(
     AsyncContext<HttpRequest, HttpResponse> http_context,
     absl::Time request_start_time) noexcept {
   const ExecutionResult lookup_result = lookup_context.result;
+  const std::string key_format =
+      GetKeyFormatMetricLabel(*lookup_context.request);
   if (!lookup_result.Successful()) {
     if (lookup_result ==
         FailureExecutionResult(LOOKUP_SERVICE_INVALID_REQUEST_SCHEME)) {
@@ -439,11 +491,19 @@ void LookupService::OnPostLookupHandlerCallback(
           kRequestInvalidSchemeMetricLabel);
       if (!WriteInvalidSchemeResponse(http_context).Successful()) {
         request_error_metrics_->Increment(kRequestErrorMetricLabel);
+        RecordLookupServerRequestErrorCount(
+            otel_metric_client_.get(), key_format,
+            FailureExecutionResult(LOOKUP_SERVICE_INTERNAL_ERROR));
         SCP_ERROR_CONTEXT(kComponentName, http_context, lookup_result,
                           "Request error: Failed to write error response for "
                           "invalid scheme.");
+      } else {
+        RecordLookupServerRequestErrorCount(otel_metric_client_.get(),
+                                            key_format, lookup_result);
       }
       PutLatencyMetrics(request_start_time);
+      RecordLookupServerRequestLatency(otel_metric_client_.get(), key_format,
+                                       absl::Now() - request_start_time, false);
       http_context.result = lookup_result;
       http_context.Finish();
       return;
@@ -455,9 +515,13 @@ void LookupService::OnPostLookupHandlerCallback(
                         "Failed to write error response for failed result.");
     }
     request_error_metrics_->Increment(kRequestErrorMetricLabel);
+    RecordLookupServerRequestErrorCount(otel_metric_client_.get(), key_format,
+                                        lookup_result);
     SCP_ERROR_CONTEXT(kComponentName, http_context, lookup_result,
                       "Request error: Failed to process lookup request.");
     PutLatencyMetrics(request_start_time);
+    RecordLookupServerRequestLatency(otel_metric_client_.get(), key_format,
+                                     absl::Now() - request_start_time, false);
     http_context.result = lookup_result;
     http_context.Finish();
     return;
@@ -465,7 +529,12 @@ void LookupService::OnPostLookupHandlerCallback(
 
   if (!WriteMessageToResponse(*lookup_context.response, http_context)) {
     request_error_metrics_->Increment(kRequestErrorMetricLabel);
+    RecordLookupServerRequestErrorCount(
+        otel_metric_client_.get(), key_format,
+        FailureExecutionResult(LOOKUP_SERVICE_INTERNAL_ERROR));
     PutLatencyMetrics(request_start_time);
+    RecordLookupServerRequestLatency(otel_metric_client_.get(), key_format,
+                                     absl::Now() - request_start_time, false);
     http_context.result = FailureExecutionResult(LOOKUP_SERVICE_INTERNAL_ERROR);
     SCP_ERROR_CONTEXT(
         kComponentName, http_context, http_context.result,
@@ -481,6 +550,8 @@ void LookupService::OnPostLookupHandlerCallback(
   http_context.result = SuccessExecutionResult();
   http_context.Finish();
   PutLatencyMetrics(request_start_time);
+  RecordLookupServerRequestLatency(otel_metric_client_.get(), key_format,
+                                   absl::Now() - request_start_time, true);
 }
 
 ExecutionResult LookupService::BuildAggregateMetrics() noexcept {

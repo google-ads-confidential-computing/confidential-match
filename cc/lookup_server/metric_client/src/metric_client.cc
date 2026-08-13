@@ -86,6 +86,7 @@ ExecutionResult MetricClient::Stop() noexcept {
   return cpio_metric_client_->Stop();
 }
 
+// TODO(b/542801533): Remove this method when cleaning up legacy metrics.
 ExecutionResult MetricClient::RecordMetric(absl::string_view name,
                                            absl::string_view value,
                                            MetricUnit unit) noexcept {
@@ -93,6 +94,36 @@ ExecutionResult MetricClient::RecordMetric(absl::string_view name,
                       absl::flat_hash_map<std::string, std::string>());
 }
 
+ExecutionResult MetricClient::RecordMetric(
+    absl::string_view name, absl::string_view value, MetricUnit unit,
+    MetricType type,
+    const absl::flat_hash_map<std::string, std::string>& labels) noexcept {
+  AsyncContext<PutMetricsRequest, PutMetricsResponse> put_metrics_context;
+  put_metrics_context.request = std::make_shared<PutMetricsRequest>();
+  *put_metrics_context.request->mutable_metric_namespace() = metric_namespace_;
+  Metric* metric = put_metrics_context.request->add_metrics();
+  *metric->mutable_name() = name;
+  *metric->mutable_value() = value;
+  metric->set_type(type);
+  metric->set_unit(unit);
+  metric->mutable_labels()->insert(base_labels_.begin(), base_labels_.end());
+  metric->mutable_labels()->insert(labels.begin(), labels.end());
+
+  put_metrics_context.callback = [](auto& context) -> void {
+    if (!context.result.Successful()) {
+      SCP_ERROR(kComponentName, kZeroUuid, context.result,
+                absl::StrFormat(
+                    "Failed to record metric. Error: %s, metric: %s",
+                    GetErrorMessage(context.result.status_code),
+                    common::ProtoUtils::TextProtoString(*context.request)));
+    }
+  };
+
+  cpio_metric_client_->PutMetrics(put_metrics_context);
+  return SuccessExecutionResult();
+}
+
+// TODO(b/542801533): Remove this method when cleaning up legacy metrics.
 ExecutionResult MetricClient::RecordMetric(
     absl::string_view name, absl::string_view value, MetricUnit unit,
     const absl::flat_hash_map<std::string, std::string>& labels) noexcept {

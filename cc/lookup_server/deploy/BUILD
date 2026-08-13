@@ -60,7 +60,14 @@ oci_image(
     ],
     labels = {
         "tee.launch_policy.allow_cmd_override": "false",
-        "tee.launch_policy.allow_env_override": "cluster_id,cluster_group_id,environment",
+        "tee.launch_policy.allow_env_override": ",".join([
+            "cluster_id",
+            "cluster_group_id",
+            "environment",
+            "otel_metric_namespace",
+            "enable_otel_metric_client",
+            "collector_address",
+        ]),
         "tee.launch_policy.log_redirect": "always",
         "tee.launch_policy.monitoring_memory_allow": "always",
     },
@@ -104,7 +111,14 @@ oci_image(
     ],
     labels = {
         "tee.launch_policy.allow_cmd_override": "false",
-        "tee.launch_policy.allow_env_override": "cluster_id,cluster_group_id,environment",
+        "tee.launch_policy.allow_env_override": ",".join([
+            "cluster_id",
+            "cluster_group_id",
+            "environment",
+            "otel_metric_namespace",
+            "enable_otel_metric_client",
+            "collector_address",
+        ]),
         "tee.launch_policy.log_redirect": "always",
         "tee.launch_policy.monitoring_memory_allow": "always",
     },

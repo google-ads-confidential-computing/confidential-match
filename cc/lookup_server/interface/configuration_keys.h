@@ -35,6 +35,15 @@ inline constexpr char kIoAsyncExecutorQueueSize[] =
 // Configuration key for the number of IO async executor threads.
 inline constexpr char kIoAsyncExecutorThreadsCount[] =
     "io_async_executor_threads_count";
+// Configuration key for whether to enable Open Telemetry metrics client.
+inline constexpr char kEnableOtelMetricClient[] = "enable_otel_metric_client";
+// Configuration key for the Open Telemetry metrics namespace.
+inline constexpr char kOtelMetricNamespace[] = "otel_metric_namespace";
+// Configuration key for the Open Telemetry collector address.
+inline constexpr char kOtelCollectorAddress[] = "collector_address";
+// Configuration key for the Open Telemetry metric exporter interval.
+inline constexpr char kOtelMetricExporterIntervalInMs[] =
+    "otel_metric_exporter_interval_in_ms";
 // Configuration key for the host address used for Lookup Server.
 inline constexpr char kLookupServiceHostAddress[] = "host_address";
 // Configuration key for the port on which Lookup Server runs.

@@ -44,6 +44,7 @@ cc_library(
         "//cc/external:tink_cc_proto",
         "//cc/lookup_server/interface:lookup_server_interface_lib",
         "//cc/lookup_server/match_data_storage/src:match_data_storage",
+        "//cc/lookup_server/metric_client/src:metric_client",
         "//cc/lookup_server/parsers/src:parsers_lib",
         "//protos/core:cc_proto",
         "//protos/lookup_server/backend:cc_proto",

@@ -53,10 +53,11 @@ class PassThroughLookupService : public LookupService {
           invalid_scheme_aggregate_metric,
       std::shared_ptr<MetricClientInterface> metric_client,
       absl::flat_hash_map<std::string, std::shared_ptr<StatusProviderInterface>>
-          service_status_providers)
+          service_status_providers,
+      std::shared_ptr<MetricClientInterface> otel_metric_client = nullptr)
       : LookupService(match_data_storage, http_server, aead_crypto_client,
-                      hpke_crypto_client, metric_client, nullptr,
-                      service_status_providers),
+                      hpke_crypto_client, metric_client, otel_metric_client,
+                      nullptr, service_status_providers),
         request_aggregate_metric_(request_aggregate_metric),
         error_aggregate_metric_(error_aggregate_metric),
         invalid_scheme_aggregate_metric_(invalid_scheme_aggregate_metric) {}

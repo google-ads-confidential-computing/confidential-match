@@ -33,13 +33,13 @@
 #include "cc/core/interface/errors.h"
 #include "cc/core/interface/streaming_context.h"
 #include "cc/core/interface/type_def.h"
+#include "cc/lookup_server/match_data_loader/src/error_codes.h"
+#include "cc/lookup_server/match_data_storage/src/error_codes.h"
+#include "cc/lookup_server/metric_client/src/metric_client.h"
+#include "cc/lookup_server/parsers/src/export_metadata_parser.h"
 #include "cc/public/core/interface/execution_result_macros.h"
 #include "cc/public/core/interface/execution_result_or_macros.h"
 #include "proto/tink.pb.h"
-
-#include "cc/lookup_server/match_data_loader/src/error_codes.h"
-#include "cc/lookup_server/match_data_storage/src/error_codes.h"
-#include "cc/lookup_server/parsers/src/export_metadata_parser.h"
 #include "protos/lookup_server/backend/data_export_info.pb.h"
 #include "protos/lookup_server/backend/encryption_key_info.pb.h"
 #include "protos/lookup_server/backend/export_metadata.pb.h"
@@ -184,6 +184,11 @@ void MatchDataLoader::DataRefreshLoop() noexcept {
       RecordMetric(
           kDurationSinceLastRefreshName,
           absl::Now() - absl::FromUnixSeconds(last_successful_data_load_sec_),
+          absl::flat_hash_map<std::string, std::string>());
+      RecordDurationMetric(
+          kDataLoaderDurationSinceLastRefreshMetricName,
+          absl::Now() - absl::FromUnixSeconds(last_successful_data_load_sec_),
+          MetricType::METRIC_TYPE_GAUGE,
           absl::flat_hash_map<std::string, std::string>());
     }
 
@@ -375,6 +380,9 @@ void MatchDataLoader::HandleMatchDataBatchCallback(
     RecordMetric(kKeyCountMetricName, key_count->load(), metric_labels);
     RecordMetric(kTableUpdateDurationMetricName, absl::Now() - start_time,
                  metric_labels);
+    RecordDurationMetric(kDataLoaderUpdateFullCycleDurationMetricName,
+                         absl::Now() - start_time,
+                         MetricType::METRIC_TYPE_HISTOGRAM, metric_labels);
     return;
   }
 
@@ -433,6 +441,9 @@ void MatchDataLoader::HandleMatchDataBatchCallback(
           BuildMetricLabels(data_export_info);
       RecordMetric(kDataFetchingDurationMetricName, absl::Now() - start_time,
                    metric_labels);
+      RecordDurationMetric(kDataLoaderUpdateDurationMetricName,
+                           absl::Now() - start_time,
+                           MetricType::METRIC_TYPE_HISTOGRAM, metric_labels);
       SCP_INFO(kComponentName, kZeroUuid,
                absl::StrFormat("Match data inserted to table. Total records: "
                                "%d, total keys: %d (using %d threads)",
@@ -483,10 +494,17 @@ void MatchDataLoader::FinalizeUpdate(
   RecordMetric(kKeyCountMetricName, key_count, metric_labels);
   RecordMetric(kTableUpdateDurationMetricName, absl::Now() - start_time,
                metric_labels);
+  RecordDurationMetric(kDataLoaderUpdateFullCycleDurationMetricName,
+                       absl::Now() - start_time,
+                       MetricType::METRIC_TYPE_HISTOGRAM, metric_labels);
   RecordMetric(
       kDurationSinceLastRefreshName,
       absl::Now() - absl::FromUnixSeconds(last_successful_data_load_sec_),
       metric_labels);
+  RecordDurationMetric(
+      kDataLoaderDurationSinceLastRefreshMetricName,
+      absl::Now() - absl::FromUnixSeconds(last_successful_data_load_sec_),
+      MetricType::METRIC_TYPE_GAUGE, metric_labels);
 }
 
 ExecutionResultOr<DataExportInfo>
@@ -574,6 +592,18 @@ void MatchDataLoader::RecordMetric(
                   "Failed to record duration metric. (Key: %s, value: %d)",
                   name, seconds))
   }
+}
+
+void MatchDataLoader::RecordDurationMetric(
+    absl::string_view name, absl::Duration duration, MetricType type,
+    const absl::flat_hash_map<std::string, std::string>& labels) noexcept {
+  if (otel_metric_client_ == nullptr) {
+    return;
+  }
+  int64_t seconds = absl::ToInt64Seconds(duration);
+  otel_metric_client_->RecordMetric(name, std::to_string(seconds),
+                                    MetricUnit::METRIC_UNIT_SECONDS, type,
+                                    labels);
 }
 
 }  // namespace google::confidential_match::lookup_server

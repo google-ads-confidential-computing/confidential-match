@@ -63,6 +63,16 @@ struct TeeOptionsConfig {
   std::shared_ptr<std::string> cluster_id;
 
   std::shared_ptr<std::string> environment_name;
+
+  // Whether to enable Open Telemetry metrics client.
+  bool enable_otel_metric_client = false;
+  // The namespace to use for Open Telemetry metrics.
+  std::shared_ptr<std::string> otel_metric_namespace;
+  // The address to use for the Open Telemetry collector.
+  std::shared_ptr<std::string> collector_address;
+  // The interval in milliseconds for the Open Telemetry metric exporter.
+  std::chrono::milliseconds otel_metric_exporter_interval_in_ms =
+      std::chrono::milliseconds(60000);
 };
 
 // Stores parameters for Lookup Server
@@ -141,6 +151,7 @@ class LookupServer : public scp::core::ServiceInterface {
   std::shared_ptr<scp::core::HttpClientInterface> http1_client_;
   std::shared_ptr<scp::core::HttpClientInterface> http2_client_;
   std::shared_ptr<MetricClientInterface> metric_client_;
+  std::shared_ptr<MetricClientInterface> otel_metric_client_;
   std::shared_ptr<JwtValidatorInterface> jwt_validator_;
   std::shared_ptr<scp::core::AuthorizationProxyInterface> authorization_proxy_;
   std::shared_ptr<scp::core::AuthorizationProxyInterface>

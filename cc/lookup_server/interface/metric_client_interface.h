@@ -26,13 +26,14 @@
 #include "cc/core/interface/service_interface.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "cc/public/cpio/proto/metric_service/v1/metric_service.pb.h"
-
 #include "protos/lookup_server/backend/data_export_info.pb.h"
 
 namespace google::confidential_match::lookup_server {
 
 // Defines the unit type of the metric.
 using MetricUnit = ::google::cmrt::sdk::metric_service::v1::MetricUnit;
+// Defines the metric type of the metric (e.g. Counter, Histogram).
+using MetricType = ::google::cmrt::sdk::metric_service::v1::MetricType;
 
 /** @brief Interface for a client used to record metrics. */
 class MetricClientInterface : public scp::core::ServiceInterface {
@@ -49,6 +50,7 @@ class MetricClientInterface : public scp::core::ServiceInterface {
    * @param unit the unit of the value being recorded
    * @return whether the metric recording was started successfully
    */
+  // TODO(b/542801533): Remove this method when cleaning up legacy metrics.
   virtual scp::core::ExecutionResult RecordMetric(absl::string_view name,
                                                   absl::string_view value,
                                                   MetricUnit unit) noexcept = 0;
@@ -64,8 +66,24 @@ class MetricClientInterface : public scp::core::ServiceInterface {
    * @param labels the labels to attach to the metric
    * @return whether the metric recording was started successfully
    */
+  // TODO(b/542801533): Remove this method when cleaning up legacy metrics.
   virtual scp::core::ExecutionResult RecordMetric(
       absl::string_view name, absl::string_view value, MetricUnit unit,
+      const absl::flat_hash_map<std::string, std::string>& labels) noexcept = 0;
+
+  /**
+   * @brief Records a metric with custom type.
+   *
+   * @param name the name of the metric
+   * @param value the value to be recorded for that metric
+   * @param unit the unit of the value being recorded
+   * @param type the type of the metric (e.g. counter, histogram)
+   * @param labels the labels to attach to the metric
+   * @return whether the metric recording was started successfully
+   */
+  virtual scp::core::ExecutionResult RecordMetric(
+      absl::string_view name, absl::string_view value, MetricUnit unit,
+      MetricType type,
       const absl::flat_hash_map<std::string, std::string>& labels) noexcept = 0;
 };
 

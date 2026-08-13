@@ -165,6 +165,7 @@ constexpr absl::string_view kPassThruAuthorizationProxyServiceName =
     "PassThruAuthorizationProxy";
 constexpr absl::string_view kBlobStorageClientServiceName = "BlobStorageClient";
 constexpr absl::string_view kMetricClientName = "MetricClient";
+constexpr absl::string_view kOtelMetricClientName = "OtelMetricClient";
 constexpr absl::string_view kParameterClientName = "ParameterClient";
 
 // Configures the namespace used by Metric Client.
@@ -403,6 +404,37 @@ ExecutionResult LookupServer::LoadTeeConfigs() noexcept {
     SCP_CRITICAL(kComponentName, kZeroUuid, result,
                  "Failed to read the environment name from TEE metadata.");
     return result;
+  }
+
+  // TODO(b/537911896): Add otel_metric_exporter_interval_in_ms to tf instead of
+  // using default value.
+  result = config_provider_->Get(std::string(kEnableOtelMetricClient),
+                                 tee_options_config_.enable_otel_metric_client);
+  if (!result.Successful()) {
+    SCP_CRITICAL(kComponentName, kZeroUuid, result,
+                 "Failed to read the enable_otel_metric_client from TEE "
+                 "metadata.");
+    return result;
+  }
+
+  if (tee_options_config_.enable_otel_metric_client) {
+    tee_options_config_.otel_metric_namespace = std::make_shared<std::string>();
+    result = config_provider_->Get(std::string(kOtelMetricNamespace),
+                                   *tee_options_config_.otel_metric_namespace);
+    if (!result.Successful()) {
+      SCP_CRITICAL(kComponentName, kZeroUuid, result,
+                   "Failed to read the otel_metric_namespace from TEE "
+                   "metadata.");
+      return result;
+    }
+    tee_options_config_.collector_address = std::make_shared<std::string>();
+    result = config_provider_->Get(std::string(kOtelCollectorAddress),
+                                   *tee_options_config_.collector_address);
+    if (!result.Successful()) {
+      SCP_CRITICAL(kComponentName, kZeroUuid, result,
+                   "Failed to read the collector_address from TEE metadata.");
+      return result;
+    }
   }
   return SuccessExecutionResult();
 }
@@ -901,16 +933,30 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
       std::make_shared<Http1CurlClient>(async_executor_, io_async_executor_);
   http2_client_ = std::make_shared<HttpClient>(async_executor_);
 
-  std::shared_ptr<CpioMetricClientInterface> cpio_metric_client =
-      MetricClientFactory::Create(MetricClientOptions());
   absl::flat_hash_map<std::string, std::string> metric_client_base_labels;
   metric_client_base_labels[kMetricClientClusterIdLabelKey] =
       *tee_options_config_.cluster_id;
   metric_client_base_labels[kMetricClientClusterGroupIdLabelKey] =
       *tee_options_config_.cluster_group_id;
+  if (tee_options_config_.enable_otel_metric_client) {
+    MetricClientOptions metric_client_options;
+    metric_client_options.enable_remote_metric_aggregation = true;
+    metric_client_options.metric_exporter_interval =
+        tee_options_config_.otel_metric_exporter_interval_in_ms;
+    metric_client_options.namespace_for_batch_recording =
+        *tee_options_config_.otel_metric_namespace;
+    metric_client_options.remote_metric_collector_address =
+        *tee_options_config_.collector_address;
+    std::shared_ptr<CpioMetricClientInterface> cpio_otel_metric_client =
+        MetricClientFactory::Create(metric_client_options);
+    otel_metric_client_ = std::make_shared<CfmMetricClient>(
+        cpio_otel_metric_client, *tee_options_config_.otel_metric_namespace,
+        metric_client_base_labels);
+  }
+  std::shared_ptr<CpioMetricClientInterface> cpio_metric_client =
+      MetricClientFactory::Create(MetricClientOptions());
   metric_client_ = std::make_shared<CfmMetricClient>(
       cpio_metric_client, kMetricClientNamespace, metric_client_base_labels);
-
   ExecutionResultOr<std::unique_ptr<JwtValidator>> jwt_validator_or =
       JwtValidator::Create(
           kJwtIssuer, *parameters_.jwt_audience,
@@ -999,10 +1045,11 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
   }
   match_data_loader_ = std::make_shared<MatchDataLoader>(
       data_provider_, streamed_match_data_provider_, match_data_storage_,
-      metric_client_, orchestrator_client_, aead_crypto_client_,
-      *tee_options_config_.cluster_group_id, *tee_options_config_.cluster_id,
-      *parameters_.kms_resource_name, *parameters_.kms_region,
-      *parameters_.kms_wip_provider, parameters_.data_refresh_interval_mins_);
+      metric_client_, otel_metric_client_, orchestrator_client_,
+      aead_crypto_client_, *tee_options_config_.cluster_group_id,
+      *tee_options_config_.cluster_id, *parameters_.kms_resource_name,
+      *parameters_.kms_region, *parameters_.kms_wip_provider,
+      parameters_.data_refresh_interval_mins_);
 
   metric_instance_factory_ = std::make_shared<MetricInstanceFactory>(
       async_executor_.get(), cpio_metric_client.get());
@@ -1039,8 +1086,8 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
 
   lookup_service_ = std::make_shared<LookupService>(
       match_data_storage_, http_server_, aead_crypto_client_,
-      hpke_crypto_client_, metric_client_, metric_instance_factory_,
-      status_providers);
+      hpke_crypto_client_, metric_client_, otel_metric_client_,
+      metric_instance_factory_, status_providers);
   health_service_ =
       std::make_shared<HealthService>(health_http_server_, status_providers);
 
@@ -1055,6 +1102,9 @@ ExecutionResult LookupServer::Init() noexcept {
   RETURN_IF_FAILURE(InitService(*http1_client_, kHttp1ClientServiceName));
   RETURN_IF_FAILURE(InitService(*http2_client_, kHttp2ClientServiceName));
   RETURN_IF_FAILURE(InitService(*metric_client_, kMetricClientName));
+  if (otel_metric_client_ != nullptr) {
+    RETURN_IF_FAILURE(InitService(*otel_metric_client_, kOtelMetricClientName));
+  }
   RETURN_IF_FAILURE(
       InitService(*authorization_proxy_, kAuthorizationProxyServiceName));
   RETURN_IF_FAILURE(InitService(*pass_thru_authorization_proxy_,
@@ -1100,6 +1150,9 @@ ExecutionResult LookupServer::Run() noexcept {
 
   RETURN_IF_FAILURE(RunService(*http1_client_, kHttp1ClientServiceName));
   RETURN_IF_FAILURE(RunService(*http2_client_, kHttp2ClientServiceName));
+  if (otel_metric_client_ != nullptr) {
+    RETURN_IF_FAILURE(RunService(*otel_metric_client_, kOtelMetricClientName));
+  }
   RETURN_IF_FAILURE(RunService(*metric_client_, kMetricClientName));
   RETURN_IF_FAILURE(
       RunService(*authorization_proxy_, kAuthorizationProxyServiceName));
@@ -1176,6 +1229,9 @@ ExecutionResult LookupServer::Stop() noexcept {
   RETURN_IF_FAILURE(
       StopService(*authorization_proxy_, kAuthorizationProxyServiceName));
   RETURN_IF_FAILURE(StopService(*metric_client_, kMetricClientName));
+  if (otel_metric_client_ != nullptr) {
+    RETURN_IF_FAILURE(StopService(*otel_metric_client_, kOtelMetricClientName));
+  }
   RETURN_IF_FAILURE(StopService(*http2_client_, kHttp2ClientServiceName));
   RETURN_IF_FAILURE(StopService(*http1_client_, kHttp1ClientServiceName));
   RETURN_IF_FAILURE(StopService(*parameter_client_, kParameterClientName));

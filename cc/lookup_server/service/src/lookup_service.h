@@ -55,6 +55,7 @@ class LookupService : public LookupServerServiceInterface {
       std::shared_ptr<CryptoClientInterface> aead_crypto_client,
       std::shared_ptr<CryptoClientInterface> hpke_crypto_client,
       std::shared_ptr<lookup_server::MetricClientInterface> metric_client,
+      std::shared_ptr<lookup_server::MetricClientInterface> otel_metric_client,
       std::shared_ptr<scp::cpio::MetricInstanceFactoryInterface>
           metric_instance_factory,
       absl::flat_hash_map<std::string, std::shared_ptr<StatusProviderInterface>>
@@ -64,6 +65,7 @@ class LookupService : public LookupServerServiceInterface {
         aead_crypto_client_(aead_crypto_client),
         hpke_crypto_client_(hpke_crypto_client),
         metric_client_(metric_client),
+        otel_metric_client_(otel_metric_client),
         metric_instance_factory_(metric_instance_factory),
         service_status_providers_(service_status_providers),
         last_request_time_ms_(0),
@@ -164,6 +166,8 @@ class LookupService : public LookupServerServiceInterface {
   std::shared_ptr<CryptoClientInterface> hpke_crypto_client_;
   // An instance of the CFM metric client.
   std::shared_ptr<lookup_server::MetricClientInterface> metric_client_;
+  // An instance of the CFM metric client for Open Telemetry metrics.
+  std::shared_ptr<lookup_server::MetricClientInterface> otel_metric_client_;
   // An instance of MetricInstanceFactory.
   std::shared_ptr<scp::cpio::MetricInstanceFactoryInterface>
       metric_instance_factory_;

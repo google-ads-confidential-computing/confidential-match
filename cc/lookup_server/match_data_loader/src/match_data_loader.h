@@ -28,8 +28,6 @@
 #include "absl/time/clock.h"
 #include "cc/core/interface/async_context.h"
 #include "cc/core/interface/streaming_context.h"
-#include "cc/public/core/interface/execution_result.h"
-
 #include "cc/lookup_server/interface/crypto_client_interface.h"
 #include "cc/lookup_server/interface/crypto_key_interface.h"
 #include "cc/lookup_server/interface/data_provider_interface.h"
@@ -38,6 +36,7 @@
 #include "cc/lookup_server/interface/metric_client_interface.h"
 #include "cc/lookup_server/interface/orchestrator_client_interface.h"
 #include "cc/lookup_server/interface/streamed_match_data_provider_interface.h"
+#include "cc/public/core/interface/execution_result.h"
 #include "protos/lookup_server/backend/data_export_info.pb.h"
 #include "protos/lookup_server/backend/encryption_key_info.pb.h"
 #include "protos/lookup_server/backend/export_metadata.pb.h"
@@ -56,6 +55,7 @@ class MatchDataLoader : public MatchDataLoaderInterface {
       std::shared_ptr<StreamedMatchDataProviderInterface> match_data_provider,
       std::shared_ptr<MatchDataStorageInterface> match_data_storage,
       std::shared_ptr<MetricClientInterface> metric_client,
+      std::shared_ptr<MetricClientInterface> otel_metric_client,
       std::shared_ptr<OrchestratorClientInterface> orchestrator_client,
       std::shared_ptr<CryptoClientInterface> crypto_client,
       absl::string_view cluster_group_id, absl::string_view cluster_id,
@@ -66,6 +66,7 @@ class MatchDataLoader : public MatchDataLoaderInterface {
         match_data_provider_(match_data_provider),
         match_data_storage_(match_data_storage),
         metric_client_(metric_client),
+        otel_metric_client_(otel_metric_client),
         orchestrator_client_(orchestrator_client),
         crypto_client_(crypto_client),
         cluster_group_id_(cluster_group_id),
@@ -166,11 +167,17 @@ class MatchDataLoader : public MatchDataLoaderInterface {
       absl::string_view name, absl::Duration duration,
       const absl::flat_hash_map<std::string, std::string>& labels) noexcept;
 
+  /** @brief Helper to record a duration metric to OpenTelemetry. */
+  void RecordDurationMetric(
+      absl::string_view name, absl::Duration duration, MetricType type,
+      const absl::flat_hash_map<std::string, std::string>& labels) noexcept;
+
   std::atomic<bool> is_running_;
   std::shared_ptr<DataProviderInterface> data_provider_;
   std::shared_ptr<StreamedMatchDataProviderInterface> match_data_provider_;
   std::shared_ptr<MatchDataStorageInterface> match_data_storage_;
   std::shared_ptr<MetricClientInterface> metric_client_;
+  std::shared_ptr<MetricClientInterface> otel_metric_client_;
   std::shared_ptr<OrchestratorClientInterface> orchestrator_client_;
   std::shared_ptr<CryptoClientInterface> crypto_client_;
   const std::string cluster_group_id_;

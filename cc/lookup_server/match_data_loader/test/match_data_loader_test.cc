@@ -22,11 +22,6 @@
 #include "cc/core/interface/async_context.h"
 #include "cc/core/interface/streaming_context.h"
 #include "cc/core/test/utils/proto_test_utils.h"
-#include "cc/public/core/interface/execution_result.h"
-#include "cc/public/core/test/interface/execution_result_matchers.h"
-#include "gmock/gmock.h"
-#include "gtest/gtest.h"
-
 #include "cc/lookup_server/crypto_client/mock/fake_crypto_key.h"
 #include "cc/lookup_server/crypto_client/mock/mock_crypto_client.h"
 #include "cc/lookup_server/crypto_client/src/error_codes.h"
@@ -38,9 +33,14 @@
 #include "cc/lookup_server/match_data_provider/mock/mock_streamed_match_data_provider.h"
 #include "cc/lookup_server/match_data_provider/src/error_codes.h"
 #include "cc/lookup_server/match_data_storage/mock/mock_match_data_storage.h"
+#include "cc/lookup_server/metric_client/mock/fake_metric_client.h"
 #include "cc/lookup_server/metric_client/mock/mock_metric_client.h"
 #include "cc/lookup_server/orchestrator_client/mock/mock_orchestrator_client.h"
 #include "cc/lookup_server/types/match_data_group.h"
+#include "cc/public/core/interface/execution_result.h"
+#include "cc/public/core/test/interface/execution_result_matchers.h"
+#include "gmock/gmock.h"
+#include "gtest/gtest.h"
 #include "protos/lookup_server/backend/encryption_key_info.pb.h"
 #include "protos/lookup_server/backend/location.pb.h"
 #include "protos/lookup_server/backend/match_data_row.pb.h"
@@ -105,14 +105,15 @@ class MatchDataLoaderTest : public testing::Test {
             std::make_shared<MockStreamedMatchDataProvider>()),
         mock_match_data_storage_(std::make_shared<MockMatchDataStorage>()),
         mock_metric_client_(std::make_shared<MockMetricClient>()),
+        mock_otel_metric_client_(std::make_shared<FakeMetricClient>()),
         mock_orchestrator_client_(std::make_shared<MockOrchestratorClient>()),
         mock_crypto_client_(std::make_shared<MockCryptoClient>()),
         match_data_loader_(std::make_unique<MatchDataLoader>(
             mock_data_provider_, mock_match_data_provider_,
             mock_match_data_storage_, mock_metric_client_,
-            mock_orchestrator_client_, mock_crypto_client_, kClusterGroupId,
-            kClusterId, kKmsResourceName, kKmsRegion, kKmsWipProvider,
-            kDataLoadingIntervalMins)) {}
+            mock_otel_metric_client_, mock_orchestrator_client_,
+            mock_crypto_client_, kClusterGroupId, kClusterId, kKmsResourceName,
+            kKmsRegion, kKmsWipProvider, kDataLoadingIntervalMins)) {}
 
   void SetUp() override {
     EXPECT_SUCCESS(match_data_loader_->Init());
@@ -123,6 +124,7 @@ class MatchDataLoaderTest : public testing::Test {
   std::shared_ptr<MockStreamedMatchDataProvider> mock_match_data_provider_;
   std::shared_ptr<MockMatchDataStorage> mock_match_data_storage_;
   std::shared_ptr<MockMetricClient> mock_metric_client_;
+  std::shared_ptr<FakeMetricClient> mock_otel_metric_client_;
   std::shared_ptr<MockOrchestratorClient> mock_orchestrator_client_;
   std::shared_ptr<MockCryptoClient> mock_crypto_client_;
   std::unique_ptr<MatchDataLoaderInterface> match_data_loader_;
@@ -295,9 +297,9 @@ TEST_F(MatchDataLoaderTest, StartStop) {
       .WillRepeatedly(Return(SuccessExecutionResult()));
   MatchDataLoader match_data_loader(
       mock_data_provider_, mock_match_data_provider_, mock_match_data_storage_,
-      mock_metric_client_, mock_orchestrator_client_, mock_crypto_client_,
-      kClusterGroupId, kClusterId, kKmsResourceName, kKmsRegion,
-      kKmsWipProvider, kDataLoadingIntervalMins);
+      mock_metric_client_, mock_otel_metric_client_, mock_orchestrator_client_,
+      mock_crypto_client_, kClusterGroupId, kClusterId, kKmsResourceName,
+      kKmsRegion, kKmsWipProvider, kDataLoadingIntervalMins);
 
   EXPECT_SUCCESS(match_data_loader.Init());
   EXPECT_SUCCESS(match_data_loader.Run());
@@ -405,6 +407,8 @@ TEST_F(MatchDataLoaderTest, LoadSingleEntryIsSuccessful) {
   *data_export_info.mutable_shard_location()
        ->mutable_blob_storage_location()
        ->mutable_path() = kBlobStoragePath;
+  *data_export_info.mutable_sharding_scheme()->mutable_type() = "jch";
+  data_export_info.mutable_sharding_scheme()->set_num_shards(50);
   EXPECT_CALL(*mock_match_data_provider_, GetMatchData)
       .WillOnce(MockGetMatchDataWithSingleRow);
   EXPECT_CALL(*mock_match_data_storage_, StartUpdate)
@@ -424,6 +428,36 @@ TEST_F(MatchDataLoaderTest, LoadSingleEntryIsSuccessful) {
 
   EXPECT_THAT(match_data_rows_,
               ElementsAre(EqualsProto(GetSampleMatchDataRow())));
+
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 3);
+  const auto& duration_metric =
+      mock_otel_metric_client_->GetRecordedMetrics()[0];
+  EXPECT_EQ(duration_metric.name, "data_loader_update_duration");
+  EXPECT_EQ(duration_metric.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_FALSE(duration_metric.value.empty());
+  EXPECT_EQ(duration_metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_EQ(duration_metric.labels.at("data_export_id"), kDataExportId);
+  EXPECT_EQ(duration_metric.labels.at("sharding_scheme_type"), "jch");
+  EXPECT_EQ(duration_metric.labels.at("sharding_scheme_num_shards"), "50");
+
+  const auto& full_cycle_metric =
+      mock_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(full_cycle_metric.name, "data_loader_update_full_cycle_duration");
+  EXPECT_EQ(full_cycle_metric.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_FALSE(full_cycle_metric.value.empty());
+  EXPECT_EQ(full_cycle_metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_EQ(full_cycle_metric.labels.at("data_export_id"), kDataExportId);
+  EXPECT_EQ(full_cycle_metric.labels.at("sharding_scheme_type"), "jch");
+  EXPECT_EQ(full_cycle_metric.labels.at("sharding_scheme_num_shards"), "50");
+
+  const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[2];
+  EXPECT_EQ(age_metric.name, "data_loader_duration_since_last_refresh");
+  EXPECT_EQ(age_metric.type, MetricType::METRIC_TYPE_GAUGE);
+  EXPECT_FALSE(age_metric.value.empty());
+  EXPECT_EQ(age_metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_EQ(age_metric.labels.at("data_export_id"), kDataExportId);
+  EXPECT_EQ(age_metric.labels.at("sharding_scheme_type"), "jch");
+  EXPECT_EQ(age_metric.labels.at("sharding_scheme_num_shards"), "50");
 }
 
 TEST_F(MatchDataLoaderTest, LoadMultipleEntriesIsSuccessful) {
@@ -435,6 +469,8 @@ TEST_F(MatchDataLoaderTest, LoadMultipleEntriesIsSuccessful) {
   *data_export_info.mutable_shard_location()
        ->mutable_blob_storage_location()
        ->mutable_path() = kBlobStoragePath;
+  *data_export_info.mutable_sharding_scheme()->mutable_type() = "jch";
+  data_export_info.mutable_sharding_scheme()->set_num_shards(50);
   EXPECT_CALL(*mock_match_data_provider_, GetMatchData)
       .WillOnce(MockGetMatchDataWithMultipleRows);
   EXPECT_CALL(*mock_match_data_storage_, StartUpdate)
@@ -455,6 +491,36 @@ TEST_F(MatchDataLoaderTest, LoadMultipleEntriesIsSuccessful) {
   EXPECT_THAT(match_data_rows_,
               UnorderedElementsAre(EqualsProto(GetSampleMatchDataRow()),
                                    EqualsProto(GetSampleMatchDataRow2())));
+
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 3);
+  const auto& duration_metric =
+      mock_otel_metric_client_->GetRecordedMetrics()[0];
+  EXPECT_EQ(duration_metric.name, "data_loader_update_duration");
+  EXPECT_EQ(duration_metric.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_FALSE(duration_metric.value.empty());
+  EXPECT_EQ(duration_metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_EQ(duration_metric.labels.at("data_export_id"), kDataExportId);
+  EXPECT_EQ(duration_metric.labels.at("sharding_scheme_type"), "jch");
+  EXPECT_EQ(duration_metric.labels.at("sharding_scheme_num_shards"), "50");
+
+  const auto& full_cycle_metric =
+      mock_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(full_cycle_metric.name, "data_loader_update_full_cycle_duration");
+  EXPECT_EQ(full_cycle_metric.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_FALSE(full_cycle_metric.value.empty());
+  EXPECT_EQ(full_cycle_metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_EQ(full_cycle_metric.labels.at("data_export_id"), kDataExportId);
+  EXPECT_EQ(full_cycle_metric.labels.at("sharding_scheme_type"), "jch");
+  EXPECT_EQ(full_cycle_metric.labels.at("sharding_scheme_num_shards"), "50");
+
+  const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[2];
+  EXPECT_EQ(age_metric.name, "data_loader_duration_since_last_refresh");
+  EXPECT_EQ(age_metric.type, MetricType::METRIC_TYPE_GAUGE);
+  EXPECT_FALSE(age_metric.value.empty());
+  EXPECT_EQ(age_metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_EQ(age_metric.labels.at("data_export_id"), kDataExportId);
+  EXPECT_EQ(age_metric.labels.at("sharding_scheme_type"), "jch");
+  EXPECT_EQ(age_metric.labels.at("sharding_scheme_num_shards"), "50");
 }
 
 TEST_F(MatchDataLoaderTest, LoadWithImmediateFetchFailureCancelsUpdate) {

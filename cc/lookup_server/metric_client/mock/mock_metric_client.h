@@ -21,10 +21,9 @@
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/string_view.h"
+#include "cc/lookup_server/interface/metric_client_interface.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "gmock/gmock.h"
-
-#include "cc/lookup_server/interface/metric_client_interface.h"
 #include "protos/lookup_server/backend/data_export_info.pb.h"
 
 namespace google::confidential_match::lookup_server {
@@ -43,6 +42,14 @@ class MockMetricClient : public MetricClientInterface {
 
   scp::core::ExecutionResult RecordMetric(
       absl::string_view name, absl::string_view value, MetricUnit unit,
+      const absl::flat_hash_map<std::string, std::string>& labels) noexcept
+      override {
+    return RecordMetric();
+  }
+
+  scp::core::ExecutionResult RecordMetric(
+      absl::string_view name, absl::string_view value, MetricUnit unit,
+      MetricType type,
       const absl::flat_hash_map<std::string, std::string>& labels) noexcept
       override {
     return RecordMetric();

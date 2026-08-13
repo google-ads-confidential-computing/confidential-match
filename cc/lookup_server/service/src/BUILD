@@ -47,6 +47,7 @@ cc_library(
         "//cc/external:scp_cpio_metric_proto",
         "//cc/lookup_server/converters/src:converters_lib",
         "//cc/lookup_server/interface:lookup_server_interface_lib",
+        "//cc/lookup_server/metric_client/src:metric_client",
         "//cc/lookup_server/public/src:errors_lib",
         "//protos/lookup_server/api:cc_proto",
         "//protos/lookup_server/backend:cc_proto",

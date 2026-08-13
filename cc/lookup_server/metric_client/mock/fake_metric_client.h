@@ -18,18 +18,26 @@
 #define CC_LOOKUP_SERVER_METRIC_CLIENT_MOCK_FAKE_METRIC_CLIENT_H_
 
 #include <string>
+#include <vector>
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/string_view.h"
-#include "cc/public/core/interface/execution_result.h"
-
 #include "cc/lookup_server/interface/metric_client_interface.h"
+#include "cc/public/core/interface/execution_result.h"
 #include "protos/lookup_server/backend/data_export_info.pb.h"
 
 namespace google::confidential_match::lookup_server {
 
 class FakeMetricClient : public MetricClientInterface {
  public:
+  struct RecordedMetric {
+    std::string name;
+    std::string value;
+    MetricUnit unit;
+    MetricType type;
+    absl::flat_hash_map<std::string, std::string> labels;
+  };
+
   scp::core::ExecutionResult Init() noexcept override {
     return scp::core::SuccessExecutionResult();
   }
@@ -42,18 +50,58 @@ class FakeMetricClient : public MetricClientInterface {
     return scp::core::SuccessExecutionResult();
   }
 
+  // TODO(b/542801533): Remove this method when cleaning up legacy metrics.
   scp::core::ExecutionResult RecordMetric(absl::string_view name,
                                           absl::string_view value,
                                           MetricUnit unit) noexcept override {
+    recorded_metrics_.push_back({
+        std::string(name),
+        std::string(value),
+        unit,
+        MetricType::METRIC_TYPE_UNKNOWN,
+        {},
+    });
+    return scp::core::SuccessExecutionResult();
+  }
+
+  // TODO(b/542801533): Remove this method when cleaning up legacy metrics.
+  scp::core::ExecutionResult RecordMetric(
+      absl::string_view name, absl::string_view value, MetricUnit unit,
+      const absl::flat_hash_map<std::string, std::string>& labels) noexcept
+      override {
+    recorded_metrics_.push_back({
+        std::string(name),
+        std::string(value),
+        unit,
+        MetricType::METRIC_TYPE_UNKNOWN,
+        labels,
+    });
     return scp::core::SuccessExecutionResult();
   }
 
   scp::core::ExecutionResult RecordMetric(
       absl::string_view name, absl::string_view value, MetricUnit unit,
+      MetricType type,
       const absl::flat_hash_map<std::string, std::string>& labels) noexcept
       override {
+    recorded_metrics_.push_back({
+        std::string(name),
+        std::string(value),
+        unit,
+        type,
+        labels,
+    });
     return scp::core::SuccessExecutionResult();
   }
+
+  const std::vector<RecordedMetric>& GetRecordedMetrics() const noexcept {
+    return recorded_metrics_;
+  }
+
+  void ClearRecordedMetrics() noexcept { recorded_metrics_.clear(); }
+
+ private:
+  std::vector<RecordedMetric> recorded_metrics_;
 };
 
 }  // namespace google::confidential_match::lookup_server
