@@ -314,7 +314,6 @@ absl::Status StopScpService(ServiceInterface& service,
     options.fetching_failure_cache_lifetime =
         std::chrono::seconds(proto.fetching_failure_cache_lifetime().seconds());
   }
-  options.enable_key_fetching_metrics = proto.enable_key_fetching_metrics();
   options.enable_active_keys_api_for_encryption_keys =
       proto.enable_active_keys_api_for_encryption_keys();
 
@@ -322,8 +321,6 @@ absl::Status StopScpService(ServiceInterface& service,
     options.auto_refresh_time_duration =
         std::chrono::seconds(proto.auto_refresh_time_duration().seconds());
   }
-  options.enable_on_demand_fetching_for_hmac_key =
-      proto.enable_on_demand_fetching_for_hmac_key();
   options.enable_on_demand_fetching_lock_for_encryption_key =
       proto.enable_on_demand_fetching_lock_for_encryption_key();
 

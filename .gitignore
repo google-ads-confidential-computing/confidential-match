@@ -9,8 +9,10 @@ bazel-*
 *.iml
 *~
 .terraform
-# NOTE: .terraform.lock.hcl should be checked into git
+# NOTE: .terraform.lock.hcl should be checked into git for environments, but ignored for modules and applications
 # https://www.terraform.io/docs/language/dependency-lock.html#lock-file-location
+**/modules/**/.terraform.lock.hcl
+**/applications/**/.terraform.lock.hcl
 
 # Ignore generated files for eclipse lsp
 /pom.xml

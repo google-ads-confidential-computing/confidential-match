@@ -493,6 +493,16 @@ alias(
 )
 
 alias(
+    name = "scp_cpio_key_coordinator_configuration_proto",
+    actual = "@com_google_adm_cloud_scp//cc/public/cpio/utils/key_fetching/proto:key_coordinator_configuration_proto",
+)
+
+alias(
+    name = "scp_cpio_key_coordinator_configuration_cc_proto",
+    actual = "@com_google_adm_cloud_scp//cc/public/cpio/utils/key_fetching/proto:key_coordinator_configuration_cc_proto",
+)
+
+alias(
     name = "scp_cpio_interface_lib",
     actual = "@com_google_adm_cloud_scp//cc/public/cpio/interface:cpio",
 )

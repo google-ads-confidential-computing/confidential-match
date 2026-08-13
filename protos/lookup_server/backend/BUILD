@@ -20,8 +20,15 @@ package(default_visibility = ["//visibility:public"])
 
 proto_library(
     name = "proto",
-    srcs = glob(["*.proto"]),
-    deps = ["//protos/core:proto"],
+    srcs = glob(
+        ["*.proto"],
+        exclude = [
+            "coordinator_set_configurations.proto",
+        ],
+    ),
+    deps = [
+        "//protos/core:proto",
+    ],
 )
 
 cc_proto_library(
@@ -32,4 +39,19 @@ cc_proto_library(
 java_proto_library(
     name = "java_proto",
     deps = [":proto"],
+)
+
+proto_library(
+    name = "coordinator_set_configurations_proto",
+    srcs = ["coordinator_set_configurations.proto"],
+    deps = [
+        "//cc/external:scp_cpio_encryption_key_prefetch_config_proto",
+        "//cc/external:scp_cpio_key_coordinator_configuration_proto",
+        "@com_google_protobuf//:duration_proto",
+    ],
+)
+
+cc_proto_library(
+    name = "coordinator_set_configurations_cc_proto",
+    deps = [":coordinator_set_configurations_proto"],
 )

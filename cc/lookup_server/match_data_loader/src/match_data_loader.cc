@@ -102,8 +102,6 @@ constexpr absl::string_view kShardingSchemeTypeMetricKey =
 constexpr absl::string_view kShardingSchemeNumShardsMetricKey =
     "sharding_scheme_num_shards";
 constexpr absl::string_view kIsSuccessfulMetricKey = "is_successful";
-constexpr absl::string_view kTrueMetricValue = "true";
-constexpr absl::string_view kFalseMetricValue = "false";
 
 // The delay before retrying when a data loading operation fails to start
 constexpr int kLoadErrorRetryDelaySeconds = 30;
@@ -360,7 +358,8 @@ void MatchDataLoader::HandleMatchDataBatchCallback(
     std::shared_ptr<std::atomic_uint64_t> threads_finished_count,
     std::shared_ptr<std::atomic_bool> queue_reads_complete) noexcept {
   ++*threads_started_count;
-
+  absl::flat_hash_map<std::string, std::string> metric_labels =
+      BuildMetricLabels(data_export_info);
   if (context_is_finished && context.result != SuccessExecutionResult()) {
     SCP_ERROR_CONTEXT(
         kComponentName, context, context.result,
@@ -373,16 +372,19 @@ void MatchDataLoader::HandleMatchDataBatchCallback(
                            "Unable to cancel failed data loading operation.");
     }
 
-    absl::flat_hash_map<std::string, std::string> metric_labels =
-        BuildMetricLabels(data_export_info);
-    metric_labels[kIsSuccessfulMetricKey] = kFalseMetricValue;
-    RecordMetric(kRecordCountMetricName, record_count->load(), metric_labels);
-    RecordMetric(kKeyCountMetricName, key_count->load(), metric_labels);
+    // Record metrics.
+    absl::flat_hash_map<std::string, std::string> metric_labels_legacy =
+        metric_labels;
+    metric_labels_legacy[kIsSuccessfulMetricKey] = kFalseMetricValue;
+    RecordMetric(kRecordCountMetricName, record_count->load(),
+                 metric_labels_legacy);
+    RecordMetric(kKeyCountMetricName, key_count->load(), metric_labels_legacy);
     RecordMetric(kTableUpdateDurationMetricName, absl::Now() - start_time,
-                 metric_labels);
-    RecordDurationMetric(kDataLoaderUpdateFullCycleDurationMetricName,
-                         absl::Now() - start_time,
-                         MetricType::METRIC_TYPE_HISTOGRAM, metric_labels);
+                 metric_labels_legacy);
+    // metric type inaccurate, will be removed
+    RecordDurationMetric(
+        kDataLoaderUpdateFullCycleDurationMetricName, absl::Now() - start_time,
+        MetricType::METRIC_TYPE_HISTOGRAM, metric_labels_legacy);
     return;
   }
 
@@ -437,10 +439,9 @@ void MatchDataLoader::HandleMatchDataBatchCallback(
     if (threads_started_count->load() == num_finished_threads) {
       // At this point, all other threads have completed writing match data
       // successfully
-      absl::flat_hash_map<std::string, std::string> metric_labels =
-          BuildMetricLabels(data_export_info);
       RecordMetric(kDataFetchingDurationMetricName, absl::Now() - start_time,
                    metric_labels);
+      // metric type inaccurate, will be removed
       RecordDurationMetric(kDataLoaderUpdateDurationMetricName,
                            absl::Now() - start_time,
                            MetricType::METRIC_TYPE_HISTOGRAM, metric_labels);
@@ -509,17 +510,20 @@ void MatchDataLoader::FinalizeUpdate(
 
 ExecutionResultOr<DataExportInfo>
 MatchDataLoader::GetDataExportInfo() noexcept {
+  const absl::Time start_time = absl::Now();
   // TODO(b/271863149): Use asynchronous method to avoid blocking.
   GetDataExportInfoRequest request = {.cluster_group_id = cluster_group_id_,
                                       .cluster_id = cluster_id_};
   ExecutionResultOr<GetDataExportInfoResponse> export_info_or =
       orchestrator_client_->GetDataExportInfo(request);
+  RecordGetDataExportInfoDurationMetric(export_info_or.result(), start_time);
   RETURN_IF_FAILURE(export_info_or.result());
   return *export_info_or->data_export_info;
 }
 
 ExecutionResultOr<ExportMetadata> MatchDataLoader::GetExportMetadata(
     const Location& location) noexcept {
+  const absl::Time start_time = absl::Now();
   // TODO(b/271863149): Use asynchronous implementation to avoid blocking.
   std::promise<ExecutionResult> result_promise;
   std::promise<std::string> raw_export_metadata_promise;
@@ -535,7 +539,13 @@ ExecutionResultOr<ExportMetadata> MatchDataLoader::GetExportMetadata(
   };
 
   ExecutionResult schedule_result = data_provider_->Get(context);
+  absl::flat_hash_map<std::string, std::string> labels;
+  labels[kIsSuccessfulLabel] = kFalseMetricValue;
   if (!schedule_result.Successful()) {
+    RecordDurationMetric(kGetExportMetadataDurationMetricName,
+                         absl::Now() - start_time,
+                         MetricType::METRIC_TYPE_GAUGE, labels,
+                         MetricUnit::METRIC_UNIT_MILLISECONDS);
     SCP_ERROR(kComponentName, kZeroUuid, schedule_result,
               absl::StrFormat("Unable to schedule export metadata fetch. "
                               "(Bucket: '%s', Path: '%s')",
@@ -546,6 +556,10 @@ ExecutionResultOr<ExportMetadata> MatchDataLoader::GetExportMetadata(
 
   ExecutionResult get_result = result_promise.get_future().get();
   if (!get_result.Successful()) {
+    RecordDurationMetric(kGetExportMetadataDurationMetricName,
+                         absl::Now() - start_time,
+                         MetricType::METRIC_TYPE_GAUGE, labels,
+                         MetricUnit::METRIC_UNIT_MILLISECONDS);
     SCP_ERROR(kComponentName, kZeroUuid, get_result,
               absl::StrFormat("Error while fetching export metadata. "
                               "(Bucket: '%s', Path: '%s')",
@@ -556,8 +570,18 @@ ExecutionResultOr<ExportMetadata> MatchDataLoader::GetExportMetadata(
 
   ExecutionResultOr<ExportMetadata> export_metadata_or =
       ParseExportMetadata(raw_export_metadata_promise.get_future().get());
-  RETURN_IF_FAILURE(export_metadata_or.result());
+  if (!export_metadata_or.result().Successful()) {
+    RecordDurationMetric(kGetExportMetadataDurationMetricName,
+                         absl::Now() - start_time,
+                         MetricType::METRIC_TYPE_GAUGE, labels,
+                         MetricUnit::METRIC_UNIT_MILLISECONDS);
+    return export_metadata_or.result();
+  }
 
+  labels[kIsSuccessfulLabel] = kTrueMetricValue;
+  RecordDurationMetric(kGetExportMetadataDurationMetricName,
+                       absl::Now() - start_time, MetricType::METRIC_TYPE_GAUGE,
+                       labels, MetricUnit::METRIC_UNIT_MILLISECONDS);
   SCP_INFO(kComponentName, kZeroUuid,
            absl::StrFormat("Retrieved export metadata. "
                            "(Bucket: '%s', Path: '%s')",
@@ -580,6 +604,18 @@ void MatchDataLoader::RecordMetric(
   }
 }
 
+void MatchDataLoader::RecordGetDataExportInfoDurationMetric(
+    const scp::core::ExecutionResult& result, absl::Time start_time) noexcept {
+  absl::flat_hash_map<std::string, std::string> labels;
+  labels[kIsSuccessfulLabel] =
+      result.Successful() ? kTrueMetricValue : kFalseMetricValue;
+  labels[kClusterIdLabel] = cluster_id_;
+  labels[kClusterGroupIdLabel] = cluster_group_id_;
+  RecordDurationMetric(kGetDataExportInfoDurationMetricName,
+                       absl::Now() - start_time, MetricType::METRIC_TYPE_GAUGE,
+                       labels, MetricUnit::METRIC_UNIT_MILLISECONDS);
+}
+
 void MatchDataLoader::RecordMetric(
     absl::string_view name, absl::Duration duration,
     const absl::flat_hash_map<std::string, std::string>& labels) noexcept {
@@ -596,13 +632,15 @@ void MatchDataLoader::RecordMetric(
 
 void MatchDataLoader::RecordDurationMetric(
     absl::string_view name, absl::Duration duration, MetricType type,
-    const absl::flat_hash_map<std::string, std::string>& labels) noexcept {
+    const absl::flat_hash_map<std::string, std::string>& labels,
+    MetricUnit unit) noexcept {
   if (otel_metric_client_ == nullptr) {
     return;
   }
-  int64_t seconds = absl::ToInt64Seconds(duration);
-  otel_metric_client_->RecordMetric(name, std::to_string(seconds),
-                                    MetricUnit::METRIC_UNIT_SECONDS, type,
+  int64_t value = (unit == MetricUnit::METRIC_UNIT_MILLISECONDS)
+                      ? absl::ToInt64Milliseconds(duration)
+                      : absl::ToInt64Seconds(duration);
+  otel_metric_client_->RecordMetric(name, std::to_string(value), unit, type,
                                     labels);
 }
 

@@ -38,8 +38,10 @@ inline constexpr absl::string_view kLookupServerRequestErrorCountMetricName =
     "lookup_server_request_error_count";
 
 // Data loader metric names
-// Measures the time taken to retrieve the latest GCS data export and update
-// the lookup table in seconds.
+
+// todo: Inaccurate metrics type, following 2 metrics will be deprecated and
+// replaced. Measures the time taken to retrieve the latest GCS data export and
+// update the lookup table in seconds.
 inline constexpr absl::string_view kDataLoaderUpdateDurationMetricName =
     "data_loader_update_duration";
 // Measures the time taken to retrieve the latest GCS data export, update to the
@@ -48,11 +50,22 @@ inline constexpr absl::string_view kDataLoaderUpdateDurationMetricName =
 inline constexpr absl::string_view
     kDataLoaderUpdateFullCycleDurationMetricName =
         "data_loader_update_full_cycle_duration";
+// todo: End.
+
 // Measures the time duration since the last successful data refresh in
 // seconds.
 inline constexpr absl::string_view
     kDataLoaderDurationSinceLastRefreshMetricName =
         "data_loader_duration_since_last_refresh";
+
+// Measures the latency of fetching the DataExportInfo from the
+// OrchestratorClient in milliseconds.
+inline constexpr absl::string_view kGetDataExportInfoDurationMetricName =
+    "data_loader_data_export_info_duration";
+// Measures the latency of fetching the ExportMetadata file from the
+// DataProvider in milliseconds.
+inline constexpr absl::string_view kGetExportMetadataDurationMetricName =
+    "data_loader_get_export_metadata_duration";
 
 // Match data provider metric names
 // Match data storage metric names
@@ -62,8 +75,11 @@ inline constexpr absl::string_view
 inline constexpr absl::string_view kKeyFormatLabel = "KeyFormat";
 inline constexpr absl::string_view kSuccessfulRequestLabel =
     "IsRequestSuccessful";
+inline constexpr absl::string_view kIsSuccessfulLabel = "IsSuccessful";
 inline constexpr absl::string_view kBackendErrorReasonLabel =
     "BackendErrorReason";
+inline constexpr absl::string_view kClusterIdLabel = "cluster_id";
+inline constexpr absl::string_view kClusterGroupIdLabel = "cluster_group_id";
 
 inline constexpr char kKeyFormatUnspecifiedMetricLabel[] = "UNSPECIFIED";
 inline constexpr char kKeyFormatHashedMetricLabel[] = "HASHED";
@@ -75,6 +91,9 @@ inline constexpr char kKeyFormatHashedEncryptedAwsWrappedMetricLabel[] =
     "HASHED_ENCRYPTED_AWS_WRAPPED_KEY";
 inline constexpr char kKeyFormatHashedEncryptedGcpWrappedMetricLabel[] =
     "HASHED_ENCRYPTED_GCP_WRAPPED_KEY";
+
+inline constexpr absl::string_view kTrueMetricValue = "true";
+inline constexpr absl::string_view kFalseMetricValue = "false";
 
 /**
  * @brief Client responsible for recording metrics.
