@@ -17,6 +17,7 @@
 #ifndef CC_LOOKUP_SERVER_METRIC_CLIENT_MOCK_FAKE_METRIC_CLIENT_H_
 #define CC_LOOKUP_SERVER_METRIC_CLIENT_MOCK_FAKE_METRIC_CLIENT_H_
 
+#include <mutex>
 #include <string>
 #include <vector>
 
@@ -54,6 +55,7 @@ class FakeMetricClient : public MetricClientInterface {
   scp::core::ExecutionResult RecordMetric(absl::string_view name,
                                           absl::string_view value,
                                           MetricUnit unit) noexcept override {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
     recorded_metrics_.push_back({
         std::string(name),
         std::string(value),
@@ -69,6 +71,7 @@ class FakeMetricClient : public MetricClientInterface {
       absl::string_view name, absl::string_view value, MetricUnit unit,
       const absl::flat_hash_map<std::string, std::string>& labels) noexcept
       override {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
     recorded_metrics_.push_back({
         std::string(name),
         std::string(value),
@@ -84,6 +87,7 @@ class FakeMetricClient : public MetricClientInterface {
       MetricType type,
       const absl::flat_hash_map<std::string, std::string>& labels) noexcept
       override {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
     recorded_metrics_.push_back({
         std::string(name),
         std::string(value),
@@ -95,12 +99,17 @@ class FakeMetricClient : public MetricClientInterface {
   }
 
   const std::vector<RecordedMetric>& GetRecordedMetrics() const noexcept {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
     return recorded_metrics_;
   }
 
-  void ClearRecordedMetrics() noexcept { recorded_metrics_.clear(); }
+  void ClearRecordedMetrics() noexcept {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
+    recorded_metrics_.clear();
+  }
 
  private:
+  mutable std::mutex metrics_mutex_;
   std::vector<RecordedMetric> recorded_metrics_;
 };
 

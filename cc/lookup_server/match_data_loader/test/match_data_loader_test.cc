@@ -33,9 +33,11 @@
 #include "cc/lookup_server/match_data_provider/mock/mock_streamed_match_data_provider.h"
 #include "cc/lookup_server/match_data_provider/src/error_codes.h"
 #include "cc/lookup_server/match_data_storage/mock/mock_match_data_storage.h"
+#include "cc/lookup_server/match_data_storage/src/error_codes.h"
 #include "cc/lookup_server/metric_client/mock/fake_metric_client.h"
 #include "cc/lookup_server/metric_client/mock/mock_metric_client.h"
 #include "cc/lookup_server/orchestrator_client/mock/mock_orchestrator_client.h"
+#include "cc/lookup_server/orchestrator_client/src/error_codes.h"
 #include "cc/lookup_server/types/match_data_group.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "cc/public/core/test/interface/execution_result_matchers.h"
@@ -80,6 +82,8 @@ constexpr absl::string_view kClusterId = "test-cluster-id";
 constexpr absl::string_view kKmsResourceName = "test-kms-key";
 constexpr absl::string_view kKmsRegion = "global";
 constexpr absl::string_view kKmsWipProvider = "test-wip";
+constexpr absl::string_view kShardingSchemeType = "jch";
+constexpr int kShardingSchemeNumShards = 11111;
 constexpr absl::string_view kEncryptedDek =
     "EsEBCiQApkGW7eCE1jZqG0tDAXM0t64Hlaa/"
     "8Tycq0YjxVtcbcdZjfYSmAEAY2rrOJP86Q2FW+Z8WSst9DU7yEO4Pij1gfeW+"
@@ -117,6 +121,16 @@ class MatchDataLoaderTest : public testing::Test {
   void SetUp() override {
     EXPECT_SUCCESS(match_data_loader_->Init());
     match_data_rows_ = {};
+    *data_export_info_.mutable_data_export_id() = kDataExportId;
+    *data_export_info_.mutable_shard_location()
+         ->mutable_blob_storage_location()
+         ->mutable_bucket_name() = kBucketName;
+    *data_export_info_.mutable_shard_location()
+         ->mutable_blob_storage_location()
+         ->mutable_path() = kBlobStoragePath;
+    data_export_info_.mutable_sharding_scheme()->set_type(kShardingSchemeType);
+    data_export_info_.mutable_sharding_scheme()->set_num_shards(
+        kShardingSchemeNumShards);
   }
 
   std::shared_ptr<MockDataProvider> mock_data_provider_;
@@ -128,6 +142,7 @@ class MatchDataLoaderTest : public testing::Test {
   std::shared_ptr<MockCryptoClient> mock_crypto_client_;
   std::unique_ptr<MatchDataLoaderInterface> match_data_loader_;
   std::vector<MatchDataRow> match_data_rows_;
+  DataExportInfo data_export_info_;
 };
 
 // Builds a sample match data row for testing.
@@ -176,15 +191,38 @@ ExecutionResult MockGetExportMetadata(
 // Helper mock to simulate a scheduling failure during metadata fetch.
 ExecutionResult MockGetExportMetadataScheduleFailure(
     AsyncContext<Location, std::string> context) {
-  return FailureExecutionResult(12345);
+  return FailureExecutionResult(MATCH_DATA_PROVIDER_FETCH_ERROR);
 }
 
 // Helper mock to simulate an async metadata fetch failure.
 ExecutionResult MockGetExportMetadataAsyncFailure(
     AsyncContext<Location, std::string> context) {
-  context.result = FailureExecutionResult(12345);
+  context.result = FailureExecutionResult(MATCH_DATA_PROVIDER_FETCH_ERROR);
   context.Finish();
   return SuccessExecutionResult();
+}
+
+// Helper mock to simulate a parsing failure during metadata read.
+ExecutionResult MockGetInvalidExportMetadata(
+    AsyncContext<Location, std::string> context) {
+  context.result = SuccessExecutionResult();
+  context.response = std::make_shared<std::string>("invalid json metadata");
+  context.Finish();
+  return SuccessExecutionResult();
+}
+
+void VerifyMetricLabels(const FakeMetricClient::RecordedMetric& metric) {
+  EXPECT_EQ(metric.labels.at("cluster_id"), kClusterId);
+  EXPECT_EQ(metric.labels.at("cluster_group_id"), kClusterGroupId);
+  EXPECT_EQ(metric.labels.at("data_export_id"), kDataExportId);
+  EXPECT_EQ(metric.labels.at("sharding_scheme_type"), kShardingSchemeType);
+  EXPECT_EQ(metric.labels.at("sharding_scheme_num_shards"),
+            std::to_string(kShardingSchemeNumShards));
+}
+
+void VerifyMetricClusterLabels(const FakeMetricClient::RecordedMetric& metric) {
+  EXPECT_EQ(metric.labels.at("cluster_id"), kClusterId);
+  EXPECT_EQ(metric.labels.at("cluster_group_id"), kClusterGroupId);
 }
 
 // Helper to capture the MatchDataRow arguments produced during a test.
@@ -302,7 +340,8 @@ TEST_F(MatchDataLoaderTest, StartStop) {
               GetDataExportInfo(A<const GetDataExportInfoRequest&>()))
       .Times(AtMost(1))
       .WillOnce(Return(GetDataExportInfoResponse{
-          .data_export_info = std::make_shared<DataExportInfo>()}));
+          .data_export_info =
+              std::make_shared<DataExportInfo>(data_export_info_)}));
   EXPECT_CALL(*mock_match_data_storage_, StartUpdate)
       .Times(AtMost(1))
       .WillOnce(Return(SuccessExecutionResult()));
@@ -327,8 +366,7 @@ TEST_F(MatchDataLoaderTest, StartStop) {
       found_get_data_export_info = true;
       EXPECT_EQ(metric.type, MetricType::METRIC_TYPE_GAUGE);
       EXPECT_EQ(metric.unit, MetricUnit::METRIC_UNIT_MILLISECONDS);
-      EXPECT_EQ(metric.labels.at("cluster_id"), kClusterId);
-      EXPECT_EQ(metric.labels.at("cluster_group_id"), kClusterGroupId);
+      VerifyMetricClusterLabels(metric);
       EXPECT_FALSE(metric.value.empty());
       EXPECT_EQ(metric.labels.at("IsSuccessful"), "true");
     } else if (metric.name == "data_loader_get_export_metadata_duration") {
@@ -337,13 +375,46 @@ TEST_F(MatchDataLoaderTest, StartStop) {
       EXPECT_EQ(metric.unit, MetricUnit::METRIC_UNIT_MILLISECONDS);
       EXPECT_FALSE(metric.value.empty());
       EXPECT_EQ(metric.labels.at("IsSuccessful"), "true");
+      VerifyMetricLabels(metric);
     }
   }
   EXPECT_TRUE(found_get_data_export_info);
   EXPECT_TRUE(found_get_export_metadata);
 }
 
-TEST_F(MatchDataLoaderTest, MetadataFetchScheduleError) {
+TEST_F(MatchDataLoaderTest, GetDataExportInfoFailure) {
+  EXPECT_CALL(*mock_orchestrator_client_,
+              GetDataExportInfo(A<const GetDataExportInfoRequest&>()))
+      .Times(AtMost(1))
+      .WillOnce(
+          Return(FailureExecutionResult(ORCHESTRATOR_CLIENT_PARSE_ERROR)));
+  EXPECT_CALL(*mock_metric_client_, RecordMetric)
+      .WillRepeatedly(Return(SuccessExecutionResult()));
+  MatchDataLoader match_data_loader(
+      mock_data_provider_, mock_match_data_provider_, mock_match_data_storage_,
+      mock_metric_client_, mock_otel_metric_client_, mock_orchestrator_client_,
+      mock_crypto_client_, kClusterGroupId, kClusterId, kKmsResourceName,
+      kKmsRegion, kKmsWipProvider, kDataLoadingIntervalMins);
+
+  EXPECT_SUCCESS(match_data_loader.Init());
+  EXPECT_SUCCESS(match_data_loader.Run());
+  // Wait for load to run
+  absl::SleepFor(absl::Seconds(1));
+  EXPECT_SUCCESS(match_data_loader.Stop());
+
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 2);
+  const auto& err_metric = mock_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(err_metric.name, "data_loader_load_error_count");
+  EXPECT_EQ(err_metric.type, MetricType::METRIC_TYPE_COUNTER);
+  EXPECT_EQ(err_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(err_metric.value, "1");
+  EXPECT_EQ(err_metric.labels.at("BackendErrorReason"),
+            "Failed to parse response from the Orchestrator.");
+  EXPECT_EQ(err_metric.labels.at("cluster_id"), kClusterId);
+  EXPECT_EQ(err_metric.labels.at("cluster_group_id"), kClusterGroupId);
+}
+
+TEST_F(MatchDataLoaderTest, GetExportMetadataFetchScheduleError) {
   EXPECT_CALL(*mock_data_provider_, Get)
       .Times(AtMost(1))
       .WillOnce(MockGetExportMetadataScheduleFailure);
@@ -351,7 +422,8 @@ TEST_F(MatchDataLoaderTest, MetadataFetchScheduleError) {
               GetDataExportInfo(A<const GetDataExportInfoRequest&>()))
       .Times(AtMost(1))
       .WillOnce(Return(GetDataExportInfoResponse{
-          .data_export_info = std::make_shared<DataExportInfo>()}));
+          .data_export_info =
+              std::make_shared<DataExportInfo>(data_export_info_)}));
   EXPECT_CALL(*mock_metric_client_, RecordMetric)
       .WillRepeatedly(Return(SuccessExecutionResult()));
   MatchDataLoader match_data_loader(
@@ -366,20 +438,33 @@ TEST_F(MatchDataLoaderTest, MetadataFetchScheduleError) {
   absl::SleepFor(absl::Seconds(1));
   EXPECT_SUCCESS(match_data_loader.Stop());
 
-  bool found_get_export_metadata = false;
-  for (const auto& metric : mock_otel_metric_client_->GetRecordedMetrics()) {
-    if (metric.name == "data_loader_get_export_metadata_duration") {
-      found_get_export_metadata = true;
-      EXPECT_EQ(metric.type, MetricType::METRIC_TYPE_GAUGE);
-      EXPECT_EQ(metric.unit, MetricUnit::METRIC_UNIT_MILLISECONDS);
-      EXPECT_FALSE(metric.value.empty());
-      EXPECT_EQ(metric.labels.at("IsSuccessful"), "false");
-    }
-  }
-  EXPECT_TRUE(found_get_export_metadata);
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 3);
+
+  const auto& metric_dur = mock_otel_metric_client_->GetRecordedMetrics()[0];
+  EXPECT_EQ(metric_dur.name, "data_loader_data_export_info_duration");
+  EXPECT_EQ(metric_dur.type, MetricType::METRIC_TYPE_GAUGE);
+  EXPECT_EQ(metric_dur.unit, MetricUnit::METRIC_UNIT_MILLISECONDS);
+  EXPECT_EQ(metric_dur.labels.at("IsSuccessful"), "true");
+  VerifyMetricClusterLabels(metric_dur);
+
+  const auto& metric_err = mock_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(metric_err.name, "data_loader_load_error_count");
+  EXPECT_EQ(metric_err.type, MetricType::METRIC_TYPE_COUNTER);
+  EXPECT_EQ(metric_err.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(metric_err.value, "1");
+  EXPECT_EQ(metric_err.labels.at("BackendErrorReason"),
+            "Failed to fetch requested data.");
+  VerifyMetricLabels(metric_err);
+
+  const auto& metric_dur_2 = mock_otel_metric_client_->GetRecordedMetrics()[2];
+  EXPECT_EQ(metric_dur_2.name, "data_loader_get_export_metadata_duration");
+  EXPECT_EQ(metric_dur_2.type, MetricType::METRIC_TYPE_GAUGE);
+  EXPECT_EQ(metric_dur_2.unit, MetricUnit::METRIC_UNIT_MILLISECONDS);
+  EXPECT_EQ(metric_dur_2.labels.at("IsSuccessful"), "false");
+  VerifyMetricLabels(metric_dur_2);
 }
 
-TEST_F(MatchDataLoaderTest, MetadataFetchAsyncError) {
+TEST_F(MatchDataLoaderTest, GetExportMetadataFetchAsyncError) {
   EXPECT_CALL(*mock_data_provider_, Get)
       .Times(AtMost(1))
       .WillOnce(MockGetExportMetadataAsyncFailure);
@@ -387,7 +472,8 @@ TEST_F(MatchDataLoaderTest, MetadataFetchAsyncError) {
               GetDataExportInfo(A<const GetDataExportInfoRequest&>()))
       .Times(AtMost(1))
       .WillOnce(Return(GetDataExportInfoResponse{
-          .data_export_info = std::make_shared<DataExportInfo>()}));
+          .data_export_info =
+              std::make_shared<DataExportInfo>(data_export_info_)}));
   EXPECT_CALL(*mock_metric_client_, RecordMetric)
       .WillRepeatedly(Return(SuccessExecutionResult()));
   MatchDataLoader match_data_loader(
@@ -402,28 +488,71 @@ TEST_F(MatchDataLoaderTest, MetadataFetchAsyncError) {
   absl::SleepFor(absl::Seconds(1));
   EXPECT_SUCCESS(match_data_loader.Stop());
 
-  bool found_get_export_metadata = false;
-  for (const auto& metric : mock_otel_metric_client_->GetRecordedMetrics()) {
-    if (metric.name == "data_loader_get_export_metadata_duration") {
-      found_get_export_metadata = true;
-      EXPECT_EQ(metric.type, MetricType::METRIC_TYPE_GAUGE);
-      EXPECT_EQ(metric.unit, MetricUnit::METRIC_UNIT_MILLISECONDS);
-      EXPECT_FALSE(metric.value.empty());
-      EXPECT_EQ(metric.labels.at("IsSuccessful"), "false");
-    }
-  }
-  EXPECT_TRUE(found_get_export_metadata);
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 3);
+
+  const auto& export_info_duration =
+      mock_otel_metric_client_->GetRecordedMetrics()[0];
+  EXPECT_EQ(export_info_duration.name, "data_loader_data_export_info_duration");
+  EXPECT_EQ(export_info_duration.type, MetricType::METRIC_TYPE_GAUGE);
+  EXPECT_EQ(export_info_duration.unit, MetricUnit::METRIC_UNIT_MILLISECONDS);
+  EXPECT_EQ(export_info_duration.labels.at("IsSuccessful"), "true");
+  VerifyMetricClusterLabels(export_info_duration);
+
+  const auto& metadata_duration =
+      mock_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(metadata_duration.name, "data_loader_get_export_metadata_duration");
+  EXPECT_EQ(metadata_duration.type, MetricType::METRIC_TYPE_GAUGE);
+  EXPECT_EQ(metadata_duration.unit, MetricUnit::METRIC_UNIT_MILLISECONDS);
+  EXPECT_EQ(metadata_duration.labels.at("IsSuccessful"), "false");
+  VerifyMetricLabels(metadata_duration);
+
+  const auto& metadata_fetch_error =
+      mock_otel_metric_client_->GetRecordedMetrics()[2];
+  EXPECT_EQ(metadata_fetch_error.name, "data_loader_load_error_count");
+  EXPECT_EQ(metadata_fetch_error.type, MetricType::METRIC_TYPE_COUNTER);
+  EXPECT_EQ(metadata_fetch_error.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(metadata_fetch_error.value, "1");
+  EXPECT_EQ(metadata_fetch_error.labels.at("BackendErrorReason"),
+            "Failed to fetch requested data.");
+  VerifyMetricLabels(metadata_fetch_error);
+}
+
+TEST_F(MatchDataLoaderTest, GetExportMetadataParseError) {
+  EXPECT_CALL(*mock_data_provider_, Get)
+      .Times(AtMost(1))
+      .WillOnce(MockGetInvalidExportMetadata);
+  EXPECT_CALL(*mock_orchestrator_client_,
+              GetDataExportInfo(A<const GetDataExportInfoRequest&>()))
+      .Times(AtMost(1))
+      .WillOnce(Return(GetDataExportInfoResponse{
+          .data_export_info =
+              std::make_shared<DataExportInfo>(data_export_info_)}));
+  EXPECT_CALL(*mock_metric_client_, RecordMetric)
+      .WillRepeatedly(Return(SuccessExecutionResult()));
+  MatchDataLoader match_data_loader(
+      mock_data_provider_, mock_match_data_provider_, mock_match_data_storage_,
+      mock_metric_client_, mock_otel_metric_client_, mock_orchestrator_client_,
+      mock_crypto_client_, kClusterGroupId, kClusterId, kKmsResourceName,
+      kKmsRegion, kKmsWipProvider, kDataLoadingIntervalMins);
+
+  EXPECT_SUCCESS(match_data_loader.Init());
+  EXPECT_SUCCESS(match_data_loader.Run());
+  // Wait for load to run
+  absl::SleepFor(absl::Seconds(1));
+  EXPECT_SUCCESS(match_data_loader.Stop());
+
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 3);
+  const auto& err_metric = mock_otel_metric_client_->GetRecordedMetrics()[2];
+  EXPECT_EQ(err_metric.name, "data_loader_load_error_count");
+  EXPECT_EQ(err_metric.type, MetricType::METRIC_TYPE_COUNTER);
+  EXPECT_EQ(err_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(err_metric.value, "1");
+  EXPECT_EQ(err_metric.labels.at("BackendErrorReason"),
+            "Unable to parse raw export metadata.");
+  VerifyMetricLabels(err_metric);
 }
 
 TEST_F(MatchDataLoaderTest, LoadWithErrorStartingJobReturnsError) {
-  DataExportInfo data_export_info;
-  *data_export_info.mutable_data_export_id() = kDataExportId;
-  *data_export_info.mutable_shard_location()
-       ->mutable_blob_storage_location()
-       ->mutable_bucket_name() = kBucketName;
-  *data_export_info.mutable_shard_location()
-       ->mutable_blob_storage_location()
-       ->mutable_path() = kBlobStoragePath;
   EXPECT_CALL(*mock_match_data_provider_, GetMatchData)
       .WillOnce(
           Return(FailureExecutionResult(MATCH_DATA_PROVIDER_FETCH_ERROR)));
@@ -433,60 +562,67 @@ TEST_F(MatchDataLoaderTest, LoadWithErrorStartingJobReturnsError) {
   EXPECT_CALL(*mock_crypto_client_, GetCryptoKey).WillOnce(MockGetCryptoKey);
 
   ExecutionResult result =
-      match_data_loader_->Load(data_export_info, kEncryptedDek);
+      match_data_loader_->Load(data_export_info_, kEncryptedDek);
 
   EXPECT_SUCCESS(result);
   EXPECT_THAT(match_data_rows_, IsEmpty());
+
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 1);
+  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[0];
+  EXPECT_EQ(error_metric.name, "data_loader_load_error_count");
+  EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
+  EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(error_metric.value, "1");
+  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"),
+            "Failed to fetch requested data.");
+  VerifyMetricLabels(error_metric);
+  // No duration metric is recorded.
 }
 
 TEST_F(MatchDataLoaderTest, LoadWithInvalidEncryptedDekReturnsError) {
-  DataExportInfo data_export_info;
-  *data_export_info.mutable_data_export_id() = kDataExportId;
-  *data_export_info.mutable_shard_location()
-       ->mutable_blob_storage_location()
-       ->mutable_bucket_name() = kBucketName;
-  *data_export_info.mutable_shard_location()
-       ->mutable_blob_storage_location()
-       ->mutable_path() = kBlobStoragePath;
   EXPECT_CALL(*mock_match_data_provider_, GetMatchData).Times(0);
   EXPECT_CALL(*mock_match_data_storage_, StartUpdate).Times(0);
   EXPECT_CALL(*mock_match_data_storage_, Replace).Times(0);
   EXPECT_CALL(*mock_crypto_client_, GetCryptoKey).Times(0);
 
-  EXPECT_THAT(match_data_loader_->Load(data_export_info, "invalid"),
+  EXPECT_THAT(match_data_loader_->Load(data_export_info_, "invalid"),
               ResultIs(FailureExecutionResult(
                   MATCH_DATA_LOADER_INVALID_ENCRYPTED_DEK)));
   EXPECT_THAT(match_data_rows_, IsEmpty());
+
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 1);
+  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[0];
+  EXPECT_EQ(error_metric.name, "data_loader_load_error_count");
+  EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
+  EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(error_metric.value, "1");
+  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"),
+            "Unable to parse encrypted DEK into keyset.");
+  VerifyMetricLabels(error_metric);
 }
 
 TEST_F(MatchDataLoaderTest, LoadGetCryptoKeyErrorYieldsEmptyList) {
-  DataExportInfo data_export_info;
-  *data_export_info.mutable_data_export_id() = kDataExportId;
-  *data_export_info.mutable_shard_location()
-       ->mutable_blob_storage_location()
-       ->mutable_bucket_name() = kBucketName;
-  *data_export_info.mutable_shard_location()
-       ->mutable_blob_storage_location()
-       ->mutable_path() = kBlobStoragePath;
   EXPECT_CALL(*mock_match_data_provider_, GetMatchData).Times(0);
   EXPECT_CALL(*mock_match_data_storage_, StartUpdate).Times(0);
   EXPECT_CALL(*mock_match_data_storage_, Replace).Times(0);
   EXPECT_CALL(*mock_crypto_client_, GetCryptoKey)
       .WillOnce(MockFailedGetCryptoKey);
 
-  EXPECT_SUCCESS(match_data_loader_->Load(data_export_info, kEncryptedDek));
+  EXPECT_SUCCESS(match_data_loader_->Load(data_export_info_, kEncryptedDek));
   EXPECT_THAT(match_data_rows_, IsEmpty());
+
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 1);
+  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[0];
+  EXPECT_EQ(error_metric.name, "data_loader_load_error_count");
+  EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
+  EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(error_metric.value, "1");
+  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"),
+            "Crypto client failed to get Aead from Keyset.");
+  VerifyMetricLabels(error_metric);
 }
 
 TEST_F(MatchDataLoaderTest, LoadEmptyIsSuccessful) {
-  DataExportInfo data_export_info;
-  *data_export_info.mutable_data_export_id() = kDataExportId;
-  *data_export_info.mutable_shard_location()
-       ->mutable_blob_storage_location()
-       ->mutable_bucket_name() = kBucketName;
-  *data_export_info.mutable_shard_location()
-       ->mutable_blob_storage_location()
-       ->mutable_path() = kBlobStoragePath;
   EXPECT_CALL(*mock_match_data_provider_, GetMatchData)
       .Times(1)
       .WillOnce(MockGetMatchDataWithoutData);
@@ -500,22 +636,46 @@ TEST_F(MatchDataLoaderTest, LoadEmptyIsSuccessful) {
       .Times(AtLeast(1))
       .WillRepeatedly(Return(SuccessExecutionResult()));
 
-  EXPECT_SUCCESS(match_data_loader_->Load(data_export_info, kEncryptedDek));
+  EXPECT_SUCCESS(match_data_loader_->Load(data_export_info_, kEncryptedDek));
   // Wait for finalize threads to complete
   absl::SleepFor(absl::Seconds(1));
+
+  // Validate OpenTelemetry metrics.
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 3);
+  const auto& duration_metric =
+      mock_otel_metric_client_->GetRecordedMetrics()[0];
+  EXPECT_EQ(duration_metric.name, "data_loader_update_duration_in_seconds");
+  EXPECT_EQ(duration_metric.type, MetricType::METRIC_TYPE_GAUGE);
+  EXPECT_FALSE(duration_metric.value.empty());
+  EXPECT_EQ(duration_metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_EQ(duration_metric.labels.at("IsSuccessful"), "true");
+  VerifyMetricLabels(duration_metric);
+
+  const auto& full_cycle_metric =
+      mock_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(full_cycle_metric.name,
+            "data_loader_update_full_cycle_duration_in_seconds");
+  EXPECT_EQ(full_cycle_metric.type, MetricType::METRIC_TYPE_GAUGE);
+  EXPECT_FALSE(full_cycle_metric.value.empty());
+  EXPECT_EQ(full_cycle_metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_EQ(full_cycle_metric.labels.at("IsSuccessful"), "true");
+  VerifyMetricLabels(full_cycle_metric);
+
+  const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[2];
+  EXPECT_EQ(age_metric.name,
+            "data_loader_duration_since_last_refresh_in_seconds");
+  EXPECT_EQ(age_metric.type, MetricType::METRIC_TYPE_GAUGE);
+  EXPECT_FALSE(age_metric.value.empty());
+  EXPECT_EQ(age_metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
+  VerifyMetricClusterLabels(age_metric);
+
+  // Validate legacy metrics.
+  for (const auto& metric : mock_metric_client_->GetRecordedMetrics()) {
+    EXPECT_TRUE(metric.labels.find("IsSuccessful") == metric.labels.end());
+  }
 }
 
 TEST_F(MatchDataLoaderTest, LoadSingleEntryIsSuccessful) {
-  DataExportInfo data_export_info;
-  *data_export_info.mutable_data_export_id() = kDataExportId;
-  *data_export_info.mutable_shard_location()
-       ->mutable_blob_storage_location()
-       ->mutable_bucket_name() = kBucketName;
-  *data_export_info.mutable_shard_location()
-       ->mutable_blob_storage_location()
-       ->mutable_path() = kBlobStoragePath;
-  *data_export_info.mutable_sharding_scheme()->mutable_type() = "jch";
-  data_export_info.mutable_sharding_scheme()->set_num_shards(50);
   EXPECT_CALL(*mock_match_data_provider_, GetMatchData)
       .WillOnce(MockGetMatchDataWithSingleRow);
   EXPECT_CALL(*mock_match_data_storage_, StartUpdate)
@@ -529,7 +689,7 @@ TEST_F(MatchDataLoaderTest, LoadSingleEntryIsSuccessful) {
       .Times(AtLeast(1))
       .WillRepeatedly(Return(SuccessExecutionResult()));
 
-  EXPECT_SUCCESS(match_data_loader_->Load(data_export_info, kEncryptedDek));
+  EXPECT_SUCCESS(match_data_loader_->Load(data_export_info_, kEncryptedDek));
   // Wait for finalize threads to complete
   absl::SleepFor(absl::Seconds(1));
 
@@ -540,46 +700,38 @@ TEST_F(MatchDataLoaderTest, LoadSingleEntryIsSuccessful) {
   ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 3);
   const auto& duration_metric =
       mock_otel_metric_client_->GetRecordedMetrics()[0];
-  EXPECT_EQ(duration_metric.name, "data_loader_update_duration");
-  EXPECT_EQ(duration_metric.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_EQ(duration_metric.name, "data_loader_update_duration_in_seconds");
+  EXPECT_EQ(duration_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_FALSE(duration_metric.value.empty());
   EXPECT_EQ(duration_metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
-  EXPECT_EQ(duration_metric.labels.at("data_export_id"), kDataExportId);
-  EXPECT_EQ(duration_metric.labels.at("sharding_scheme_type"), "jch");
-  EXPECT_EQ(duration_metric.labels.at("sharding_scheme_num_shards"), "50");
+  EXPECT_EQ(duration_metric.labels.at("IsSuccessful"), "true");
+  VerifyMetricLabels(duration_metric);
 
   const auto& full_cycle_metric =
       mock_otel_metric_client_->GetRecordedMetrics()[1];
-  EXPECT_EQ(full_cycle_metric.name, "data_loader_update_full_cycle_duration");
-  EXPECT_EQ(full_cycle_metric.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_EQ(full_cycle_metric.name,
+            "data_loader_update_full_cycle_duration_in_seconds");
+  EXPECT_EQ(full_cycle_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_FALSE(full_cycle_metric.value.empty());
   EXPECT_EQ(full_cycle_metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
-  EXPECT_EQ(full_cycle_metric.labels.at("data_export_id"), kDataExportId);
-  EXPECT_EQ(full_cycle_metric.labels.at("sharding_scheme_type"), "jch");
-  EXPECT_EQ(full_cycle_metric.labels.at("sharding_scheme_num_shards"), "50");
-  EXPECT_EQ(full_cycle_metric.labels.at("is_successful"), "true");
+  EXPECT_EQ(full_cycle_metric.labels.at("IsSuccessful"), "true");
+  VerifyMetricLabels(full_cycle_metric);
 
   const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[2];
-  EXPECT_EQ(age_metric.name, "data_loader_duration_since_last_refresh");
+  EXPECT_EQ(age_metric.name,
+            "data_loader_duration_since_last_refresh_in_seconds");
   EXPECT_EQ(age_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_FALSE(age_metric.value.empty());
   EXPECT_EQ(age_metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
-  EXPECT_EQ(age_metric.labels.at("data_export_id"), kDataExportId);
-  EXPECT_EQ(age_metric.labels.at("sharding_scheme_type"), "jch");
-  EXPECT_EQ(age_metric.labels.at("sharding_scheme_num_shards"), "50");
+  VerifyMetricClusterLabels(age_metric);
+
+  // Validate legacy metrics.
+  for (const auto& metric : mock_metric_client_->GetRecordedMetrics()) {
+    EXPECT_TRUE(metric.labels.find("IsSuccessful") == metric.labels.end());
+  }
 }
 
 TEST_F(MatchDataLoaderTest, LoadMultipleEntriesIsSuccessful) {
-  DataExportInfo data_export_info;
-  *data_export_info.mutable_data_export_id() = kDataExportId;
-  *data_export_info.mutable_shard_location()
-       ->mutable_blob_storage_location()
-       ->mutable_bucket_name() = kBucketName;
-  *data_export_info.mutable_shard_location()
-       ->mutable_blob_storage_location()
-       ->mutable_path() = kBlobStoragePath;
-  *data_export_info.mutable_sharding_scheme()->mutable_type() = "jch";
-  data_export_info.mutable_sharding_scheme()->set_num_shards(50);
   EXPECT_CALL(*mock_match_data_provider_, GetMatchData)
       .WillOnce(MockGetMatchDataWithMultipleRows);
   EXPECT_CALL(*mock_match_data_storage_, StartUpdate)
@@ -593,7 +745,7 @@ TEST_F(MatchDataLoaderTest, LoadMultipleEntriesIsSuccessful) {
       .Times(AtLeast(1))
       .WillRepeatedly(Return(SuccessExecutionResult()));
 
-  EXPECT_SUCCESS(match_data_loader_->Load(data_export_info, kEncryptedDek));
+  EXPECT_SUCCESS(match_data_loader_->Load(data_export_info_, kEncryptedDek));
   // Wait for finalize threads to complete
   absl::SleepFor(absl::Seconds(1));
 
@@ -605,44 +757,40 @@ TEST_F(MatchDataLoaderTest, LoadMultipleEntriesIsSuccessful) {
   ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 3);
   const auto& duration_metric =
       mock_otel_metric_client_->GetRecordedMetrics()[0];
-  EXPECT_EQ(duration_metric.name, "data_loader_update_duration");
-  EXPECT_EQ(duration_metric.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_EQ(duration_metric.name, "data_loader_update_duration_in_seconds");
+  EXPECT_EQ(duration_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_FALSE(duration_metric.value.empty());
   EXPECT_EQ(duration_metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
-  EXPECT_EQ(duration_metric.labels.at("data_export_id"), kDataExportId);
-  EXPECT_EQ(duration_metric.labels.at("sharding_scheme_type"), "jch");
-  EXPECT_EQ(duration_metric.labels.at("sharding_scheme_num_shards"), "50");
+  EXPECT_EQ(duration_metric.labels.size(), 6);
+  EXPECT_EQ(duration_metric.labels.at("IsSuccessful"), "true");
+  VerifyMetricLabels(duration_metric);
 
   const auto& full_cycle_metric =
       mock_otel_metric_client_->GetRecordedMetrics()[1];
-  EXPECT_EQ(full_cycle_metric.name, "data_loader_update_full_cycle_duration");
-  EXPECT_EQ(full_cycle_metric.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_EQ(full_cycle_metric.name,
+            "data_loader_update_full_cycle_duration_in_seconds");
+  EXPECT_EQ(full_cycle_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_FALSE(full_cycle_metric.value.empty());
   EXPECT_EQ(full_cycle_metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
-  EXPECT_EQ(full_cycle_metric.labels.at("data_export_id"), kDataExportId);
-  EXPECT_EQ(full_cycle_metric.labels.at("sharding_scheme_type"), "jch");
-  EXPECT_EQ(full_cycle_metric.labels.at("sharding_scheme_num_shards"), "50");
-  EXPECT_EQ(full_cycle_metric.labels.at("is_successful"), "true");
+  EXPECT_EQ(full_cycle_metric.labels.size(), 6);
+  EXPECT_EQ(full_cycle_metric.labels.at("IsSuccessful"), "true");
+  VerifyMetricLabels(full_cycle_metric);
 
   const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[2];
-  EXPECT_EQ(age_metric.name, "data_loader_duration_since_last_refresh");
+  EXPECT_EQ(age_metric.name,
+            "data_loader_duration_since_last_refresh_in_seconds");
   EXPECT_EQ(age_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_FALSE(age_metric.value.empty());
   EXPECT_EQ(age_metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
-  EXPECT_EQ(age_metric.labels.at("data_export_id"), kDataExportId);
-  EXPECT_EQ(age_metric.labels.at("sharding_scheme_type"), "jch");
-  EXPECT_EQ(age_metric.labels.at("sharding_scheme_num_shards"), "50");
+  VerifyMetricClusterLabels(age_metric);
+
+  // Validate legacy metrics.
+  for (const auto& metric : mock_metric_client_->GetRecordedMetrics()) {
+    EXPECT_TRUE(metric.labels.find("IsSuccessful") == metric.labels.end());
+  }
 }
 
 TEST_F(MatchDataLoaderTest, LoadWithImmediateFetchFailureCancelsUpdate) {
-  DataExportInfo data_export_info;
-  *data_export_info.mutable_data_export_id() = kDataExportId;
-  *data_export_info.mutable_shard_location()
-       ->mutable_blob_storage_location()
-       ->mutable_bucket_name() = kBucketName;
-  *data_export_info.mutable_shard_location()
-       ->mutable_blob_storage_location()
-       ->mutable_path() = kBlobStoragePath;
   EXPECT_CALL(*mock_match_data_provider_, GetMatchData)
       .WillOnce(MockGetMatchDataWithFetchFailure);
   EXPECT_CALL(*mock_match_data_storage_, StartUpdate)
@@ -656,20 +804,45 @@ TEST_F(MatchDataLoaderTest, LoadWithImmediateFetchFailureCancelsUpdate) {
       .Times(AtLeast(1))
       .WillRepeatedly(Return(SuccessExecutionResult()));
 
-  EXPECT_SUCCESS(match_data_loader_->Load(data_export_info, kEncryptedDek));
+  EXPECT_SUCCESS(match_data_loader_->Load(data_export_info_, kEncryptedDek));
 
   EXPECT_THAT(match_data_rows_, IsEmpty());
+
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 3);
+  const auto& full_cycle_metric =
+      mock_otel_metric_client_->GetRecordedMetrics()[0];
+  EXPECT_EQ(full_cycle_metric.name,
+            "data_loader_update_full_cycle_duration_in_seconds");
+  EXPECT_EQ(full_cycle_metric.type, MetricType::METRIC_TYPE_GAUGE);
+  EXPECT_FALSE(full_cycle_metric.value.empty());
+  EXPECT_EQ(full_cycle_metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_EQ(full_cycle_metric.labels.at("IsSuccessful"), "false");
+  VerifyMetricLabels(full_cycle_metric);
+
+  const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(age_metric.name, "data_loader_update_duration_in_seconds");
+  EXPECT_EQ(age_metric.type, MetricType::METRIC_TYPE_GAUGE);
+  EXPECT_FALSE(age_metric.value.empty());
+  EXPECT_EQ(age_metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_EQ(age_metric.labels.at("IsSuccessful"), "false");
+  VerifyMetricLabels(age_metric);
+
+  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[2];
+  EXPECT_EQ(error_metric.name, "data_loader_load_error_count");
+  EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
+  EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(error_metric.value, "1");
+  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"),
+            "Failed to fetch requested data.");
+  VerifyMetricLabels(error_metric);
+
+  // Validate legacy metrics.
+  for (const auto& metric : mock_metric_client_->GetRecordedMetrics()) {
+    EXPECT_TRUE(metric.labels.find("IsSuccessful") == metric.labels.end());
+  }
 }
 
 TEST_F(MatchDataLoaderTest, LoadWithSuccessThenFetchFailureCancelsUpdate) {
-  DataExportInfo data_export_info;
-  *data_export_info.mutable_data_export_id() = kDataExportId;
-  *data_export_info.mutable_shard_location()
-       ->mutable_blob_storage_location()
-       ->mutable_bucket_name() = kBucketName;
-  *data_export_info.mutable_shard_location()
-       ->mutable_blob_storage_location()
-       ->mutable_path() = kBlobStoragePath;
   EXPECT_CALL(*mock_match_data_provider_, GetMatchData)
       .WillOnce(MockGetMatchDataWithSuccessThenFetchFailure);
   EXPECT_CALL(*mock_match_data_storage_, StartUpdate)
@@ -683,21 +856,46 @@ TEST_F(MatchDataLoaderTest, LoadWithSuccessThenFetchFailureCancelsUpdate) {
       .Times(AtLeast(1))
       .WillRepeatedly(Return(SuccessExecutionResult()));
 
-  EXPECT_SUCCESS(match_data_loader_->Load(data_export_info, kEncryptedDek));
+  EXPECT_SUCCESS(match_data_loader_->Load(data_export_info_, kEncryptedDek));
 
   EXPECT_THAT(match_data_rows_,
               ElementsAre(EqualsProto(GetSampleMatchDataRow())));
+
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 3);
+  const auto& full_cycle_metric =
+      mock_otel_metric_client_->GetRecordedMetrics()[0];
+  EXPECT_EQ(full_cycle_metric.name,
+            "data_loader_update_full_cycle_duration_in_seconds");
+  EXPECT_EQ(full_cycle_metric.type, MetricType::METRIC_TYPE_GAUGE);
+  EXPECT_EQ(full_cycle_metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_FALSE(full_cycle_metric.value.empty());
+  EXPECT_EQ(full_cycle_metric.labels.at("IsSuccessful"), "false");
+  VerifyMetricLabels(full_cycle_metric);
+
+  const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(age_metric.name, "data_loader_update_duration_in_seconds");
+  EXPECT_EQ(age_metric.type, MetricType::METRIC_TYPE_GAUGE);
+  EXPECT_FALSE(age_metric.value.empty());
+  EXPECT_EQ(age_metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_EQ(age_metric.labels.at("IsSuccessful"), "false");
+  VerifyMetricLabels(age_metric);
+
+  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[2];
+  EXPECT_EQ(error_metric.name, "data_loader_load_error_count");
+  EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
+  EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(error_metric.value, "1");
+  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"),
+            "Failed to fetch requested data.");
+  VerifyMetricLabels(error_metric);
+
+  // Validate legacy metrics.
+  for (const auto& metric : mock_metric_client_->GetRecordedMetrics()) {
+    EXPECT_TRUE(metric.labels.find("IsSuccessful") == metric.labels.end());
+  }
 }
 
 TEST_F(MatchDataLoaderTest, LoadWithRetriedFailureIsSuccessful) {
-  DataExportInfo data_export_info;
-  *data_export_info.mutable_data_export_id() = kDataExportId;
-  *data_export_info.mutable_shard_location()
-       ->mutable_blob_storage_location()
-       ->mutable_bucket_name() = kBucketName;
-  *data_export_info.mutable_shard_location()
-       ->mutable_blob_storage_location()
-       ->mutable_path() = kBlobStoragePath;
   EXPECT_CALL(*mock_match_data_provider_, GetMatchData)
       .WillOnce(MockGetMatchDataWithFetchFailure)
       .WillOnce(MockGetMatchDataWithSingleRow);
@@ -717,13 +915,158 @@ TEST_F(MatchDataLoaderTest, LoadWithRetriedFailureIsSuccessful) {
       .Times(AtLeast(1))
       .WillRepeatedly(Return(SuccessExecutionResult()));
 
-  EXPECT_SUCCESS(match_data_loader_->Load(data_export_info, kEncryptedDek));
-  EXPECT_SUCCESS(match_data_loader_->Load(data_export_info, kEncryptedDek));
+  EXPECT_SUCCESS(match_data_loader_->Load(data_export_info_, kEncryptedDek));
+  EXPECT_SUCCESS(match_data_loader_->Load(data_export_info_, kEncryptedDek));
   // Wait for finalize threads to complete
   absl::SleepFor(absl::Seconds(1));
 
   EXPECT_THAT(match_data_rows_,
               ElementsAre(EqualsProto(GetSampleMatchDataRow())));
+
+  // Validate OpenTelemetry metrics that first load failed but second succeeded.
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 6);
+
+  const auto& first_full_cycle =
+      mock_otel_metric_client_->GetRecordedMetrics()[0];
+  EXPECT_EQ(first_full_cycle.name,
+            "data_loader_update_full_cycle_duration_in_seconds");
+  EXPECT_EQ(first_full_cycle.type, MetricType::METRIC_TYPE_GAUGE);
+  EXPECT_EQ(first_full_cycle.unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_EQ(first_full_cycle.labels.at("IsSuccessful"), "false");
+  VerifyMetricLabels(first_full_cycle);
+
+  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[2];
+  EXPECT_EQ(error_metric.name, "data_loader_load_error_count");
+  EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
+  EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(error_metric.value, "1");
+  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"),
+            "Failed to fetch requested data.");
+  VerifyMetricLabels(error_metric);
+
+  const auto& update_duration =
+      mock_otel_metric_client_->GetRecordedMetrics()[3];
+  EXPECT_EQ(update_duration.name, "data_loader_update_duration_in_seconds");
+  EXPECT_EQ(update_duration.type, MetricType::METRIC_TYPE_GAUGE);
+  EXPECT_EQ(update_duration.unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_EQ(update_duration.labels.at("IsSuccessful"), "true");
+  VerifyMetricLabels(update_duration);
+
+  const auto& second_full_cycle =
+      mock_otel_metric_client_->GetRecordedMetrics()[4];
+  EXPECT_EQ(second_full_cycle.name,
+            "data_loader_update_full_cycle_duration_in_seconds");
+  EXPECT_EQ(second_full_cycle.type, MetricType::METRIC_TYPE_GAUGE);
+  EXPECT_EQ(second_full_cycle.unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_EQ(second_full_cycle.labels.at("IsSuccessful"), "true");
+  VerifyMetricLabels(second_full_cycle);
+
+  const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[5];
+  EXPECT_EQ(age_metric.name,
+            "data_loader_duration_since_last_refresh_in_seconds");
+  EXPECT_EQ(age_metric.type, MetricType::METRIC_TYPE_GAUGE);
+  EXPECT_EQ(age_metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_EQ(age_metric.labels.size(), 2);
+  VerifyMetricClusterLabels(age_metric);
+
+  // Validate legacy metrics.
+  for (const auto& metric : mock_metric_client_->GetRecordedMetrics()) {
+    EXPECT_TRUE(metric.labels.find("IsSuccessful") == metric.labels.end());
+  }
+}
+
+TEST_F(MatchDataLoaderTest, LoadStartUpdateFailure) {
+  EXPECT_CALL(*mock_match_data_provider_, GetMatchData).Times(0);
+  EXPECT_CALL(*mock_match_data_storage_, StartUpdate)
+      .WillOnce(
+          Return(FailureExecutionResult(MATCH_DATA_STORAGE_INSERT_ERROR)));
+  EXPECT_CALL(*mock_match_data_storage_, Replace).Times(0);
+  EXPECT_CALL(*mock_crypto_client_, GetCryptoKey).WillOnce(MockGetCryptoKey);
+
+  EXPECT_SUCCESS(match_data_loader_->Load(data_export_info_, kEncryptedDek));
+
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 1);
+  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[0];
+  EXPECT_EQ(error_metric.name, "data_loader_load_error_count");
+  EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
+  EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(error_metric.value, "1");
+  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"),
+            "Failed to insert the match data.");
+  VerifyMetricLabels(error_metric);
+}
+
+TEST_F(MatchDataLoaderTest, LoadReplaceFailure) {
+  EXPECT_CALL(*mock_match_data_provider_, GetMatchData)
+      .WillOnce(MockGetMatchDataWithSingleRow);
+  EXPECT_CALL(*mock_match_data_storage_, StartUpdate)
+      .WillOnce(Return(SuccessExecutionResult()));
+  EXPECT_CALL(*mock_match_data_storage_, Replace)
+      .WillOnce(Return(
+          FailureExecutionResult(MATCH_DATA_STORAGE_REPLACE_KEY_MISMATCH)));
+  EXPECT_CALL(*mock_crypto_client_, GetCryptoKey).WillOnce(MockGetCryptoKey);
+
+  EXPECT_SUCCESS(match_data_loader_->Load(data_export_info_, kEncryptedDek));
+
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 1);
+  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[0];
+  EXPECT_EQ(error_metric.name, "data_loader_load_error_count");
+  EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
+  EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(error_metric.value, "1");
+  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"),
+            "Match data rows must match the provided key during replacement.");
+  VerifyMetricLabels(error_metric);
+}
+
+TEST_F(MatchDataLoaderTest, LoadFinalizeUpdateFailure) {
+  EXPECT_CALL(*mock_match_data_provider_, GetMatchData)
+      .WillOnce(MockGetMatchDataWithSingleRow);
+  EXPECT_CALL(*mock_match_data_storage_, StartUpdate)
+      .WillOnce(Return(SuccessExecutionResult()));
+  EXPECT_CALL(*mock_match_data_storage_, Replace)
+      .WillRepeatedly(Invoke(this, &MatchDataLoaderTest::CaptureMatchDataRow));
+  EXPECT_CALL(*mock_match_data_storage_, FinalizeUpdate)
+      .WillOnce(
+          Return(FailureExecutionResult(MATCH_DATA_STORAGE_REPLACE_ERROR)));
+  EXPECT_CALL(*mock_crypto_client_, GetCryptoKey).WillOnce(MockGetCryptoKey);
+
+  EXPECT_SUCCESS(match_data_loader_->Load(data_export_info_, kEncryptedDek));
+  // Wait for finalize thread to run
+  absl::SleepFor(absl::Seconds(1));
+
+  // Verify OpenTelemetry metrics. Table update is successful, but full cycle
+  // update is not successful.
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 4);
+
+  const auto& update_duration =
+      mock_otel_metric_client_->GetRecordedMetrics()[0];
+  EXPECT_EQ(update_duration.name, "data_loader_update_duration_in_seconds");
+  EXPECT_EQ(update_duration.labels.at("IsSuccessful"), "true");
+  EXPECT_FALSE(update_duration.value.empty());
+  VerifyMetricLabels(update_duration);
+
+  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(error_metric.name, "data_loader_load_error_count");
+  EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
+  EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(error_metric.value, "1");
+  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"),
+            "Failed to replace the match data.");
+  VerifyMetricLabels(error_metric);
+
+  const auto& dur_full_metric =
+      mock_otel_metric_client_->GetRecordedMetrics()[2];
+  EXPECT_EQ(dur_full_metric.name,
+            "data_loader_update_full_cycle_duration_in_seconds");
+  EXPECT_EQ(dur_full_metric.labels.at("IsSuccessful"), "false");
+  EXPECT_FALSE(dur_full_metric.value.empty());
+  VerifyMetricLabels(dur_full_metric);
+
+  const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[3];
+  EXPECT_EQ(age_metric.name,
+            "data_loader_duration_since_last_refresh_in_seconds");
+  EXPECT_FALSE(age_metric.value.empty());
 }
 
 }  // namespace

@@ -87,6 +87,9 @@ message LookupRequest {
   // key-value pair for each key provided in this list.
   // Examples of associated data include user IDs, location info, etc.
   repeated string associated_data_keys = 6;
+
+  // Optional: The caller identity (email or service account in GCP).
+  string caller_id = 8;
 }
 
 // The response for a lookup request.

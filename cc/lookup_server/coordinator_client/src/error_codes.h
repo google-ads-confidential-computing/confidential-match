@@ -69,6 +69,11 @@ DEFINE_ERROR_CODE(
     "One or more required parameters are missing from the request.",
     scp::core::errors::HttpStatusCode::BAD_REQUEST)
 
+DEFINE_ERROR_CODE(COORDINATOR_CLIENT_UNKNOWN_COORDINATOR_ERROR,
+                  COORDINATOR_CLIENT, 0x000A,
+                  "The coordinator is not known to the client.",
+                  scp::core::errors::HttpStatusCode::BAD_REQUEST)
+
 MAP_TO_PUBLIC_ERROR_CODE(COORDINATOR_CLIENT_KEY_FETCH_ERROR,
                          PUBLIC_CRYPTO_ERROR);
 MAP_TO_PUBLIC_ERROR_CODE(COORDINATOR_CLIENT_KEY_NOT_FOUND_ERROR,

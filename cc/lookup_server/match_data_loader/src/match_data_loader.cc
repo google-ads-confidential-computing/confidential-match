@@ -223,7 +223,7 @@ ExecutionResult MatchDataLoader::Load() noexcept {
   RETURN_IF_FAILURE(data_export_info_or.result());
 
   ExecutionResultOr<ExportMetadata> export_metadata_or =
-      GetExportMetadata(data_export_info_or->metadata_location());
+      GetExportMetadata(*data_export_info_or);
   RETURN_IF_FAILURE(export_metadata_or.result());
 
   ExecutionResult load_result =
@@ -275,7 +275,13 @@ ExecutionResult MatchDataLoader::Load(
   // Decrypt the encrypted DEK, then start data loading in the callback if
   // successful
   std::string encoded_keyset;
-  RETURN_IF_FAILURE(ParseEncryptedKeyset(encrypted_dek, encoded_keyset));
+  ExecutionResult parse_keyset_result =
+      ParseEncryptedKeyset(encrypted_dek, encoded_keyset);
+  if (!parse_keyset_result.Successful()) {
+    RecordLoadErrorCountMetric(parse_keyset_result,
+                               BuildMetricLabels(data_export_info));
+    return parse_keyset_result;
+  }
   AsyncContext<EncryptionKeyInfo, CryptoKeyInterface> decrypt_context;
   decrypt_context.request = std::make_shared<EncryptionKeyInfo>();
   auto* wrapped_key_info = decrypt_context.request->mutable_wrapped_key_info();
@@ -295,6 +301,8 @@ void MatchDataLoader::HandleGetCryptoKeyCallback(
         crypto_key_context,
     const proto_backend::DataExportInfo& data_export_info) noexcept {
   if (!crypto_key_context.result.Successful()) {
+    RecordLoadErrorCountMetric(crypto_key_context.result,
+                               BuildMetricLabels(data_export_info));
     SCP_ERROR_CONTEXT(kComponentName, crypto_key_context,
                       crypto_key_context.result,
                       "Failed to build the data loading crypto key.");
@@ -309,6 +317,8 @@ void MatchDataLoader::HandleGetCryptoKeyCallback(
       MATCH_DATA_STORAGE_UPDATE_ALREADY_IN_PROGRESS) {
     return;
   } else if (!start_update_result.Successful()) {
+    RecordLoadErrorCountMetric(start_update_result,
+                               BuildMetricLabels(data_export_info));
     SCP_ERROR(kComponentName, kZeroUuid, start_update_result,
               absl::StrCat("Failed to start the update process: ",
                            GetErrorMessage(start_update_result.status_code)));
@@ -343,6 +353,7 @@ void MatchDataLoader::HandleGetCryptoKeyCallback(
   ExecutionResult result = match_data_provider_->GetMatchData(
       get_match_data_context, data_encryption_key);
   if (!result.Successful()) {
+    RecordLoadErrorCountMetric(result, BuildMetricLabels(data_export_info));
     SCP_ERROR(kComponentName, kZeroUuid, result, "GetMatchData failed.");
     return;
   }
@@ -358,6 +369,7 @@ void MatchDataLoader::HandleMatchDataBatchCallback(
     std::shared_ptr<std::atomic_uint64_t> threads_finished_count,
     std::shared_ptr<std::atomic_bool> queue_reads_complete) noexcept {
   ++*threads_started_count;
+
   absl::flat_hash_map<std::string, std::string> metric_labels =
       BuildMetricLabels(data_export_info);
   if (context_is_finished && context.result != SuccessExecutionResult()) {
@@ -381,24 +393,31 @@ void MatchDataLoader::HandleMatchDataBatchCallback(
     RecordMetric(kKeyCountMetricName, key_count->load(), metric_labels_legacy);
     RecordMetric(kTableUpdateDurationMetricName, absl::Now() - start_time,
                  metric_labels_legacy);
-    // metric type inaccurate, will be removed
-    RecordDurationMetric(
-        kDataLoaderUpdateFullCycleDurationMetricName, absl::Now() - start_time,
-        MetricType::METRIC_TYPE_HISTOGRAM, metric_labels_legacy);
+    absl::flat_hash_map<std::string, std::string> recorded_metric_labels =
+        metric_labels;
+    recorded_metric_labels[kIsSuccessfulLabel] = kFalseMetricValue;
+    RecordDurationMetric(kDataLoaderUpdateFullCycleDurationMetricName,
+                         absl::Now() - start_time,
+                         MetricType::METRIC_TYPE_GAUGE, recorded_metric_labels);
+    RecordDurationMetric(kDataLoaderUpdateDurationMetricName,
+                         absl::Now() - start_time,
+                         MetricType::METRIC_TYPE_GAUGE, recorded_metric_labels);
+    RecordLoadErrorCountMetric(context.result, metric_labels);
     return;
   }
 
   std::unique_ptr<MatchDataBatch> match_data_batch =
       context.TryGetNextResponse();
   if (match_data_batch == nullptr) {
-    // A nullptr means that the queue is finished
+    // The queue is finished but the context is not marked done.
+    // This should never happen.
     if (!context.IsMarkedDone()) {
       auto dequeue_result =
           FailureExecutionResult(MATCH_DATA_LOADER_DEQUEUE_ERROR);
-      // Should never happen
       SCP_ERROR_CONTEXT(
           kComponentName, context, dequeue_result,
           "Failed to dequeue match data though stream was not finished.");
+      RecordLoadErrorCountMetric(dequeue_result, metric_labels);
       return;
     }
 
@@ -416,6 +435,7 @@ void MatchDataLoader::HandleMatchDataBatchCallback(
   }
   key_count->fetch_add(match_data_batch->size());
 
+  // Store each match data group to storage.
   for (const auto& match_data_group : *match_data_batch) {
     if (match_data_group.empty()) {
       continue;
@@ -425,6 +445,7 @@ void MatchDataLoader::HandleMatchDataBatchCallback(
     ExecutionResult load_result = match_data_storage_->Replace(
         match_data_group[0].key(), match_data_group);
     if (!load_result.Successful()) {
+      RecordLoadErrorCountMetric(load_result, metric_labels);
       SCP_ERROR_CONTEXT(kComponentName, context, load_result,
                         "Failed to load match data row to storage.");
       context.MarkDone();
@@ -441,10 +462,12 @@ void MatchDataLoader::HandleMatchDataBatchCallback(
       // successfully
       RecordMetric(kDataFetchingDurationMetricName, absl::Now() - start_time,
                    metric_labels);
-      // metric type inaccurate, will be removed
-      RecordDurationMetric(kDataLoaderUpdateDurationMetricName,
-                           absl::Now() - start_time,
-                           MetricType::METRIC_TYPE_HISTOGRAM, metric_labels);
+      absl::flat_hash_map<std::string, std::string> recorded_metric_labels =
+          metric_labels;
+      recorded_metric_labels[kIsSuccessfulLabel] = kTrueMetricValue;
+      RecordDurationMetric(
+          kDataLoaderUpdateDurationMetricName, absl::Now() - start_time,
+          MetricType::METRIC_TYPE_GAUGE, recorded_metric_labels);
       SCP_INFO(kComponentName, kZeroUuid,
                absl::StrFormat("Match data inserted to table. Total records: "
                                "%d, total keys: %d (using %d threads)",
@@ -482,30 +505,37 @@ void MatchDataLoader::FinalizeUpdate(
     absl::flat_hash_map<std::string, std::string> metric_labels,
     uint64_t record_count, uint64_t key_count, absl::Time start_time) noexcept {
   ExecutionResult finalize_result = match_data_storage_->FinalizeUpdate();
+  // Record metrics and update last successful data load time.
+  absl::flat_hash_map<std::string, std::string> legacy_metric_labels =
+      metric_labels;
   if (!finalize_result.Successful()) {
+    RecordLoadErrorCountMetric(finalize_result, metric_labels);
     SCP_ERROR(kComponentName, kZeroUuid, finalize_result,
               "Failed to finalize the match data update process.");
-    metric_labels[kIsSuccessfulMetricKey] = kFalseMetricValue;
+    metric_labels[kIsSuccessfulLabel] = kFalseMetricValue;
+    legacy_metric_labels[kIsSuccessfulMetricKey] = kFalseMetricValue;
   } else {
-    metric_labels[kIsSuccessfulMetricKey] = kTrueMetricValue;
+    metric_labels[kIsSuccessfulLabel] = kTrueMetricValue;
+    legacy_metric_labels[kIsSuccessfulMetricKey] = kTrueMetricValue;
     last_successful_data_load_sec_ = absl::ToUnixSeconds(absl::Now());
   }
 
-  RecordMetric(kRecordCountMetricName, record_count, metric_labels);
-  RecordMetric(kKeyCountMetricName, key_count, metric_labels);
+  RecordMetric(kRecordCountMetricName, record_count, legacy_metric_labels);
+  RecordMetric(kKeyCountMetricName, key_count, legacy_metric_labels);
   RecordMetric(kTableUpdateDurationMetricName, absl::Now() - start_time,
-               metric_labels);
+               legacy_metric_labels);
   RecordDurationMetric(kDataLoaderUpdateFullCycleDurationMetricName,
-                       absl::Now() - start_time,
-                       MetricType::METRIC_TYPE_HISTOGRAM, metric_labels);
+                       absl::Now() - start_time, MetricType::METRIC_TYPE_GAUGE,
+                       metric_labels);
   RecordMetric(
       kDurationSinceLastRefreshName,
       absl::Now() - absl::FromUnixSeconds(last_successful_data_load_sec_),
-      metric_labels);
+      legacy_metric_labels);
   RecordDurationMetric(
       kDataLoaderDurationSinceLastRefreshMetricName,
       absl::Now() - absl::FromUnixSeconds(last_successful_data_load_sec_),
-      MetricType::METRIC_TYPE_GAUGE, metric_labels);
+      MetricType::METRIC_TYPE_GAUGE,
+      absl::flat_hash_map<std::string, std::string>());
 }
 
 ExecutionResultOr<DataExportInfo>
@@ -517,12 +547,16 @@ MatchDataLoader::GetDataExportInfo() noexcept {
   ExecutionResultOr<GetDataExportInfoResponse> export_info_or =
       orchestrator_client_->GetDataExportInfo(request);
   RecordGetDataExportInfoDurationMetric(export_info_or.result(), start_time);
-  RETURN_IF_FAILURE(export_info_or.result());
+  if (!export_info_or.result().Successful()) {
+    RecordLoadErrorCountMetric(export_info_or.result());
+    return export_info_or.result();
+  }
   return *export_info_or->data_export_info;
 }
 
 ExecutionResultOr<ExportMetadata> MatchDataLoader::GetExportMetadata(
-    const Location& location) noexcept {
+    const DataExportInfo& data_export_info) noexcept {
+  const Location& location = data_export_info.metadata_location();
   const absl::Time start_time = absl::Now();
   // TODO(b/271863149): Use asynchronous implementation to avoid blocking.
   std::promise<ExecutionResult> result_promise;
@@ -539,9 +573,11 @@ ExecutionResultOr<ExportMetadata> MatchDataLoader::GetExportMetadata(
   };
 
   ExecutionResult schedule_result = data_provider_->Get(context);
-  absl::flat_hash_map<std::string, std::string> labels;
+  absl::flat_hash_map<std::string, std::string> labels =
+      BuildMetricLabels(data_export_info);
   labels[kIsSuccessfulLabel] = kFalseMetricValue;
   if (!schedule_result.Successful()) {
+    RecordLoadErrorCountMetric(schedule_result, labels);
     RecordDurationMetric(kGetExportMetadataDurationMetricName,
                          absl::Now() - start_time,
                          MetricType::METRIC_TYPE_GAUGE, labels,
@@ -560,6 +596,7 @@ ExecutionResultOr<ExportMetadata> MatchDataLoader::GetExportMetadata(
                          absl::Now() - start_time,
                          MetricType::METRIC_TYPE_GAUGE, labels,
                          MetricUnit::METRIC_UNIT_MILLISECONDS);
+    RecordLoadErrorCountMetric(get_result, labels);
     SCP_ERROR(kComponentName, kZeroUuid, get_result,
               absl::StrFormat("Error while fetching export metadata. "
                               "(Bucket: '%s', Path: '%s')",
@@ -575,6 +612,7 @@ ExecutionResultOr<ExportMetadata> MatchDataLoader::GetExportMetadata(
                          absl::Now() - start_time,
                          MetricType::METRIC_TYPE_GAUGE, labels,
                          MetricUnit::METRIC_UNIT_MILLISECONDS);
+    RecordLoadErrorCountMetric(export_metadata_or.result(), labels);
     return export_metadata_or.result();
   }
 
@@ -609,11 +647,25 @@ void MatchDataLoader::RecordGetDataExportInfoDurationMetric(
   absl::flat_hash_map<std::string, std::string> labels;
   labels[kIsSuccessfulLabel] =
       result.Successful() ? kTrueMetricValue : kFalseMetricValue;
-  labels[kClusterIdLabel] = cluster_id_;
-  labels[kClusterGroupIdLabel] = cluster_group_id_;
   RecordDurationMetric(kGetDataExportInfoDurationMetricName,
                        absl::Now() - start_time, MetricType::METRIC_TYPE_GAUGE,
                        labels, MetricUnit::METRIC_UNIT_MILLISECONDS);
+}
+
+void MatchDataLoader::RecordLoadErrorCountMetric(
+    const scp::core::ExecutionResult& result,
+    const absl::flat_hash_map<std::string, std::string>& labels) noexcept {
+  if (otel_metric_client_ == nullptr) {
+    return;
+  }
+  absl::flat_hash_map<std::string, std::string> error_labels = labels;
+  error_labels[kBackendErrorReasonLabel] = GetErrorMessage(result.status_code);
+  error_labels[kClusterIdLabel] = cluster_id_;
+  error_labels[kClusterGroupIdLabel] = cluster_group_id_;
+
+  otel_metric_client_->RecordMetric(
+      kDataLoaderLoadErrorCountMetricName, "1", MetricUnit::METRIC_UNIT_COUNT,
+      MetricType::METRIC_TYPE_COUNTER, error_labels);
 }
 
 void MatchDataLoader::RecordMetric(
@@ -640,8 +692,11 @@ void MatchDataLoader::RecordDurationMetric(
   int64_t value = (unit == MetricUnit::METRIC_UNIT_MILLISECONDS)
                       ? absl::ToInt64Milliseconds(duration)
                       : absl::ToInt64Seconds(duration);
+  absl::flat_hash_map<std::string, std::string> metric_labels = labels;
+  metric_labels[kClusterIdLabel] = cluster_id_;
+  metric_labels[kClusterGroupIdLabel] = cluster_group_id_;
   otel_metric_client_->RecordMetric(name, std::to_string(value), unit, type,
-                                    labels);
+                                    metric_labels);
 }
 
 }  // namespace google::confidential_match::lookup_server

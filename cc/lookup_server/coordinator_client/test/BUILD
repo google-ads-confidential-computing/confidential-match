@@ -31,11 +31,13 @@ cc_test(
         "//cc/external:scp_core_execution_result_matchers",
         "//cc/external:scp_core_interface_lib",
         "//cc/external:scp_core_test_utils",
+        "//cc/external:scp_cpio_key_fetcher_interface",
         "//cc/external:scp_cpio_private_key_client_interface",
         "//cc/external:scp_cpio_private_key_client_mock",
         "//cc/lookup_server/coordinator_client/mock:coordinator_client_mock",
         "//cc/lookup_server/coordinator_client/src:coordinator_client",
         "//cc/lookup_server/interface:lookup_server_interface_lib",
+        "//protos/lookup_server/api:cc_proto",
         "//protos/lookup_server/backend:cc_proto",
     ],
 )

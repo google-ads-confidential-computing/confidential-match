@@ -17,7 +17,9 @@
 #ifndef CC_LOOKUP_SERVER_METRIC_CLIENT_MOCK_MOCK_METRIC_CLIENT_H_
 #define CC_LOOKUP_SERVER_METRIC_CLIENT_MOCK_MOCK_METRIC_CLIENT_H_
 
+#include <mutex>
 #include <string>
+#include <vector>
 
 #include "absl/container/flat_hash_map.h"
 #include "absl/strings/string_view.h"
@@ -30,6 +32,14 @@ namespace google::confidential_match::lookup_server {
 
 class MockMetricClient : public MetricClientInterface {
  public:
+  struct RecordedMetric {
+    std::string name;
+    std::string value;
+    MetricUnit unit;
+    MetricType type;
+    absl::flat_hash_map<std::string, std::string> labels;
+  };
+
   MOCK_METHOD(scp::core::ExecutionResult, Init, (), (noexcept, override));
   MOCK_METHOD(scp::core::ExecutionResult, Run, (), (noexcept, override));
   MOCK_METHOD(scp::core::ExecutionResult, Stop, (), (noexcept, override));
@@ -37,6 +47,14 @@ class MockMetricClient : public MetricClientInterface {
   scp::core::ExecutionResult RecordMetric(absl::string_view name,
                                           absl::string_view value,
                                           MetricUnit unit) noexcept override {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
+    recorded_metrics_.push_back({
+        std::string(name),
+        std::string(value),
+        unit,
+        MetricType::METRIC_TYPE_UNKNOWN,
+        {},
+    });
     return RecordMetric();
   }
 
@@ -44,6 +62,14 @@ class MockMetricClient : public MetricClientInterface {
       absl::string_view name, absl::string_view value, MetricUnit unit,
       const absl::flat_hash_map<std::string, std::string>& labels) noexcept
       override {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
+    recorded_metrics_.push_back({
+        std::string(name),
+        std::string(value),
+        unit,
+        MetricType::METRIC_TYPE_UNKNOWN,
+        labels,
+    });
     return RecordMetric();
   }
 
@@ -52,10 +78,32 @@ class MockMetricClient : public MetricClientInterface {
       MetricType type,
       const absl::flat_hash_map<std::string, std::string>& labels) noexcept
       override {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
+    recorded_metrics_.push_back({
+        std::string(name),
+        std::string(value),
+        unit,
+        type,
+        labels,
+    });
     return RecordMetric();
   }
 
   MOCK_METHOD(scp::core::ExecutionResult, RecordMetric, (), (noexcept));
+
+  std::vector<RecordedMetric> GetRecordedMetrics() const noexcept {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
+    return recorded_metrics_;
+  }
+
+  void ClearRecordedMetrics() noexcept {
+    std::lock_guard<std::mutex> lock(metrics_mutex_);
+    recorded_metrics_.clear();
+  }
+
+ private:
+  mutable std::mutex metrics_mutex_;
+  std::vector<RecordedMetric> recorded_metrics_;
 };
 
 }  // namespace google::confidential_match::lookup_server

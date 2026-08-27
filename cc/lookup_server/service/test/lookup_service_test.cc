@@ -19,6 +19,8 @@
 #include <utility>
 #include <vector>
 
+#include "absl/strings/escaping.h"
+#include "absl/strings/str_cat.h"
 #include "cc/core/test/src/parse_text_proto.h"
 #include "cc/core/test/utils/conditional_wait.h"
 #include "cc/core/test/utils/proto_test_utils.h"
@@ -685,6 +687,8 @@ TEST_F(LookupServiceTest, PostLookupWithInvalidRequest) {
   EXPECT_EQ(req_count.name, "lookup_server_request_count");
   EXPECT_EQ(req_count.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_count.labels.at("KeyFormat"), kKeyFormatUnspecified);
+  EXPECT_EQ(req_count.labels.at(std::string(kCallerIdLabel)),
+            kCallerIdUnspecifiedMetricLabel);
 
   const auto& req_error =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[1];
@@ -694,6 +698,8 @@ TEST_F(LookupServiceTest, PostLookupWithInvalidRequest) {
   EXPECT_EQ(req_error.labels.at("KeyFormat"), kKeyFormatUnspecified);
   EXPECT_EQ(req_error.labels.at("BackendErrorReason"),
             "The request is invalid.");
+  EXPECT_EQ(req_error.labels.at(std::string(kCallerIdLabel)),
+            kCallerIdUnspecifiedMetricLabel);
 
   const auto& req_latency =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
@@ -703,6 +709,8 @@ TEST_F(LookupServiceTest, PostLookupWithInvalidRequest) {
   EXPECT_EQ(req_latency.unit, MetricUnit::METRIC_UNIT_MILLISECONDS);
   EXPECT_EQ(req_latency.labels.at("KeyFormat"), kKeyFormatUnspecified);
   EXPECT_EQ(req_latency.labels.at(kSuccessfulRequestLabel), "False");
+  EXPECT_EQ(req_latency.labels.at(std::string(kCallerIdLabel)),
+            kCallerIdUnspecifiedMetricLabel);
 }
 
 TEST_F(LookupServiceTest, PostLookupValidRequestWithOutdatedShardingScheme) {
@@ -2135,9 +2143,11 @@ TEST_F(LookupServiceTest,
   EXPECT_EQ(req_count.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_count.value, "1");
   EXPECT_EQ(req_count.unit, MetricUnit::METRIC_UNIT_COUNT);
-  EXPECT_EQ(req_count.labels.size(), 1);
+  EXPECT_EQ(req_count.labels.size(), 2);
   EXPECT_EQ(req_count.labels.at("KeyFormat"),
             kKeyFormatHashedEncryptedCoordinator);
+  EXPECT_EQ(req_count.labels.at(std::string(kCallerIdLabel)),
+            kCallerIdUnspecifiedMetricLabel);
 
   // Bug only in test env. COORDINATOR_CLIENT error code has collision with
   // cc/core/test/utils/error_codes.h SC_TEST_UTILS component on 0x0115
@@ -2150,11 +2160,13 @@ TEST_F(LookupServiceTest,
   EXPECT_EQ(req_error.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_error.value, "1");
   EXPECT_EQ(req_error.unit, MetricUnit::METRIC_UNIT_COUNT);
-  EXPECT_EQ(req_error.labels.size(), 2);
+  EXPECT_EQ(req_error.labels.size(), 3);
   EXPECT_EQ(req_error.labels.at("KeyFormat"),
             kKeyFormatHashedEncryptedCoordinator);
   EXPECT_EQ(req_error.labels.at("BackendErrorReason"),
             "Timed out waiting for the test condition.");
+  EXPECT_EQ(req_error.labels.at(std::string(kCallerIdLabel)),
+            kCallerIdUnspecifiedMetricLabel);
 
   const auto& req_latency =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
@@ -2162,9 +2174,12 @@ TEST_F(LookupServiceTest,
   EXPECT_EQ(req_latency.type, MetricType::METRIC_TYPE_HISTOGRAM);
   EXPECT_FALSE(req_latency.value.empty());
   EXPECT_EQ(req_latency.unit, MetricUnit::METRIC_UNIT_MILLISECONDS);
+  EXPECT_EQ(req_latency.labels.size(), 3);
   EXPECT_EQ(req_latency.labels.at("KeyFormat"),
             kKeyFormatHashedEncryptedCoordinator);
   EXPECT_EQ(req_latency.labels.at(kSuccessfulRequestLabel), "False");
+  EXPECT_EQ(req_latency.labels.at(std::string(kCallerIdLabel)),
+            kCallerIdUnspecifiedMetricLabel);
 }
 
 TEST_F(LookupServiceTest,
@@ -2263,9 +2278,11 @@ TEST_F(LookupServiceTest,
   EXPECT_EQ(req_count.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_count.value, "1");
   EXPECT_EQ(req_count.unit, MetricUnit::METRIC_UNIT_COUNT);
-  EXPECT_EQ(req_count.labels.size(), 1);
+  EXPECT_EQ(req_count.labels.size(), 2);
   EXPECT_EQ(req_count.labels.at("KeyFormat"),
             kKeyFormatHashedEncryptedCoordinator);
+  EXPECT_EQ(req_count.labels.at(std::string(kCallerIdLabel)),
+            kCallerIdUnspecifiedMetricLabel);
 
   // No error metric is recorded at the lookup request level.
   const auto& req_latency =
@@ -2274,10 +2291,12 @@ TEST_F(LookupServiceTest,
   EXPECT_EQ(req_latency.type, MetricType::METRIC_TYPE_HISTOGRAM);
   EXPECT_FALSE(req_latency.value.empty());
   EXPECT_EQ(req_latency.unit, MetricUnit::METRIC_UNIT_MILLISECONDS);
-  EXPECT_EQ(req_latency.labels.size(), 2);
+  EXPECT_EQ(req_latency.labels.size(), 3);
   EXPECT_EQ(req_latency.labels.at("KeyFormat"),
             kKeyFormatHashedEncryptedCoordinator);
   EXPECT_EQ(req_latency.labels.at(kSuccessfulRequestLabel), "True");
+  EXPECT_EQ(req_latency.labels.at(std::string(kCallerIdLabel)),
+            kCallerIdUnspecifiedMetricLabel);
 }
 
 TEST_F(LookupServiceTest, PostLookupOTelMetricSuccess) {
@@ -2301,6 +2320,8 @@ TEST_F(LookupServiceTest, PostLookupOTelMetricSuccess) {
   http_context.request = std::make_shared<HttpRequest>();
   http_context.request->method = scp::core::HttpMethod::POST;
   http_context.request->headers = std::make_shared<HttpHeaders>();
+  http_context.request->headers->insert(
+      {"x-gscp-claimed-identity", "test-caller@google.com"});
   http_context.request->body.bytes = std::make_shared<std::vector<Byte>>(
       request_body.begin(), request_body.end());
   http_context.request->body.length = request_body.length();
@@ -2332,8 +2353,10 @@ TEST_F(LookupServiceTest, PostLookupOTelMetricSuccess) {
   EXPECT_EQ(req_count.value, "1");
   EXPECT_EQ(req_count.unit, MetricUnit::METRIC_UNIT_COUNT);
   EXPECT_EQ(req_count.type, MetricType::METRIC_TYPE_COUNTER);
-  EXPECT_EQ(req_count.labels.size(), 1);
+  EXPECT_EQ(req_count.labels.size(), 2);
   EXPECT_EQ(req_count.labels.at("KeyFormat"), "HASHED");
+  EXPECT_EQ(req_count.labels.at(std::string(kCallerIdLabel)),
+            "test-caller@google.com");
 
   // Second recorded metric should be request latency
   const auto& req_latency =
@@ -2342,9 +2365,11 @@ TEST_F(LookupServiceTest, PostLookupOTelMetricSuccess) {
   EXPECT_FALSE(req_latency.value.empty());
   EXPECT_EQ(req_latency.unit, MetricUnit::METRIC_UNIT_MILLISECONDS);
   EXPECT_EQ(req_latency.type, MetricType::METRIC_TYPE_HISTOGRAM);
-  EXPECT_EQ(req_latency.labels.size(), 2);
+  EXPECT_EQ(req_latency.labels.size(), 3);
   EXPECT_EQ(req_latency.labels.at("KeyFormat"), "HASHED");
   EXPECT_EQ(req_latency.labels.at(kSuccessfulRequestLabel), "True");
+  EXPECT_EQ(req_latency.labels.at(std::string(kCallerIdLabel)),
+            "test-caller@google.com");
 }
 
 }  // namespace google::confidential_match::lookup_server

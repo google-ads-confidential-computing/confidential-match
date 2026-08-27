@@ -155,7 +155,7 @@ class MatchDataLoader : public MatchDataLoaderInterface {
 
   /** @brief Fetches the export metadata from the provided location. */
   scp::core::ExecutionResultOr<proto_backend::ExportMetadata> GetExportMetadata(
-      const proto_backend::Location& location) noexcept;
+      const proto_backend::DataExportInfo& data_export_info) noexcept;
 
   /** @brief Helper to record a count metric to the cloud. */
   void RecordMetric(
@@ -176,6 +176,12 @@ class MatchDataLoader : public MatchDataLoaderInterface {
   /** @brief Helper to record orchestrator call latency metric. */
   void RecordGetDataExportInfoDurationMetric(
       const scp::core::ExecutionResult& result, absl::Time start_time) noexcept;
+
+  /** @brief Helper to record error count for the Load operation. */
+  void RecordLoadErrorCountMetric(
+      const scp::core::ExecutionResult& result,
+      const absl::flat_hash_map<std::string, std::string>& labels =
+          absl::flat_hash_map<std::string, std::string>()) noexcept;
 
   std::atomic<bool> is_running_;
   std::shared_ptr<DataProviderInterface> data_provider_;

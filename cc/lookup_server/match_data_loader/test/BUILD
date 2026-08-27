@@ -38,6 +38,7 @@ cc_test(
         "//cc/lookup_server/match_data_storage/mock:match_data_storage_mock",
         "//cc/lookup_server/metric_client/mock:metric_client_mock",
         "//cc/lookup_server/orchestrator_client/mock:orchestrator_client_mock",
+        "//cc/lookup_server/orchestrator_client/src:orchestrator_client",
         "//cc/lookup_server/types:lookup_server_types_lib",
         "//protos/lookup_server/backend:cc_proto",
     ],
