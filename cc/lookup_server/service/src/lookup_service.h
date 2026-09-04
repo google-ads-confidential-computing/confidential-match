@@ -22,14 +22,15 @@
 #include <public/cpio/utils/metric_instance/interface/metric_instance_factory_interface.h>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "absl/time/clock.h"
-#include "cc/core/interface/async_executor_interface.h"
-#include "cc/core/interface/config_provider_interface.h"
-#include "cc/core/interface/http_server_interface.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "cc/public/cpio/interface/metric_client/metric_client_interface.h"
 #include "cc/public/cpio/utils/metric_instance/interface/aggregate_metric_interface.h"
 
+#include "cc/core/interface/async_executor_interface.h"
+#include "cc/core/interface/config_provider_interface.h"
+#include "cc/core/interface/http_server_interface.h"
 #include "cc/lookup_server/interface/crypto_client_interface.h"
 #include "cc/lookup_server/interface/crypto_key_interface.h"
 #include "cc/lookup_server/interface/lookup_server_service_interface.h"
@@ -59,7 +60,9 @@ class LookupService : public LookupServerServiceInterface {
       std::shared_ptr<scp::cpio::MetricInstanceFactoryInterface>
           metric_instance_factory,
       absl::flat_hash_map<std::string, std::shared_ptr<StatusProviderInterface>>
-          service_status_providers)
+          service_status_providers,
+      bool enable_coordinator_set_validation = false,
+      const absl::flat_hash_set<std::string>& valid_coordinator_sets = {})
       : match_data_storage_(match_data_storage),
         http_server_(http_server),
         aead_crypto_client_(aead_crypto_client),
@@ -72,7 +75,9 @@ class LookupService : public LookupServerServiceInterface {
         hashed_lookup_task_(match_data_storage_),
         kms_encrypted_lookup_task_(match_data_storage_, aead_crypto_client_),
         coordinator_encrypted_lookup_task_(match_data_storage_,
-                                           hpke_crypto_client_) {}
+                                           hpke_crypto_client_),
+        enable_coordinator_set_validation_(enable_coordinator_set_validation),
+        valid_coordinator_sets_(valid_coordinator_sets) {}
 
   scp::core::ExecutionResult Init() noexcept override;
   scp::core::ExecutionResult Run() noexcept override;
@@ -183,6 +188,10 @@ class LookupService : public LookupServerServiceInterface {
   KmsEncryptedLookupTask kms_encrypted_lookup_task_;
   // Request handler for coordinator-encrypted lookup requests.
   CoordinatorEncryptedLookupTask coordinator_encrypted_lookup_task_;
+  // Whether to validate that coordinator sets in incoming requests are valid.
+  bool enable_coordinator_set_validation_;
+  // Set of valid stringified coordinator endpoints.
+  absl::flat_hash_set<std::string> valid_coordinator_sets_;
 };
 
 }  // namespace google::confidential_match::lookup_server

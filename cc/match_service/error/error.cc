@@ -216,6 +216,7 @@ ExternalError::Reason ToExternalErrorReason(
     case backend::Error::ORCHESTRATOR_RESPONSE_DESERIALIZATION_ERROR:
     case backend::Error::DELETION_IN_PROGRESS:
     case backend::Error::WRONG_NUMBER_OF_KEYS:
+    case backend::Error::INTERNAL_ERROR_PROCESSING_COUNTRY_ZIP_CODE:
       return ExternalError::INTERNAL_ERROR;
     case backend::Error::KEY_FETCHING_ERROR:
       return ExternalError::KEY_FETCHING_ERROR;

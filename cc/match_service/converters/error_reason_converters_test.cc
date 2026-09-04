@@ -103,6 +103,15 @@ TEST(ErrorReasonConvertersTest, ToApiConvertsInvalidDek) {
   EXPECT_EQ(out, api::v1::ERROR_REASON_INVALID_DEK);
 }
 
+TEST(ErrorReasonConvertersTest,
+     ToApiConvertsInternalErrorProcessingCountryZipCode) {
+  backend::ErrorReason in =
+      backend::ERROR_REASON_INTERNAL_ERROR_PROCESSING_COUNTRY_ZIP_CODE;
+  api::v1::ErrorReason out;
+  EXPECT_THAT(ToApi(in, out), IsOk());
+  EXPECT_EQ(out, api::v1::ERROR_REASON_INTERNAL_ERROR);
+}
+
 TEST(ErrorReasonConvertersTest, ToApiFailsOnInvalidInput) {
   backend::ErrorReason in = static_cast<backend::ErrorReason>(-1);
   api::v1::ErrorReason out;

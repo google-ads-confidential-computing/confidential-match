@@ -24,11 +24,13 @@
 
 #include "absl/status/status.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
 #include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "cc/core/async/async_context.h"
 #include "cc/core/hash/hasher_interface.h"
+#include "cc/core/logger/logger_interface.h"
 #include "cc/match_service/crypto_client/crypto_client_interface.h"
 #include "cc/match_service/crypto_client/crypto_key_interface.h"
 #include "cc/match_service/lookup_service_client/lookup_service_client_interface.h"
@@ -71,6 +73,26 @@ struct KeyGroup {
   // last name) must be stored contiguously.
   std::vector<EncryptedMatchKey> keys;
 };
+
+// Reconstructs all parts of a composite address field.
+absl::Status ReconstructAddressParts(
+    absl::Span<const std::pair<backend::FieldType, absl::string_view>>
+        decrypted_fields,
+    const backend::CompositeField& composite_field,
+    std::vector<std::string>& decrypted_parts);
+
+// Returns the number of contiguous keys in `keys` starting from `start_index`
+// that share the same KeyIndex (data_records_index and match_keys_index).
+size_t CountSubkeysForMatchKey(absl::Span<const EncryptedMatchKey> keys,
+                               size_t start_index);
+
+// Returns a std::nullopt if all subkeys succeed decryption. If both country
+// code and zip code fail decryption (and first/last names succeed), returns
+// a specialized internal error indicating likely format mis-classification.
+std::optional<backend::ErrorReason> CheckDecryptionError(
+    absl::Span<const EncryptedMatchKey> sub_keys,
+    absl::Span<const absl::StatusOr<std::string>> decrypted_results,
+    LoggerInterface* logger = nullptr);
 
 }  // namespace encrypted_match_task_internal
 
@@ -165,13 +187,14 @@ class KmsEncryptedMatchTask : public MatchTaskInterface {
   // Helper method to group keys by their encryption configuration.
   absl::StatusOr<std::vector<encrypted_match_task_internal::KeyGroup>>
   GroupByEncryptionKey(const backend::MatchRequest& request,
-                      backend::MatchResponse& match_response);
+                       backend::MatchResponse& match_response);
 
   // Helper to create the LookupServiceRequest and populate decrypted values.
   absl::StatusOr<std::shared_ptr<backend::LookupServiceRequest>>
-  CreateLookupRequest(MatchRequestContext& state,
-                      const encrypted_match_task_internal::KeyGroup& group,
-                      const CryptoKeyInterface& crypto_key);
+  CreateLookupRequest(
+      MatchRequestContext& state,
+      const encrypted_match_task_internal::KeyGroup& encrypted_match_keys_group,
+      const CryptoKeyInterface& crypto_key);
 
   // Helper to batch decrypt all encrypted items for this group.
   std::vector<absl::StatusOr<std::string>> DecryptKeysInGroup(
@@ -185,7 +208,7 @@ class KmsEncryptedMatchTask : public MatchTaskInterface {
       backend::LookupServiceRequest& lookup_request);
 
   // Helper to handle reconstruction, hashing, and encryption of composite
-  // fields. Requires decrypted First Name/Last Name pairs.
+  // fields. Requires decrypted field pairs.
   absl::Status ProcessCompositeField(
       absl::Span<const std::pair<backend::FieldType, absl::string_view>>
           decrypted_fields,

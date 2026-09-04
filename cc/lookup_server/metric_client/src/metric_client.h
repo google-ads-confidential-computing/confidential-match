@@ -65,6 +65,12 @@ inline constexpr absl::string_view kGetExportMetadataDurationMetricName =
 // Measures the number of failed data refresh loads.
 inline constexpr absl::string_view kDataLoaderLoadErrorCountMetricName =
     "data_loader_load_error_count";
+// Measures the number of unique record keys loaded into memory.
+inline constexpr absl::string_view kDataLoaderKeyCountMetricName =
+    "data_loader_key_count";
+// Measures the number of data records loaded into memory.
+inline constexpr absl::string_view kDataLoaderRecordCountMetricName =
+    "data_loader_record_count";
 
 // Match data provider metric names
 // Match data storage metric names

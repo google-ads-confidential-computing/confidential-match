@@ -87,6 +87,9 @@ absl::Status ToApi(const backend::ErrorReason& in, api::v1::ErrorReason& out) {
     case backend::ERROR_REASON_UNKNOWN:
       out = api::v1::ERROR_REASON_UNKNOWN;
       return absl::OkStatus();
+    // Internal backend errors that should not be exposed to MatchService
+    // callers, and hence mapped to the generic API internal error.
+    case backend::ERROR_REASON_INTERNAL_ERROR_PROCESSING_COUNTRY_ZIP_CODE:
     case backend::ERROR_REASON_INTERNAL_ERROR:
       out = api::v1::ERROR_REASON_INTERNAL_ERROR;
       return absl::OkStatus();

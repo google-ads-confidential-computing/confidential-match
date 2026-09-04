@@ -154,6 +154,7 @@ cc_library(
         "//cc/match_service/converters:encryption_key_converters",
         "//cc/match_service/converters:lookup_associated_data_converter",
         "//cc/match_service/crypto_client:crypto_client_interface",
+        "//cc/match_service/data_format_detectors:address_format_detector",
         "//cc/match_service/error",
         "//cc/match_service/lookup_service_client:lookup_service_client_interface",
         "//cc/match_service/metrics:metrics_util",

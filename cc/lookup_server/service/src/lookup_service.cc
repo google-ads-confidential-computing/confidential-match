@@ -34,6 +34,7 @@
 #include "cc/core/interface/http_types.h"
 #include "cc/lookup_server/converters/src/matched_data_record_converter.h"
 #include "cc/lookup_server/converters/src/sharding_scheme_converter.h"
+#include "cc/lookup_server/coordinator_client/src/cpio_cached_coordinator_client.h"
 #include "cc/lookup_server/interface/metric_client_interface.h"
 #include "cc/lookup_server/metric_client/src/metric_client.h"
 #include "cc/lookup_server/public/src/error_codes.h"
@@ -487,6 +488,25 @@ void LookupService::PostLookupHandler(
       return;
     } else if (context.request->encryption_key_info()
                    .has_coordinator_key_info()) {
+      if (enable_coordinator_set_validation_) {
+        std::string stringified_endpoints = StringifyCoordinators(
+            context.request->encryption_key_info()
+                .coordinator_key_info()
+                .coordinator_info());
+        if (!valid_coordinator_sets_.contains(stringified_endpoints)) {
+          context.result =
+              FailureExecutionResult(LOOKUP_SERVICE_INVALID_REQUEST);
+          SCP_ERROR_CONTEXT(
+              kComponentName, context, context.result,
+              "Request rejected due to invalid coordinator set endpoints. %s",
+              context.request->encryption_key_info()
+                  .coordinator_key_info()
+                  .ShortDebugString()
+                  .c_str());
+          context.Finish();
+          return;
+        }
+      }
       coordinator_encrypted_lookup_task_.HandleRequest(context);
       return;
     }

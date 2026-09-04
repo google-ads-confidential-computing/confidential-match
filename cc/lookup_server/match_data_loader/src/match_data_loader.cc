@@ -402,6 +402,10 @@ void MatchDataLoader::HandleMatchDataBatchCallback(
     RecordDurationMetric(kDataLoaderUpdateDurationMetricName,
                          absl::Now() - start_time,
                          MetricType::METRIC_TYPE_GAUGE, recorded_metric_labels);
+    RecordCountMetric(kDataLoaderRecordCountMetricName, record_count->load(),
+                      MetricType::METRIC_TYPE_GAUGE, recorded_metric_labels);
+    RecordCountMetric(kDataLoaderKeyCountMetricName, key_count->load(),
+                      MetricType::METRIC_TYPE_GAUGE, recorded_metric_labels);
     RecordLoadErrorCountMetric(context.result, metric_labels);
     return;
   }
@@ -527,6 +531,10 @@ void MatchDataLoader::FinalizeUpdate(
   RecordDurationMetric(kDataLoaderUpdateFullCycleDurationMetricName,
                        absl::Now() - start_time, MetricType::METRIC_TYPE_GAUGE,
                        metric_labels);
+  RecordCountMetric(kDataLoaderRecordCountMetricName, record_count,
+                    MetricType::METRIC_TYPE_GAUGE, metric_labels);
+  RecordCountMetric(kDataLoaderKeyCountMetricName, key_count,
+                    MetricType::METRIC_TYPE_GAUGE, metric_labels);
   RecordMetric(
       kDurationSinceLastRefreshName,
       absl::Now() - absl::FromUnixSeconds(last_successful_data_load_sec_),
@@ -696,6 +704,20 @@ void MatchDataLoader::RecordDurationMetric(
   metric_labels[kClusterIdLabel] = cluster_id_;
   metric_labels[kClusterGroupIdLabel] = cluster_group_id_;
   otel_metric_client_->RecordMetric(name, std::to_string(value), unit, type,
+                                    metric_labels);
+}
+
+void MatchDataLoader::RecordCountMetric(
+    absl::string_view name, uint64_t count, MetricType type,
+    const absl::flat_hash_map<std::string, std::string>& labels,
+    MetricUnit unit) noexcept {
+  if (otel_metric_client_ == nullptr) {
+    return;
+  }
+  absl::flat_hash_map<std::string, std::string> metric_labels = labels;
+  metric_labels[kClusterIdLabel] = cluster_id_;
+  metric_labels[kClusterGroupIdLabel] = cluster_group_id_;
+  otel_metric_client_->RecordMetric(name, std::to_string(count), unit, type,
                                     metric_labels);
 }
 

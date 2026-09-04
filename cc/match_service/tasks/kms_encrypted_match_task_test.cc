@@ -50,7 +50,11 @@ using ::absl_testing::StatusIs;
 using ::google::confidential_match::EncryptionKeyInfo;
 using ::google::confidential_match::MockHasher;
 using ::google::confidential_match::match_service::MockLookupServiceClient;
+using ::google::confidential_match::match_service::backend::CompositeField;
 using ::google::confidential_match::match_service::backend::Error;
+using ::google::confidential_match::match_service::backend::ErrorReason;
+using ::google::confidential_match::match_service::backend::Field;
+using ::google::confidential_match::match_service::backend::FieldType;
 using ::google::confidential_match::match_service::backend::
     LookupServiceRequest;
 using ::google::confidential_match::match_service::backend::
@@ -58,6 +62,16 @@ using ::google::confidential_match::match_service::backend::
 using ::google::confidential_match::match_service::backend::MatchRequest;
 using ::google::confidential_match::match_service::backend::MatchResponse;
 using ::google::confidential_match::match_service::backend::PrivateKeyEndpoints;
+using ::google::confidential_match::match_service::
+    encrypted_match_task_internal::CheckDecryptionError;
+using ::google::confidential_match::match_service::
+    encrypted_match_task_internal::CountSubkeysForMatchKey;
+using ::google::confidential_match::match_service::
+    encrypted_match_task_internal::EncryptedMatchKey;
+using ::google::confidential_match::match_service::
+    encrypted_match_task_internal::KeyIndex;
+using ::google::confidential_match::match_service::
+    encrypted_match_task_internal::ReconstructAddressParts;
 using ::google::protobuf::TextFormat;
 using ::google::scp::core::test::EqualsProto;
 using ::testing::_;
@@ -613,6 +627,8 @@ TEST_F(KmsEncryptedMatchTaskTest, MatchMultipleRecordsGroupedByEncryptionKey) {
 }
 
 TEST_F(KmsEncryptedMatchTaskTest, MatchCompositeAddressSuccess) {
+  // Tests the case when AreCountryAndZipEncrypted returns false (default): only
+  // first and last name are encrypted.
   auto request = std::make_shared<MatchRequest>();
   ASSERT_TRUE(TextFormat::ParseFromString(
       R"pb(
@@ -730,6 +746,231 @@ TEST_F(KmsEncryptedMatchTaskTest, MatchCompositeAddressSuccess) {
                 field_type: FIELD_TYPE_ZIP_CODE
                 field_value: "90210"
               }
+            }
+          }
+        }
+      )pb",
+      &expected_match_response));
+  absl::Notification finished;
+  AsyncContext<MatchRequest, MatchResponse> context(
+      request,
+      [&](auto& ctx) {
+        ASSERT_THAT(ctx.status, IsOk());
+        EXPECT_THAT(*ctx.response, EqualsProto(expected_match_response));
+        finished.Notify();
+      },
+      logger_);
+
+  kms_encrypted_match_task_.Match(context);
+  finished.WaitForNotification();
+}
+
+TEST_F(KmsEncryptedMatchTaskTest, MatchCompositeAddressAllEncryptedSuccess) {
+  // Tests the case when AreCountryAndZipEncrypted returns true: all address
+  // fields (first name, last name, country code, zip code) are encrypted.
+  auto request = std::make_shared<MatchRequest>();
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        application: APPLICATION_ECL
+        match_key_format: MATCH_KEY_FORMAT_HASHED_ENCRYPTED
+        key_encoding: MATCH_KEY_ENCODING_BASE64
+        encryption_key {
+          wrapped_key {
+            key_type: KEY_TYPE_XCHACHA20_POLY1305
+            encrypted_dek: "test_dek"
+            kek_kms_resource_id: "test_kek_id"
+            gcp_wrapped_key_info { wip_provider: "test_wip_provider" }
+          }
+        }
+        data_records {
+          match_keys {
+            composite_field {
+              type: COMPOSITE_FIELD_TYPE_ADDRESS
+              values {
+                type: FIELD_TYPE_FIRST_NAME
+                value: "ZW5jX2ZpcnN0"  # "enc_first"
+              }
+              values {
+                type: FIELD_TYPE_LAST_NAME
+                value: "ZW5jX2xhc3Q="  # "enc_last"
+              }
+              values {
+                type: FIELD_TYPE_COUNTRY_CODE
+                value: "ZW5jX2NvdW50cnlfZW5jcnlwdGVkX2FkZHJlc3NfcGFydF8w"  # "enc_country_encrypted_address_part_0"
+              }
+              values {
+                type: FIELD_TYPE_ZIP_CODE
+                value: "ZW5jX3ppcF9jb2RlX2VuY3J5cHRlZF9hZGRyZXNzX3BhcnRfMA=="  # "enc_zip_code_encrypted_address_part_0"
+              }
+            }
+          }
+        }
+      )pb",
+      request.get()));
+  auto mock_key = std::make_shared<MockCryptoKey>();
+  EXPECT_CALL(*mock_aead_crypto_client_, GetCryptoKeyAsync)
+      .WillOnce(absl::bind_front(MockGetCryptoKeySuccess, mock_key));
+  // Expect decryption of all 4 parts.
+  EXPECT_CALL(*mock_key, Decrypt("enc_first")).WillOnce(Return("Sm9obg=="));
+  EXPECT_CALL(*mock_key, Decrypt("enc_last")).WillOnce(Return("RG9l"));
+  EXPECT_CALL(*mock_key, Decrypt("enc_country_encrypted_address_part_0"))
+      .WillOnce(Return("US"));
+  EXPECT_CALL(*mock_key, Decrypt("enc_zip_code_encrypted_address_part_0"))
+      .WillOnce(Return("90210"));
+  // Hashed concatenated Address.
+  EXPECT_CALL(*mock_hasher_, Base64EncodedHash("Sm9obg==RG9lus90210"))
+      .WillOnce(Return("hashed_address"));
+  EXPECT_CALL(*mock_key, Encrypt("hashed_address"))
+      .WillOnce(Return("encrypted_hashed_address"));
+  LookupServiceRequest expected_lookup_req;
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        application: APPLICATION_ECL
+        key_format: KEY_FORMAT_HASHED_ENCRYPTED
+        hash_info { hash_type: HASH_TYPE_SHA_256 }
+        encryption_key {
+          wrapped_key {
+            key_type: KEY_TYPE_XCHACHA20_POLY1305
+            encrypted_dek: "test_dek"
+            kek_kms_resource_id: "test_kek_id"
+            gcp_wrapped_key_info { wip_provider: "test_wip_provider" }
+          }
+        }
+        data_records {
+          lookup_key {
+            key: "ZW5jcnlwdGVkX2hhc2hlZF9hZGRyZXNz"
+            decrypted_key: "hashed_address"
+          }
+          metadata { key: "d" int_value: 0 }
+          metadata { key: "m" int_value: 0 }
+        }
+      )pb",
+      &expected_lookup_req));
+  LookupServiceResponse mock_lookup_resp;
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        lookup_results {
+          status: STATUS_SUCCESS
+          client_data_record {
+            lookup_key { key: "ZW5jcnlwdGVkX2hhc2hlZF9hZGRyZXNz" }
+            metadata { key: "d" int_value: 0 }
+            metadata { key: "m" int_value: 0 }
+          }
+          matched_data_records {
+            lookup_key { key: "ZW5jcnlwdGVkX2hhc2hlZF9hZGRyZXNz" }
+          }
+        }
+      )pb",
+      &mock_lookup_resp));
+  EXPECT_CALL(*mock_lookup_service_client_, Lookup).WillOnce([&](auto& ctx) {
+    EXPECT_THAT(*ctx.request, EqualsProto(expected_lookup_req));
+    MockLookupSuccess(mock_lookup_resp, ctx);
+  });
+  MatchResponse expected_match_response;
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        matched_data_records {
+          matched_keys {
+            composite_field {
+              status: STATUS_SUCCESS_MATCHED
+              matched_field_info {
+                field_type: FIELD_TYPE_FIRST_NAME
+                field_value: "Sm9obg=="
+              }
+              matched_field_info {
+                field_type: FIELD_TYPE_LAST_NAME
+                field_value: "RG9l"
+              }
+              matched_field_info {
+                field_type: FIELD_TYPE_COUNTRY_CODE
+                field_value: "US"
+              }
+              matched_field_info {
+                field_type: FIELD_TYPE_ZIP_CODE
+                field_value: "90210"
+              }
+            }
+          }
+        }
+      )pb",
+      &expected_match_response));
+  absl::Notification finished;
+  AsyncContext<MatchRequest, MatchResponse> context(
+      request,
+      [&](auto& ctx) {
+        ASSERT_THAT(ctx.status, IsOk());
+        EXPECT_THAT(*ctx.response, EqualsProto(expected_match_response));
+        finished.Notify();
+      },
+      logger_);
+
+  kms_encrypted_match_task_.Match(context);
+  finished.WaitForNotification();
+}
+
+TEST_F(KmsEncryptedMatchTaskTest,
+       MatchCompositeAddressAllEncryptedDecryptionFailure) {
+  auto request = std::make_shared<MatchRequest>();
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        application: APPLICATION_ECL
+        match_key_format: MATCH_KEY_FORMAT_HASHED_ENCRYPTED
+        key_encoding: MATCH_KEY_ENCODING_BASE64
+        encryption_key {
+          wrapped_key {
+            key_type: KEY_TYPE_XCHACHA20_POLY1305
+            encrypted_dek: "test_dek"
+            kek_kms_resource_id: "test_kek_id"
+            gcp_wrapped_key_info { wip_provider: "test_wip_provider" }
+          }
+        }
+        data_records {
+          match_keys {
+            composite_field {
+              type: COMPOSITE_FIELD_TYPE_ADDRESS
+              values {
+                type: FIELD_TYPE_FIRST_NAME
+                value: "ZW5jX2ZpcnN0"  # "enc_first"
+              }
+              values {
+                type: FIELD_TYPE_LAST_NAME
+                value: "ZW5jX2xhc3Q="  # "enc_last"
+              }
+              values {
+                type: FIELD_TYPE_COUNTRY_CODE
+                value: "ZW5jX2NvdW50cnlfZW5jcnlwdGVkX2FkZHJlc3NfcGFydF8w"  # "enc_country_encrypted_address_part_0"
+              }
+              values {
+                type: FIELD_TYPE_ZIP_CODE
+                value: "ZW5jX3ppcF9jb2RlX2VuY3J5cHRlZF9hZGRyZXNzX3BhcnRfMA=="  # "enc_zip_code_encrypted_address_part_0"
+              }
+            }
+          }
+        }
+      )pb",
+      request.get()));
+  auto mock_key = std::make_shared<MockCryptoKey>();
+  EXPECT_CALL(*mock_aead_crypto_client_, GetCryptoKeyAsync)
+      .WillOnce(absl::bind_front(MockGetCryptoKeySuccess, mock_key));
+  EXPECT_CALL(*mock_key, Decrypt("enc_first")).WillOnce(Return("Sm9obg=="));
+  EXPECT_CALL(*mock_key, Decrypt("enc_last")).WillOnce(Return("RG9l"));
+  EXPECT_CALL(*mock_key, Decrypt("enc_country_encrypted_address_part_0"))
+      .WillOnce(Return("US"));
+  EXPECT_CALL(*mock_key, Decrypt("enc_zip_code_encrypted_address_part_0"))
+      .WillOnce(Return(Status(Error::DECRYPTION_ERROR, "Decryption failed")));
+
+  MatchResponse expected_match_response;
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        matched_data_records {
+          matched_keys {
+            composite_field {
+              status: STATUS_FAILED
+              error_reason: ERROR_REASON_DECRYPTION_ERROR
+              matched_field_info { field_type: FIELD_TYPE_FIRST_NAME }
+              matched_field_info { field_type: FIELD_TYPE_LAST_NAME }
+              matched_field_info { field_type: FIELD_TYPE_COUNTRY_CODE }
+              matched_field_info { field_type: FIELD_TYPE_ZIP_CODE }
             }
           }
         }
@@ -2588,6 +2829,235 @@ TEST_F(KmsEncryptedMatchTaskTest, MatchWithLookupServiceGenericError) {
 
   kms_encrypted_match_task_.Match(context);
   finished.WaitForNotification();
+}
+
+TEST(EncryptedMatchTaskInternalTest, ReconstructAddressPartsSuccess) {
+  std::vector<std::pair<FieldType, absl::string_view>> decrypted_fields = {
+      {FieldType::FIELD_TYPE_FIRST_NAME, "John"},
+      {FieldType::FIELD_TYPE_LAST_NAME, "Doe"},
+  };
+
+  CompositeField composite_field;
+  auto* f1 = composite_field.add_values();
+  f1->set_type(FieldType::FIELD_TYPE_COUNTRY_CODE);
+  f1->set_value("US");
+  auto* f2 = composite_field.add_values();
+  f2->set_type(FieldType::FIELD_TYPE_ZIP_CODE);
+  f2->set_value("94043");
+  auto* f3 = composite_field.add_values();
+  f3->set_type(FieldType::FIELD_TYPE_FIRST_NAME);
+  f3->set_value("placeholder1");
+  auto* f4 = composite_field.add_values();
+  f4->set_type(FieldType::FIELD_TYPE_LAST_NAME);
+  f4->set_value("placeholder2");
+
+  std::vector<std::string> decrypted_parts(4);
+  EXPECT_THAT(ReconstructAddressParts(decrypted_fields, composite_field,
+                                      decrypted_parts),
+              IsOk());
+  EXPECT_EQ(decrypted_parts[0], "John");
+  EXPECT_EQ(decrypted_parts[1], "Doe");
+  EXPECT_EQ(decrypted_parts[2], "US");
+  EXPECT_EQ(decrypted_parts[3], "94043");
+}
+
+TEST(EncryptedMatchTaskInternalTest,
+     ReconstructAddressPartsAllFieldsEncryptedSuccess) {
+  std::vector<std::pair<FieldType, absl::string_view>> decrypted_fields = {
+      {FieldType::FIELD_TYPE_FIRST_NAME, "John"},
+      {FieldType::FIELD_TYPE_LAST_NAME, "Doe"},
+      {FieldType::FIELD_TYPE_COUNTRY_CODE, "US"},
+      {FieldType::FIELD_TYPE_ZIP_CODE, "94043"},
+  };
+
+  CompositeField composite_field;
+  auto* f1 = composite_field.add_values();
+  f1->set_type(FieldType::FIELD_TYPE_COUNTRY_CODE);
+  f1->set_value("placeholder_country");
+  auto* f2 = composite_field.add_values();
+  f2->set_type(FieldType::FIELD_TYPE_ZIP_CODE);
+  f2->set_value("placeholder_zip");
+  auto* f3 = composite_field.add_values();
+  f3->set_type(FieldType::FIELD_TYPE_FIRST_NAME);
+  f3->set_value("placeholder_first");
+  auto* f4 = composite_field.add_values();
+  f4->set_type(FieldType::FIELD_TYPE_LAST_NAME);
+  f4->set_value("placeholder_last");
+
+  std::vector<std::string> decrypted_parts(4);
+  EXPECT_THAT(ReconstructAddressParts(decrypted_fields, composite_field,
+                                      decrypted_parts),
+              IsOk());
+  EXPECT_EQ(decrypted_parts[0], "John");
+  EXPECT_EQ(decrypted_parts[1], "Doe");
+  EXPECT_EQ(decrypted_parts[2], "US");
+  EXPECT_EQ(decrypted_parts[3], "94043");
+}
+
+TEST(EncryptedMatchTaskInternalTest,
+     ReconstructAddressPartsInvalidDecryptedFieldCount) {
+  std::vector<std::pair<FieldType, absl::string_view>> decrypted_fields = {
+      {FieldType::FIELD_TYPE_FIRST_NAME, "John"},
+  };
+  CompositeField composite_field;
+  std::vector<std::string> decrypted_parts(4);
+  EXPECT_THAT(ReconstructAddressParts(decrypted_fields, composite_field,
+                                      decrypted_parts),
+              StatusIs(absl::StatusCode::kInternal));
+}
+
+TEST(EncryptedMatchTaskInternalTest,
+     ReconstructAddressPartsInvalidCompositeFieldSize) {
+  std::vector<std::pair<FieldType, absl::string_view>> decrypted_fields = {
+      {FieldType::FIELD_TYPE_FIRST_NAME, "John"},
+      {FieldType::FIELD_TYPE_LAST_NAME, "Doe"},
+  };
+  CompositeField composite_field;
+  composite_field.add_values()->set_type(FieldType::FIELD_TYPE_FIRST_NAME);
+  std::vector<std::string> decrypted_parts(4);
+  EXPECT_THAT(ReconstructAddressParts(decrypted_fields, composite_field,
+                                      decrypted_parts),
+              StatusIs(absl::StatusCode::kInternal));
+}
+
+TEST(EncryptedMatchTaskInternalTest, ReconstructAddressPartsDuplicateFields) {
+  std::vector<std::pair<FieldType, absl::string_view>> decrypted_fields = {
+      {FieldType::FIELD_TYPE_FIRST_NAME, "John"},
+      {FieldType::FIELD_TYPE_FIRST_NAME, "Johnny"},
+  };
+  CompositeField composite_field;
+  composite_field.add_values()->set_type(FieldType::FIELD_TYPE_FIRST_NAME);
+  composite_field.add_values()->set_type(FieldType::FIELD_TYPE_LAST_NAME);
+  composite_field.add_values()->set_type(FieldType::FIELD_TYPE_COUNTRY_CODE);
+  composite_field.add_values()->set_type(FieldType::FIELD_TYPE_ZIP_CODE);
+
+  std::vector<std::string> decrypted_parts(4);
+  EXPECT_THAT(ReconstructAddressParts(decrypted_fields, composite_field,
+                                      decrypted_parts),
+              StatusIs(absl::StatusCode::kInternal));
+}
+
+TEST(EncryptedMatchTaskInternalTest, CountSubkeysForMatchKeyEmptyKeys) {
+  std::vector<EncryptedMatchKey> keys;
+  EXPECT_EQ(CountSubkeysForMatchKey(keys, 0), 0);
+}
+
+TEST(EncryptedMatchTaskInternalTest, CountSubkeysForMatchKeyOutOfBounds) {
+  std::vector<EncryptedMatchKey> keys = {
+      EncryptedMatchKey{.key_index = KeyIndex{0, 0}},
+  };
+  EXPECT_EQ(CountSubkeysForMatchKey(keys, 1), 0);
+  EXPECT_EQ(CountSubkeysForMatchKey(keys, 5), 0);
+}
+
+TEST(EncryptedMatchTaskInternalTest, CountSubkeysForMatchKeySingleSubkey) {
+  std::vector<EncryptedMatchKey> keys = {
+      EncryptedMatchKey{.key_index = KeyIndex{0, 0}},
+      EncryptedMatchKey{.key_index = KeyIndex{0, 1}},
+      EncryptedMatchKey{.key_index = KeyIndex{1, 0}},
+  };
+  EXPECT_EQ(CountSubkeysForMatchKey(keys, 0), 1);
+  EXPECT_EQ(CountSubkeysForMatchKey(keys, 1), 1);
+  EXPECT_EQ(CountSubkeysForMatchKey(keys, 2), 1);
+}
+
+TEST(EncryptedMatchTaskInternalTest, CountSubkeysForMatchKeyMultipleSubkeys) {
+  std::vector<EncryptedMatchKey> keys = {
+      EncryptedMatchKey{.key_index = KeyIndex{0, 0}},
+      EncryptedMatchKey{.key_index = KeyIndex{0, 0}},
+      EncryptedMatchKey{.key_index = KeyIndex{0, 1}},
+      EncryptedMatchKey{.key_index = KeyIndex{1, 0}},
+      EncryptedMatchKey{.key_index = KeyIndex{1, 0}},
+      EncryptedMatchKey{.key_index = KeyIndex{1, 0}},
+      EncryptedMatchKey{.key_index = KeyIndex{1, 0}},
+  };
+  EXPECT_EQ(CountSubkeysForMatchKey(keys, 0), 2);
+  EXPECT_EQ(CountSubkeysForMatchKey(keys, 1), 1);
+  EXPECT_EQ(CountSubkeysForMatchKey(keys, 2), 1);
+  EXPECT_EQ(CountSubkeysForMatchKey(keys, 3), 4);
+  EXPECT_EQ(CountSubkeysForMatchKey(keys, 4), 3);
+}
+
+TEST_F(KmsEncryptedMatchTaskTest, CheckDecryptionErrorAllSucceeded) {
+  std::vector<EncryptedMatchKey> sub_keys = {
+      EncryptedMatchKey{.field_type = FieldType::FIELD_TYPE_FIRST_NAME},
+      EncryptedMatchKey{.field_type = FieldType::FIELD_TYPE_LAST_NAME},
+      EncryptedMatchKey{.field_type = FieldType::FIELD_TYPE_COUNTRY_CODE},
+      EncryptedMatchKey{.field_type = FieldType::FIELD_TYPE_ZIP_CODE},
+  };
+  std::vector<absl::StatusOr<std::string>> decrypted_results = {"John", "Doe",
+                                                                "US", "94043"};
+  EXPECT_EQ(CheckDecryptionError(sub_keys, decrypted_results, logger_.get()),
+            std::nullopt);
+}
+
+TEST_F(KmsEncryptedMatchTaskTest, CheckDecryptionErrorCountryAndZipFailedOnly) {
+  std::vector<EncryptedMatchKey> sub_keys = {
+      EncryptedMatchKey{.field_type = FieldType::FIELD_TYPE_FIRST_NAME},
+      EncryptedMatchKey{.field_type = FieldType::FIELD_TYPE_LAST_NAME},
+      EncryptedMatchKey{.field_type = FieldType::FIELD_TYPE_COUNTRY_CODE},
+      EncryptedMatchKey{.field_type = FieldType::FIELD_TYPE_ZIP_CODE},
+  };
+  std::vector<absl::StatusOr<std::string>> decrypted_results = {
+      "John", "Doe",
+      Status(Error::DECRYPTION_ERROR, "failed to decrypt country"),
+      Status(Error::DECRYPTION_ERROR, "failed to decrypt zip")};
+  EXPECT_EQ(CheckDecryptionError(sub_keys, decrypted_results, logger_.get()),
+            backend::ERROR_REASON_INTERNAL_ERROR_PROCESSING_COUNTRY_ZIP_CODE);
+}
+
+TEST_F(KmsEncryptedMatchTaskTest, CheckDecryptionErrorOnlyCountryCodeFailed) {
+  std::vector<EncryptedMatchKey> sub_keys = {
+      EncryptedMatchKey{.field_type = FieldType::FIELD_TYPE_FIRST_NAME},
+      EncryptedMatchKey{.field_type = FieldType::FIELD_TYPE_LAST_NAME},
+      EncryptedMatchKey{.field_type = FieldType::FIELD_TYPE_COUNTRY_CODE},
+      EncryptedMatchKey{.field_type = FieldType::FIELD_TYPE_ZIP_CODE},
+  };
+  std::vector<absl::StatusOr<std::string>> decrypted_results = {
+      "John", "Doe",
+      Status(Error::DECRYPTION_ERROR, "failed to decrypt country"), "94043"};
+  EXPECT_EQ(CheckDecryptionError(sub_keys, decrypted_results, logger_.get()),
+            backend::ERROR_REASON_DECRYPTION_ERROR);
+}
+
+TEST_F(KmsEncryptedMatchTaskTest, CheckDecryptionErrorOnlyZipCodeFailed) {
+  std::vector<EncryptedMatchKey> sub_keys = {
+      EncryptedMatchKey{.field_type = FieldType::FIELD_TYPE_FIRST_NAME},
+      EncryptedMatchKey{.field_type = FieldType::FIELD_TYPE_LAST_NAME},
+      EncryptedMatchKey{.field_type = FieldType::FIELD_TYPE_COUNTRY_CODE},
+      EncryptedMatchKey{.field_type = FieldType::FIELD_TYPE_ZIP_CODE},
+  };
+  std::vector<absl::StatusOr<std::string>> decrypted_results = {
+      "John", "Doe", "US",
+      Status(Error::DECRYPTION_ERROR, "failed to decrypt zip")};
+  EXPECT_EQ(CheckDecryptionError(sub_keys, decrypted_results, logger_.get()),
+            backend::ERROR_REASON_DECRYPTION_ERROR);
+}
+
+TEST_F(KmsEncryptedMatchTaskTest,
+       CheckDecryptionErrorFirstNameAndCountryAndZipFailed) {
+  std::vector<EncryptedMatchKey> sub_keys = {
+      EncryptedMatchKey{.field_type = FieldType::FIELD_TYPE_FIRST_NAME},
+      EncryptedMatchKey{.field_type = FieldType::FIELD_TYPE_LAST_NAME},
+      EncryptedMatchKey{.field_type = FieldType::FIELD_TYPE_COUNTRY_CODE},
+      EncryptedMatchKey{.field_type = FieldType::FIELD_TYPE_ZIP_CODE},
+  };
+  std::vector<absl::StatusOr<std::string>> decrypted_results = {
+      Status(Error::DECRYPTION_ERROR, "failed to decrypt first name"), "Doe",
+      Status(Error::DECRYPTION_ERROR, "failed to decrypt country"),
+      Status(Error::DECRYPTION_ERROR, "failed to decrypt zip")};
+  EXPECT_EQ(CheckDecryptionError(sub_keys, decrypted_results, logger_.get()),
+            backend::ERROR_REASON_DECRYPTION_ERROR);
+}
+
+TEST_F(KmsEncryptedMatchTaskTest, CheckDecryptionErrorSingleFieldFailed) {
+  std::vector<EncryptedMatchKey> sub_keys = {
+      EncryptedMatchKey{.field_type = FieldType::FIELD_TYPE_EMAIL},
+  };
+  std::vector<absl::StatusOr<std::string>> decrypted_results = {
+      Status(Error::DECRYPTION_ERROR, "failed to decrypt email")};
+  EXPECT_EQ(CheckDecryptionError(sub_keys, decrypted_results, logger_.get()),
+            backend::ERROR_REASON_DECRYPTION_ERROR);
 }
 
 }  // namespace

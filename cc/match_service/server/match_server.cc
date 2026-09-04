@@ -314,9 +314,6 @@ absl::Status StopScpService(ServiceInterface& service,
     options.fetching_failure_cache_lifetime =
         std::chrono::seconds(proto.fetching_failure_cache_lifetime().seconds());
   }
-  options.enable_active_keys_api_for_encryption_keys =
-      proto.enable_active_keys_api_for_encryption_keys();
-
   if (proto.has_auto_refresh_time_duration()) {
     options.auto_refresh_time_duration =
         std::chrono::seconds(proto.auto_refresh_time_duration().seconds());

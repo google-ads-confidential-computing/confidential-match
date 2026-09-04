@@ -21,6 +21,7 @@
 #include <string>
 
 #include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "cc/core/interface/http_server_interface.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "cc/public/cpio/utils/metric_instance/src/aggregate_metric.h"
@@ -54,10 +55,14 @@ class PassThroughLookupService : public LookupService {
       std::shared_ptr<MetricClientInterface> metric_client,
       absl::flat_hash_map<std::string, std::shared_ptr<StatusProviderInterface>>
           service_status_providers,
-      std::shared_ptr<MetricClientInterface> otel_metric_client = nullptr)
+      std::shared_ptr<MetricClientInterface> otel_metric_client = nullptr,
+      bool enable_coordinator_set_validation = false,
+      const absl::flat_hash_set<std::string>& valid_coordinator_sets = {})
       : LookupService(match_data_storage, http_server, aead_crypto_client,
                       hpke_crypto_client, metric_client, otel_metric_client,
-                      nullptr, service_status_providers),
+                      nullptr, service_status_providers,
+                      enable_coordinator_set_validation,
+                      valid_coordinator_sets),
         request_aggregate_metric_(request_aggregate_metric),
         error_aggregate_metric_(error_aggregate_metric),
         invalid_scheme_aggregate_metric_(invalid_scheme_aggregate_metric) {}

@@ -264,7 +264,8 @@ oci.pull(
 )
 oci.pull(
     name = "pubsub_emulator",
-    digest = "sha256:e71213061230d222941d4107b92cc2889507a832f076de24b822fc2f7f137f2c",
+    # Most recent amd64 version as of September 1, 2026 tagged with "emulators"
+    digest = "sha256:f38f8321b15ad3bbf299e88cf8854db037d16de82e26b4b6cae0758926a2cc01",
     image = "gcr.io/google.com/cloudsdktool/google-cloud-cli",
 )
 oci.pull(

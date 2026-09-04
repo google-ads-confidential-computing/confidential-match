@@ -173,6 +173,12 @@ class MatchDataLoader : public MatchDataLoaderInterface {
       const absl::flat_hash_map<std::string, std::string>& labels,
       MetricUnit unit = MetricUnit::METRIC_UNIT_SECONDS) noexcept;
 
+  /** @brief Helper to record a count metric to OpenTelemetry. */
+  void RecordCountMetric(
+      absl::string_view name, uint64_t count, MetricType type,
+      const absl::flat_hash_map<std::string, std::string>& labels,
+      MetricUnit unit = MetricUnit::METRIC_UNIT_COUNT) noexcept;
+
   /** @brief Helper to record orchestrator call latency metric. */
   void RecordGetDataExportInfoDurationMetric(
       const scp::core::ExecutionResult& result, absl::Time start_time) noexcept;

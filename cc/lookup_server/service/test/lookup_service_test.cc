@@ -24,6 +24,7 @@
 #include "cc/core/test/src/parse_text_proto.h"
 #include "cc/core/test/utils/conditional_wait.h"
 #include "cc/core/test/utils/proto_test_utils.h"
+#include "cc/lookup_server/coordinator_client/src/cpio_cached_coordinator_client.h"
 #include "cc/lookup_server/coordinator_client/src/error_codes.h"
 #include "cc/lookup_server/crypto_client/mock/mock_crypto_client.h"
 #include "cc/lookup_server/crypto_client/mock/mock_crypto_key.h"
@@ -36,6 +37,7 @@
 #include "cc/lookup_server/service/src/error_codes.h"
 #include "cc/lookup_server/service/src/json_serialization_functions.h"
 #include "cc/public/core/test/interface/execution_result_matchers.h"
+#include "cc/public/cpio/utils/key_fetching/proto/key_coordinator_configuration.pb.h"
 #include "cc/public/cpio/utils/metric_instance/mock/mock_aggregate_metric.h"
 #include "core/async_executor/mock/mock_async_executor.h"
 #include "core/http2_server/mock/mock_http2_server.h"
@@ -2370,6 +2372,185 @@ TEST_F(LookupServiceTest, PostLookupOTelMetricSuccess) {
   EXPECT_EQ(req_latency.labels.at(kSuccessfulRequestLabel), "True");
   EXPECT_EQ(req_latency.labels.at(std::string(kCallerIdLabel)),
             "test-caller@google.com");
+}
+
+TEST_F(LookupServiceTest,
+       PostLookupCoordinatorEncryptedValidRequestMatchesAllowedCoordinatorSet) {
+  google::cmrt::sdk::v1::KeyCoordinatorConfiguration config;
+  auto* ep1 = config.add_private_key_endpoints();
+  ep1->set_endpoint("https://test-privatekeyservice-1.google.com/v1alpha");
+  ep1->set_gcp_cloud_function_url(
+      "https://test-key-service-audience-url-1.a.run.app");
+  ep1->set_gcp_wip_provider(
+      "projects/1/locations/global/workloadIdentityPools/wip/providers/"
+      "provider");
+
+  auto* ep2 = config.add_private_key_endpoints();
+  ep2->set_endpoint("https://test-privatekeyservice-2.google.com/v1alpha");
+  ep2->set_gcp_cloud_function_url(
+      "https://test-key-service-audience-url-2.a.run.app");
+  ep2->set_gcp_wip_provider(
+      "projects/2/locations/global/workloadIdentityPools/wip/providers/"
+      "provider");
+
+  absl::flat_hash_set<std::string> valid_sets = {StringifyEndpoints(config)};
+  PassThroughLookupService validating_service(
+      mock_match_data_storage_, mock_http2_server_, mock_aead_crypto_client_,
+      mock_hpke_crypto_client_, mock_request_aggregate_metric_,
+      mock_error_aggregate_metric_, mock_invalid_scheme_aggregate_metric_,
+      mock_metric_client_,
+      absl::flat_hash_map<std::string,
+                          std::shared_ptr<StatusProviderInterface>>(),
+      mock_fake_otel_metric_client_,
+      /*enable_coordinator_set_validation=*/true, valid_sets);
+  EXPECT_SUCCESS(validating_service.Init());
+
+  std::string request_body = R"({
+      "encryptedDataRecords": "testEncryptedDataRecords",
+      "keyFormat": "KEY_FORMAT_HASHED_ENCRYPTED",
+      "hashInfo": {
+        "hashType": "HASH_TYPE_SHA_256"
+      },
+      "encryptionKeyInfo": {
+          "coordinatorKeyInfo": {
+              "coordinatorInfo": [
+                  {
+                      "keyServiceEndpoint": "https://test-privatekeyservice-1.google.com/v1alpha",
+                      "keyServiceAudienceUrl": "https://test-key-service-audience-url-1.a.run.app",
+                      "kmsIdentity": "test-verified-user@coordinator1.iam.gserviceaccount.com",
+                      "kmsWipProvider": "projects/1/locations/global/workloadIdentityPools/wip/providers/provider"
+                  },
+                  {
+                      "keyServiceEndpoint": "https://test-privatekeyservice-2.google.com/v1alpha",
+                      "keyServiceAudienceUrl": "https://test-key-service-audience-url-2.a.run.app",
+                      "kmsIdentity": "test-verified-user@coordinator2.iam.gserviceaccount.com",
+                      "kmsWipProvider": "projects/2/locations/global/workloadIdentityPools/wip/providers/provider"
+                  }
+              ],
+              "keyId": "testKeyId"
+          }
+      },
+      "shardingScheme": {
+          "type": "jch",
+          "numShards": 60
+      },
+      "associatedDataKeys": ["user_id"]
+  })";
+  AsyncContext<HttpRequest, HttpResponse> http_context;
+  http_context.request = std::make_shared<HttpRequest>();
+  http_context.request->method = scp::core::HttpMethod::POST;
+  http_context.request->headers = std::make_shared<HttpHeaders>();
+  http_context.request->body.bytes = std::make_shared<std::vector<Byte>>(
+      request_body.begin(), request_body.end());
+  http_context.request->body.length = request_body.length();
+  http_context.request->body.capacity = request_body.capacity();
+  http_context.response = std::make_shared<HttpResponse>();
+
+  MatchDataRow match;
+  *match.mutable_key() = "+16505551234";
+  *match.add_associated_data()->mutable_key() = "user_id";
+  match.mutable_associated_data(0)->set_int_value(100);
+  std::vector<MatchDataRow> matches = {match};
+  EXPECT_CALL(*mock_match_data_storage_, Get(Eq("+16505551234")))
+      .WillOnce(Return(matches));
+  EXPECT_CALL(*mock_match_data_storage_, IsValidRequestScheme)
+      .WillOnce(Return(true));
+  EXPECT_CALL(*mock_request_aggregate_metric_,
+              Increment(kKeyFormatHashedEncryptedCoordinator))
+      .Times(1);
+  SerializableDataRecords serializable_data_records;
+  serializable_data_records.add_data_records()->mutable_lookup_key()->set_key(
+      "+16505551234");
+  auto mock_crypto_key = std::make_shared<MockCryptoKey>();
+  EXPECT_CALL(*mock_crypto_key, Decrypt)
+      .WillOnce(Return(serializable_data_records.SerializeAsString()));
+  EXPECT_CALL(*mock_hpke_crypto_client_, GetCryptoKey)
+      .WillOnce(std::bind(MockGetCryptoKeyWithResponse,
+                          std::move(mock_crypto_key), _1));
+
+  std::atomic<bool> finished = false;
+  http_context.callback =
+      [&finished](AsyncContext<HttpRequest, HttpResponse>& http_context) {
+        EXPECT_SUCCESS(http_context.result);
+        finished = true;
+      };
+
+  EXPECT_SUCCESS(validating_service.PostLookup(http_context));
+  WaitUntil([&]() { return finished.load(); });
+}
+
+TEST_F(LookupServiceTest, PostLookupCoordinatorEncryptedRequestRejected) {
+  google::cmrt::sdk::v1::KeyCoordinatorConfiguration config;
+  auto* ep1 = config.add_private_key_endpoints();
+  ep1->set_endpoint("https://other-coordinator.google.com/v1alpha");
+
+  absl::flat_hash_set<std::string> valid_sets = {StringifyEndpoints(config)};
+  PassThroughLookupService validating_service(
+      mock_match_data_storage_, mock_http2_server_, mock_aead_crypto_client_,
+      mock_hpke_crypto_client_, mock_request_aggregate_metric_,
+      mock_error_aggregate_metric_, mock_invalid_scheme_aggregate_metric_,
+      mock_metric_client_,
+      absl::flat_hash_map<std::string,
+                          std::shared_ptr<StatusProviderInterface>>(),
+      mock_fake_otel_metric_client_,
+      /*enable_coordinator_set_validation=*/true, valid_sets);
+  EXPECT_SUCCESS(validating_service.Init());
+
+  std::string request_body = R"({
+      "encryptedDataRecords": "testEncryptedDataRecords",
+      "keyFormat": "KEY_FORMAT_HASHED_ENCRYPTED",
+      "hashInfo": {
+        "hashType": "HASH_TYPE_SHA_256"
+      },
+      "encryptionKeyInfo": {
+          "coordinatorKeyInfo": {
+              "coordinatorInfo": [
+                  {
+                      "keyServiceEndpoint": "https://test-privatekeyservice-1.google.com/v1alpha",
+                      "keyServiceAudienceUrl": "https://test-key-service-audience-url-1.a.run.app",
+                      "kmsIdentity": "test-verified-user@coordinator1.iam.gserviceaccount.com",
+                      "kmsWipProvider": "projects/1/locations/global/workloadIdentityPools/wip/providers/provider"
+                  }
+              ],
+              "keyId": "testKeyId"
+          }
+      },
+      "shardingScheme": {
+          "type": "jch",
+          "numShards": 60
+      },
+      "associatedDataKeys": ["user_id"]
+  })";
+  AsyncContext<HttpRequest, HttpResponse> http_context;
+  http_context.request = std::make_shared<HttpRequest>();
+  http_context.request->method = scp::core::HttpMethod::POST;
+  http_context.request->headers = std::make_shared<HttpHeaders>();
+  http_context.request->body.bytes = std::make_shared<std::vector<Byte>>(
+      request_body.begin(), request_body.end());
+  http_context.request->body.length = request_body.length();
+  http_context.request->body.capacity = request_body.capacity();
+  http_context.response = std::make_shared<HttpResponse>();
+
+  EXPECT_CALL(*mock_match_data_storage_, IsValidRequestScheme)
+      .WillOnce(Return(true));
+  EXPECT_CALL(*mock_request_aggregate_metric_,
+              Increment(kKeyFormatHashedEncryptedCoordinator))
+      .Times(1);
+  EXPECT_CALL(*mock_error_aggregate_metric_,
+              Increment(kRequestErrorMetricLabel))
+      .Times(1);
+
+  std::atomic<bool> finished = false;
+  http_context.callback =
+      [&finished](AsyncContext<HttpRequest, HttpResponse>& http_context) {
+        EXPECT_THAT(
+            http_context.result,
+            ResultIs(FailureExecutionResult(LOOKUP_SERVICE_INVALID_REQUEST)));
+        finished = true;
+      };
+
+  EXPECT_SUCCESS(validating_service.PostLookup(http_context));
+  WaitUntil([&]() { return finished.load(); });
 }
 
 }  // namespace google::confidential_match::lookup_server

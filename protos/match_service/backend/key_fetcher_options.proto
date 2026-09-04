@@ -31,14 +31,14 @@ message KeyFetcherOptions {
     google.protobuf.Duration key_cache_lifetime = 5;
     // Default: 300s (5 minutes)
     google.protobuf.Duration fetching_failure_cache_lifetime = 6;
-    bool enable_active_keys_api_for_encryption_keys = 8 [default = false];
+    bool enable_active_keys_api_for_encryption_keys = 8 [default = true];
     // Default: 86400s (1 day)
     google.protobuf.Duration auto_refresh_time_duration = 9;
-    bool enable_on_demand_fetching_lock_for_encryption_key = 11 [default = false];
+    bool enable_on_demand_fetching_lock_for_encryption_key = 11 [default = true];
     // Default: 2000ms (2 seconds)
     google.protobuf.Duration on_demand_fetching_waiting_timeout = 12;
     bool use_read_lock_for_cache_read = 13 [default = false];
     uint64 auto_refresh_key_cache_valid_in_days = 14 [default = 1];
     google.cmrt.sdk.v1.EncryptionKeyPrefetchConfig encryption_key_prefetch_config = 15;
-    bool enable_key_selection_timestamp_validation = 16 [default = false];
+    bool enable_key_selection_timestamp_validation = 16 [default = true];
 }

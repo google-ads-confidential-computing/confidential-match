@@ -140,5 +140,11 @@ message Error {
 
     // The provided coordinator key is invalid or not found.
     INVALID_COORDINATOR_KEY = 32 [(backend_rpc_code) = INVALID_ARGUMENT];
+
+    // Decryption failed for both country code and zip code while it succeeded
+    // for first and last name. This likely indicates that auto-detection
+    // incorrectly classified the country code or zip code as encrypted.
+    INTERNAL_ERROR_PROCESSING_COUNTRY_ZIP_CODE = 33
+        [(backend_rpc_code) = INTERNAL];
   }
 }

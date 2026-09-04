@@ -37,6 +37,7 @@
 #include "cc/match_service/converters/lookup_associated_data_converter.h"
 #include "cc/match_service/crypto_client/crypto_client_interface.h"
 #include "cc/match_service/crypto_client/crypto_key_interface.h"
+#include "cc/match_service/data_format_detectors/address_format_detector.h"
 #include "cc/match_service/error/error.h"
 #include "cc/match_service/metrics/metrics_util.h"
 #include "cc/match_service/tasks/associated_data_collector.h"
@@ -88,11 +89,15 @@ using ::google::confidential_match::match_service::backend::MatchKeyFormat;
 using ::google::confidential_match::match_service::backend::MatchRequest;
 using ::google::confidential_match::match_service::backend::MatchResponse;
 using ::google::confidential_match::match_service::
+    encrypted_match_task_internal::CountSubkeysForMatchKey;
+using ::google::confidential_match::match_service::
     encrypted_match_task_internal::EncryptedMatchKey;
 using ::google::confidential_match::match_service::
     encrypted_match_task_internal::KeyGroup;
 using ::google::confidential_match::match_service::
     encrypted_match_task_internal::KeyIndex;
+using ::google::confidential_match::match_service::
+    encrypted_match_task_internal::ReconstructAddressParts;
 using ::google::protobuf::RepeatedPtrField;
 
 // This corresponds to PUBLIC_CRYPTO_ERROR error code returned by the Lookup
@@ -101,8 +106,13 @@ constexpr absl::string_view kLookupServiceCryptoErrorCode = "2415853572";
 constexpr absl::string_view kDataRecordIndexKey = "d";
 constexpr absl::string_view kMatchKeyIndexKey = "m";
 constexpr int64_t kAddressFieldSize = 4;
-// Address composite fields must encrypt First & Last name
-constexpr int kEncryptedAddressParts = 2;
+// Number of sub-fields encrypted in a partially encrypted address field. Only
+// the first name and last name are encrypted in this case.
+constexpr int kPartiallyEncryptedAddressParts = 2;
+// Number of sub-fields encrypted in a fully encrypted address field. All
+// sub-fields (first name, last name, country code, and zip code) are encrypted
+// in this case.
+constexpr int kFullyEncryptedAddressParts = kAddressFieldSize;
 
 // Converts an encrypted match key from the provided encoding to base-64.
 absl::StatusOr<std::string> ConvertToBase64(absl::string_view match_key,
@@ -231,7 +241,8 @@ absl::Status ToLookupDataRecord(const Field& field,
   return absl::OkStatus();
 }
 
-// Converts a CompositeField to a LookupDataRecord using the hashed values.
+// Converts a CompositeField to a LookupDataRecord using the hashed and
+// encrypted hashed values.
 absl::Status ToLookupDataRecord(const CompositeField& composite_field,
                                 const std::string& hashed_value,
                                 const std::string& encrypted_hashed_value,
@@ -268,61 +279,27 @@ absl::StatusOr<size_t> GetAddressFieldIndex(FieldType field_type) {
   }
 }
 
-// Reconstructs all parts of a composite address field.
-absl::Status ReconstructAddressParts(
-    absl::Span<const std::pair<backend::FieldType, absl::string_view>>
-        decrypted_fields,
-    const CompositeField& composite_field,
-    std::vector<std::string>& decrypted_parts) {
-  if (decrypted_fields.size() != 2) {
+// Extracts decrypted field pairs (field type and decrypted string) from the
+// sub-keys and their decryption results.
+absl::StatusOr<std::vector<std::pair<backend::FieldType, absl::string_view>>>
+ExtractDecryptedFields(
+    absl::Span<const EncryptedMatchKey> sub_keys,
+    absl::Span<const absl::StatusOr<std::string>> decrypted_results) {
+  if (sub_keys.size() != decrypted_results.size()) {
     return Status(Error::INTERNAL_ERROR,
-                  "Expected two decrypted fields for composite fields: first "
-                  "and last name");
+                  "Mismatched subkey and decryption result counts.");
   }
-  if (composite_field.values_size() != kAddressFieldSize) {
-    return Status(
-        Error::INTERNAL_ERROR,
-        "Match request composite field contains incorrect number of elements.");
-  }
-
-  std::vector<bool> is_index_used(kAddressFieldSize, false);
-
-  // Map each decrypted value to its correct position
-  for (const auto& [field_type, decrypted_value] : decrypted_fields) {
-    size_t i;
-    ASSIGN_OR_RETURN(i, GetAddressFieldIndex(field_type));
-    if (is_index_used[i]) {
-      return Status(Error::INTERNAL_ERROR,
-                    "Composite address contains duplicate fields.");
+  std::vector<std::pair<backend::FieldType, absl::string_view>>
+      decrypted_fields;
+  decrypted_fields.reserve(sub_keys.size());
+  for (size_t k = 0; k < sub_keys.size(); ++k) {
+    if (!decrypted_results[k].ok()) {
+      return decrypted_results[k].status();
     }
-    decrypted_parts[i] = decrypted_value;
-    is_index_used[i] = true;
+    decrypted_fields.emplace_back(sub_keys[k].field_type,
+                                  *decrypted_results[k]);
   }
-
-  // Map remaining fields which were received already decrypted in the request
-  for (const auto& field : composite_field.values()) {
-    if (field.type() == FieldType::FIELD_TYPE_FIRST_NAME ||
-        field.type() == FieldType::FIELD_TYPE_LAST_NAME) {
-      continue;
-    }
-
-    size_t i;
-    ASSIGN_OR_RETURN(i, GetAddressFieldIndex(field.type()));
-    if (is_index_used[i]) {
-      return Status(Error::INTERNAL_ERROR,
-                    "Composite address contains duplicate fields.");
-    }
-    decrypted_parts[i] = field.value();
-    is_index_used[i] = true;
-  }
-
-  for (bool is_used : is_index_used) {
-    if (!is_used) {
-      return Status(Error::INTERNAL_ERROR,
-                    "Composite field is missing required fields.");
-    }
-  }
-  return absl::OkStatus();
+  return decrypted_fields;
 }
 
 // Normalizes, hashes, and encrypts the reconstructed address parts.
@@ -436,11 +413,160 @@ ErrorReason ToErrorReason(const absl::Status& status) {
       return backend::ERROR_REASON_INVALID_COORDINATOR_KEY;
     case Error::INVALID_MATCH_KEY_FIELD:
       return backend::ERROR_REASON_INVALID_MATCH_KEY_FIELD;
+    case Error::INTERNAL_ERROR_PROCESSING_COUNTRY_ZIP_CODE:
+      return backend::ERROR_REASON_INTERNAL_ERROR_PROCESSING_COUNTRY_ZIP_CODE;
     case Error::INTERNAL_ERROR:
     default:
       return backend::ERROR_REASON_INTERNAL_ERROR;
   }
 }
+
+}  // namespace
+
+namespace encrypted_match_task_internal {
+
+// Checks decryption status for all subkeys in a MatchKey.
+std::optional<ErrorReason> CheckDecryptionError(
+    absl::Span<const EncryptedMatchKey> sub_keys,
+    absl::Span<const absl::StatusOr<std::string>> decrypted_results,
+    LoggerInterface* logger) {
+  if (sub_keys.size() != decrypted_results.size()) {
+    return backend::ERROR_REASON_INTERNAL_ERROR;
+  }
+
+  bool first_name_failed = false;
+  bool last_name_failed = false;
+  bool country_code_failed = false;
+  bool zip_code_failed = false;
+  std::optional<ErrorReason> first_error_reason = std::nullopt;
+
+  for (size_t k = 0; k < sub_keys.size(); ++k) {
+    if (!decrypted_results[k].ok()) {
+      if (!first_error_reason.has_value()) {
+        first_error_reason = ToErrorReason(decrypted_results[k].status());
+      }
+      switch (sub_keys[k].field_type) {
+        case FieldType::FIELD_TYPE_FIRST_NAME:
+          first_name_failed = true;
+          break;
+        case FieldType::FIELD_TYPE_LAST_NAME:
+          last_name_failed = true;
+          break;
+        case FieldType::FIELD_TYPE_COUNTRY_CODE:
+          country_code_failed = true;
+          break;
+        case FieldType::FIELD_TYPE_ZIP_CODE:
+          zip_code_failed = true;
+          break;
+        default:
+          break;
+      }
+    }
+  }
+  if (!first_error_reason.has_value()) {
+    return std::nullopt;
+  }
+
+  // If decryption failed for both country code and zip code, but it succeeded
+  // for first name and last name, it is likely due to mis-classification of
+  // country/zip format.
+  if (country_code_failed && zip_code_failed && !first_name_failed &&
+      !last_name_failed) {
+    if (logger != nullptr) {
+      LOG_WARNING(*logger,
+                  "Returning "
+                  "ERROR_REASON_INTERNAL_ERROR_PROCESSING_COUNTRY_ZIP_CODE "
+                  "likely due to country/zip code mis-classification.");
+    }
+    return backend::ERROR_REASON_INTERNAL_ERROR_PROCESSING_COUNTRY_ZIP_CODE;
+  }
+  return first_error_reason;
+}
+
+// Returns the number of contiguous keys in `keys` starting from `start_index`
+// that share the same KeyIndex (data_records_index and match_keys_index).
+size_t CountSubkeysForMatchKey(absl::Span<const EncryptedMatchKey> keys,
+                               size_t start_index) {
+  if (start_index >= keys.size()) {
+    return 0;
+  }
+  const KeyIndex& target_index = keys[start_index].key_index;
+  size_t count = 1;
+  while (start_index + count < keys.size() &&
+         keys[start_index + count].key_index.data_records_index ==
+             target_index.data_records_index &&
+         keys[start_index + count].key_index.match_keys_index ==
+             target_index.match_keys_index) {
+    ++count;
+  }
+  return count;
+}
+
+// Reconstructs all parts of a composite address field.
+absl::Status ReconstructAddressParts(
+    absl::Span<const std::pair<backend::FieldType, absl::string_view>>
+        decrypted_fields,
+    const backend::CompositeField& composite_field,
+    std::vector<std::string>& decrypted_parts) {
+  if (decrypted_fields.size() != kPartiallyEncryptedAddressParts &&
+      decrypted_fields.size() != kFullyEncryptedAddressParts) {
+    return Status(Error::INTERNAL_ERROR,
+                  "Expected either 2 or 4 decrypted fields for composite "
+                  "address fields.");
+  }
+  if (composite_field.values_size() != kAddressFieldSize) {
+    return Status(
+        Error::INTERNAL_ERROR,
+        "Match request composite field contains incorrect number of elements.");
+  }
+
+  std::vector<bool> is_index_used(kAddressFieldSize, false);
+
+  // Map each decrypted value to its correct position
+  for (const auto& [field_type, decrypted_value] : decrypted_fields) {
+    size_t i;
+    ASSIGN_OR_RETURN(i, GetAddressFieldIndex(field_type));
+    if (is_index_used[i]) {
+      return Status(Error::INTERNAL_ERROR,
+                    "Composite address contains duplicate fields.");
+    }
+    decrypted_parts[i] = decrypted_value;
+    is_index_used[i] = true;
+  }
+
+  // If the address contains only the first name and last name as encrypted
+  // fields, then we need to map the remaining fields which were received
+  // already decrypted in the request.
+  if (decrypted_fields.size() == kPartiallyEncryptedAddressParts) {
+    for (const auto& field : composite_field.values()) {
+      if (field.type() == backend::FieldType::FIELD_TYPE_FIRST_NAME ||
+          field.type() == backend::FieldType::FIELD_TYPE_LAST_NAME) {
+        continue;
+      }
+
+      size_t i;
+      ASSIGN_OR_RETURN(i, GetAddressFieldIndex(field.type()));
+      if (is_index_used[i]) {
+        return Status(Error::INTERNAL_ERROR,
+                      "Composite address contains duplicate fields.");
+      }
+      decrypted_parts[i] = field.value();
+      is_index_used[i] = true;
+    }
+  }
+
+  for (bool is_used : is_index_used) {
+    if (!is_used) {
+      return Status(Error::INTERNAL_ERROR,
+                    "Composite field is missing required fields.");
+    }
+  }
+  return absl::OkStatus();
+}
+
+}  // namespace encrypted_match_task_internal
+
+namespace {
 
 // Converts a Lookup Service result to a Match Service error reason.
 std::optional<ErrorReason> MapLookupResultToErrorReason(
@@ -719,10 +845,24 @@ absl::Status AddKeyToGroup(MatchKeyEncoding key_encoding, const MatchKey& key,
                             *matched_key);
       return absl::OkStatus();
     }
+    const auto country_and_zip_encrypted_or = AreCountryCodeZipCodeEncrypted(
+        key.composite_field(), key_encoding, *group.key_info);
+    if (!country_and_zip_encrypted_or.ok()) {
+      SetMatchedKeyAsFailed(
+          ToErrorReason(country_and_zip_encrypted_or.status()), *matched_key);
+      return absl::OkStatus();
+    }
+    const bool country_and_zip_encrypted = *country_and_zip_encrypted_or;
+    const int expected_encrypted_count = country_and_zip_encrypted
+                                             ? kFullyEncryptedAddressParts
+                                             : kPartiallyEncryptedAddressParts;
     int encrypted_count = 0;
     std::vector<EncryptedMatchKey> temp_keys;
     for (const auto& sub_field : key.composite_field().values()) {
-      if (sub_field.type() == FieldType::FIELD_TYPE_FIRST_NAME ||
+      // If country and zip code are encrypted, validate and convert all
+      // sub-fields. Otherwise, do so only for first and last name.
+      if (country_and_zip_encrypted ||
+          sub_field.type() == FieldType::FIELD_TYPE_FIRST_NAME ||
           sub_field.type() == FieldType::FIELD_TYPE_LAST_NAME) {
         auto status = ValidateMatchKeyEncoding(key_encoding, sub_field.value());
         if (!status.ok()) {
@@ -741,8 +881,8 @@ absl::Status AddKeyToGroup(MatchKeyEncoding key_encoding, const MatchKey& key,
         encrypted_count++;
       }
     }
-    // Verify API Contract: Exactly 2 encrypted parts (First & Last)
-    if (encrypted_count != kEncryptedAddressParts) {
+    // Verify expected number of encrypted parts.
+    if (encrypted_count != expected_encrypted_count) {
       SetMatchedKeyAsFailed(backend::ERROR_REASON_INVALID_MATCH_KEY_FIELD,
                             *matched_key);
       return absl::OkStatus();
@@ -1071,7 +1211,7 @@ absl::Status KmsEncryptedMatchTask::ProcessCompositeField(
                                         *sha256_hasher_, hashed_value,
                                         encrypted_hashed_value_b64));
 
-  // Add hashed data to LookupRequest safely
+  // Construct LookupDataRecord with hashed and encrypted values
   LookupDataRecord lookup_data_record;
   RETURN_IF_ERROR(ToLookupDataRecord(composite_field, hashed_value,
                                      encrypted_hashed_value_b64,
@@ -1086,7 +1226,7 @@ absl::Status KmsEncryptedMatchTask::ProcessCompositeField(
 
 absl::StatusOr<std::shared_ptr<LookupServiceRequest>>
 KmsEncryptedMatchTask::CreateLookupRequest(
-    MatchRequestContext& state, const KeyGroup& group,
+    MatchRequestContext& state, const KeyGroup& encrypted_match_keys_group,
     const CryptoKeyInterface& crypto_key) {
   auto lookup_request = std::make_shared<LookupServiceRequest>();
   lookup_request->set_key_format(
@@ -1094,101 +1234,94 @@ KmsEncryptedMatchTask::CreateLookupRequest(
   lookup_request->mutable_hash_info()->set_hash_type(
       LookupServiceRequest::HashInfo::HASH_TYPE_SHA_256);
 
-  *lookup_request->mutable_encryption_key() = *group.key_info;
+  *lookup_request->mutable_encryption_key() =
+      *encrypted_match_keys_group.key_info;
 
   // Batch Decryption
-  // Each decrypted string corresponds to the encrypted value in group.keys
-  // at the same index.
+  // Each decrypted string corresponds to the encrypted value in
+  // encrypted_match_keys_group.keys at the same index.
   std::vector<absl::StatusOr<std::string>> decrypted_strings_or =
-      DecryptKeysInGroup(group, crypto_key);
+      DecryptKeysInGroup(encrypted_match_keys_group, crypto_key);
 
   // Acquire the lock since the MatchResponse may be updated for errors.
   absl::ReleasableMutexLock lock(&state.mutex);
 
   // Iterate through keys and build request
   size_t i = 0;
-  while (i < group.keys.size()) {
-    const EncryptedMatchKey& key = group.keys[i];
-
-    const KeyIndex& idx = key.key_index;
+  while (i < encrypted_match_keys_group.keys.size()) {
+    const KeyIndex& key_index = encrypted_match_keys_group.keys[i].key_index;
     const MatchKey& original_key =
-        state.match_context.request->data_records(idx.data_records_index)
-            .match_keys(idx.match_keys_index);
+        state.match_context.request->data_records(key_index.data_records_index)
+            .match_keys(key_index.match_keys_index);
 
     MatchedKey* matched_key =
         state.match_response
-            ->mutable_matched_data_records(idx.data_records_index)
-            ->mutable_matched_keys(idx.match_keys_index);
+            ->mutable_matched_data_records(key_index.data_records_index)
+            ->mutable_matched_keys(key_index.match_keys_index);
 
-    const int step =
-        (original_key.field_info_case() == MatchKey::kCompositeField) ? 2 : 1;
+    const size_t subkey_count =
+        original_key.field_info_case() == MatchKey::kCompositeField
+            ? CountSubkeysForMatchKey(encrypted_match_keys_group.keys, i)
+            : 1;
+    if (subkey_count < 1) {
+      return Status(Error::INTERNAL_ERROR,
+                    "Unexpected error: Match key has fewer than 1 subkeys.");
+    }
 
     if (HasFailedStatus(*matched_key)) {
-      i += step;
+      i += subkey_count;
       continue;
     }
 
-    // Write any decryption failures as field-level errors on the response.
-    const absl::StatusOr<std::string>& decrypted_val_or =
-        decrypted_strings_or[i];
-    if (!decrypted_val_or.ok()) {
-      SetMatchedKeyAsFailed(ToErrorReason(decrypted_val_or.status()),
+    // If the address does not have the correct number of subkeys, set the
+    // matched key as failed.
+    if (original_key.field_info_case() == MatchKey::kCompositeField &&
+        subkey_count != kPartiallyEncryptedAddressParts &&
+        subkey_count != kFullyEncryptedAddressParts) {
+      SetMatchedKeyAsFailed(backend::ERROR_REASON_INVALID_MATCH_KEY_FIELD,
                             *matched_key);
-      i += step;
+      i += subkey_count;
       continue;
     }
-    absl::string_view decrypted_val = *decrypted_val_or;
 
+    auto sub_keys = absl::MakeSpan(encrypted_match_keys_group.keys)
+                        .subspan(i, subkey_count);
+    auto sub_results =
+        absl::MakeSpan(decrypted_strings_or).subspan(i, subkey_count);
+
+    // Check decryption status for all subkeys in this MatchKey. Record any
+    // decryption failures as field-level errors on the response.
+    if (auto error_reason = CheckDecryptionError(
+            sub_keys, sub_results, state.match_context.logger.get());
+        error_reason.has_value()) {
+      SetMatchedKeyAsFailed(*error_reason, *matched_key);
+      i += subkey_count;
+      continue;
+    }
+
+    absl::Status status;
     if (original_key.field_info_case() == MatchKey::kField) {
-      if (absl::Status status =
-              ProcessSingleField(key, decrypted_val, state, *lookup_request);
-          !status.ok()) {
-        SetMatchedKeyAsFailed(ToErrorReason(status), *matched_key);
-      }
+      status = ProcessSingleField(sub_keys.front(), *sub_results.front(), state,
+                                  *lookup_request);
     } else if (original_key.field_info_case() == MatchKey::kCompositeField) {
-      // Process Composite Field in chunks of 2 since first name + last name
-      // will always be stored one after the other
-      if (i + 1 >= group.keys.size()) {
-        return Status(Error::INTERNAL_ERROR,
-                      "Unexpected end of keys for composite field.");
+      auto decrypted_fields_or = ExtractDecryptedFields(sub_keys, sub_results);
+      if (!decrypted_fields_or.ok()) {
+        status = decrypted_fields_or.status();
+      } else {
+        status = ProcessCompositeField(*decrypted_fields_or, key_index,
+                                       crypto_key, state, *lookup_request);
       }
-
-      const EncryptedMatchKey& next_key = group.keys[i + 1];
-      const absl::StatusOr<std::string>& next_decrypted_val_or =
-          decrypted_strings_or[i + 1];
-      if (!next_decrypted_val_or.ok()) {
-        SetMatchedKeyAsFailed(ToErrorReason(next_decrypted_val_or.status()),
-                              *matched_key);
-        i += step;
-        continue;
-      }
-      absl::string_view next_decrypted_val = *next_decrypted_val_or;
-
-      if (key.key_index.data_records_index !=
-              next_key.key_index.data_records_index ||
-          key.key_index.match_keys_index !=
-              next_key.key_index.match_keys_index) {
-        return Status(Error::INTERNAL_ERROR, "Composite indices mismatch.");
-      }
-
-      std::vector<std::pair<backend::FieldType, absl::string_view>>
-          decrypted_fields = {
-              {key.field_type, decrypted_val},
-              {next_key.field_type, next_decrypted_val},
-          };
-      absl::Status status = ProcessCompositeField(
-          decrypted_fields, key.key_index, crypto_key, state, *lookup_request);
-      if (!status.ok()) {
-        SetMatchedKeyAsFailed(ToErrorReason(status), *matched_key);
-      }
-
     } else {
-      // Shouldn't happen.
-      SetMatchedKeyAsFailed(ErrorReason::ERROR_REASON_INVALID_MATCH_KEY_FIELD,
-                            *matched_key);
+      status = Status(Error::INVALID_MATCH_KEY_FIELD,
+                      "Unsupported match key field type.");
     }
-    // Move to the next key (or next two keys for composite fields)
-    i += step;
+
+    if (!status.ok()) {
+      SetMatchedKeyAsFailed(ToErrorReason(status), *matched_key);
+    }
+
+    // Move to the next key group.
+    i += subkey_count;
   }
 
   lock.Release();

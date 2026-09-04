@@ -534,4 +534,9 @@ enum ErrorReason {
 
   // The provided coordinator key is invalid or not found.
   ERROR_REASON_INVALID_COORDINATOR_KEY = 16;
+
+  // Decryption failed for both country code and zip code while it succeeded
+  // for first and last name. This likely indicates that auto-detection
+  // incorrectly classified the country code or zip code as encrypted.
+  ERROR_REASON_INTERNAL_ERROR_PROCESSING_COUNTRY_ZIP_CODE = 17;
 }
