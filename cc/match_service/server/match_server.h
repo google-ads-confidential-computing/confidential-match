@@ -97,6 +97,8 @@ struct ConfigOptions {
   std::string service_account_email;
   // A boolean to enable background refresh for CachedAuthTokenClient.
   bool enable_background_auth_token_refresh = false;
+  // A boolean to enable support for encrypted country code and zip code.
+  bool enable_encrypted_country_zip_code = false;
 };
 
 // The main server responsible for running Match Service.

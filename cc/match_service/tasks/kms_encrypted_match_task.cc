@@ -819,7 +819,8 @@ void SetFieldLevelErrorsForKeyGroup(const KeyGroup& key_group,
 // Adds a match key to the key group.
 absl::Status AddKeyToGroup(MatchKeyEncoding key_encoding, const MatchKey& key,
                            int record_index, int match_key_index,
-                           KeyGroup& group, MatchResponse& match_response) {
+                           KeyGroup& group, MatchResponse& match_response,
+                           bool enable_encrypted_country_zip_code) {
   MatchedKey* matched_key =
       match_response.mutable_matched_data_records(record_index)
           ->mutable_matched_keys(match_key_index);
@@ -845,14 +846,17 @@ absl::Status AddKeyToGroup(MatchKeyEncoding key_encoding, const MatchKey& key,
                             *matched_key);
       return absl::OkStatus();
     }
-    const auto country_and_zip_encrypted_or = AreCountryCodeZipCodeEncrypted(
-        key.composite_field(), key_encoding, *group.key_info);
-    if (!country_and_zip_encrypted_or.ok()) {
-      SetMatchedKeyAsFailed(
-          ToErrorReason(country_and_zip_encrypted_or.status()), *matched_key);
-      return absl::OkStatus();
+    bool country_and_zip_encrypted = false;
+    if (enable_encrypted_country_zip_code) {
+      const auto country_and_zip_encrypted_or = AreCountryCodeZipCodeEncrypted(
+          key.composite_field(), key_encoding, *group.key_info);
+      if (!country_and_zip_encrypted_or.ok()) {
+        SetMatchedKeyAsFailed(
+            ToErrorReason(country_and_zip_encrypted_or.status()), *matched_key);
+        return absl::OkStatus();
+      }
+      country_and_zip_encrypted = *country_and_zip_encrypted_or;
     }
-    const bool country_and_zip_encrypted = *country_and_zip_encrypted_or;
     const int expected_encrypted_count = country_and_zip_encrypted
                                              ? kFullyEncryptedAddressParts
                                              : kPartiallyEncryptedAddressParts;
@@ -1124,8 +1128,9 @@ KmsEncryptedMatchTask::GroupByEncryptionKey(const MatchRequest& request,
         }
       }
 
-      if (auto status = AddKeyToGroup(request.key_encoding(), key, record_index,
-                                      match_key_index, group, match_response);
+      if (auto status = AddKeyToGroup(
+              request.key_encoding(), key, record_index, match_key_index, group,
+              match_response, enable_encrypted_country_zip_code_);
           !status.ok()) {
         MatchedKey* matched_key =
             match_response.mutable_matched_data_records(record_index)
@@ -1275,9 +1280,12 @@ KmsEncryptedMatchTask::CreateLookupRequest(
 
     // If the address does not have the correct number of subkeys, set the
     // matched key as failed.
+    const bool valid_subkey_count =
+        subkey_count == kPartiallyEncryptedAddressParts ||
+        (enable_encrypted_country_zip_code_ &&
+         subkey_count == kFullyEncryptedAddressParts);
     if (original_key.field_info_case() == MatchKey::kCompositeField &&
-        subkey_count != kPartiallyEncryptedAddressParts &&
-        subkey_count != kFullyEncryptedAddressParts) {
+        !valid_subkey_count) {
       SetMatchedKeyAsFailed(backend::ERROR_REASON_INVALID_MATCH_KEY_FIELD,
                             *matched_key);
       i += subkey_count;

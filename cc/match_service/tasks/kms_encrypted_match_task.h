@@ -107,14 +107,16 @@ class KmsEncryptedMatchTask : public MatchTaskInterface {
       CryptoClientInterface* hybrid_crypto_client,
       const backend::PrivateKeyEndpoints& private_key_endpoints,
       scp::cpio::MetricClientInterface* metric_client = nullptr,
-      absl::string_view metric_namespace = "")
+      absl::string_view metric_namespace = "",
+      bool enable_encrypted_country_zip_code = false)
       : lookup_service_client_(lookup_service_client),
         aead_crypto_client_(aead_crypto_client),
         sha256_hasher_(sha256_hasher),
         hybrid_crypto_client_(hybrid_crypto_client),
         private_key_endpoints_(private_key_endpoints),
         metric_client_(metric_client),
-        metric_namespace_(metric_namespace) {}
+        metric_namespace_(metric_namespace),
+        enable_encrypted_country_zip_code_(enable_encrypted_country_zip_code) {}
 
   // Performs the match operation.
   void Match(AsyncContext<backend::MatchRequest, backend::MatchResponse>
@@ -242,6 +244,8 @@ class KmsEncryptedMatchTask : public MatchTaskInterface {
   scp::cpio::MetricClientInterface* metric_client_;
   // The namespace that metrics will be written to.
   std::string metric_namespace_;
+  // A boolean to enable support for encrypted country code and zip code.
+  bool enable_encrypted_country_zip_code_ = false;
 };
 
 }  // namespace google::confidential_match::match_service

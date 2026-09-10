@@ -589,7 +589,7 @@ ExecutionResultOr<ExportMetadata> MatchDataLoader::GetExportMetadata(
     RecordDurationMetric(kGetExportMetadataDurationMetricName,
                          absl::Now() - start_time,
                          MetricType::METRIC_TYPE_GAUGE, labels,
-                         MetricUnit::METRIC_UNIT_MILLISECONDS);
+                         MetricUnit::METRIC_UNIT_SECONDS);
     SCP_ERROR(kComponentName, kZeroUuid, schedule_result,
               absl::StrFormat("Unable to schedule export metadata fetch. "
                               "(Bucket: '%s', Path: '%s')",
@@ -603,7 +603,7 @@ ExecutionResultOr<ExportMetadata> MatchDataLoader::GetExportMetadata(
     RecordDurationMetric(kGetExportMetadataDurationMetricName,
                          absl::Now() - start_time,
                          MetricType::METRIC_TYPE_GAUGE, labels,
-                         MetricUnit::METRIC_UNIT_MILLISECONDS);
+                         MetricUnit::METRIC_UNIT_SECONDS);
     RecordLoadErrorCountMetric(get_result, labels);
     SCP_ERROR(kComponentName, kZeroUuid, get_result,
               absl::StrFormat("Error while fetching export metadata. "
@@ -619,7 +619,7 @@ ExecutionResultOr<ExportMetadata> MatchDataLoader::GetExportMetadata(
     RecordDurationMetric(kGetExportMetadataDurationMetricName,
                          absl::Now() - start_time,
                          MetricType::METRIC_TYPE_GAUGE, labels,
-                         MetricUnit::METRIC_UNIT_MILLISECONDS);
+                         MetricUnit::METRIC_UNIT_SECONDS);
     RecordLoadErrorCountMetric(export_metadata_or.result(), labels);
     return export_metadata_or.result();
   }
@@ -627,7 +627,7 @@ ExecutionResultOr<ExportMetadata> MatchDataLoader::GetExportMetadata(
   labels[kIsSuccessfulLabel] = kTrueMetricValue;
   RecordDurationMetric(kGetExportMetadataDurationMetricName,
                        absl::Now() - start_time, MetricType::METRIC_TYPE_GAUGE,
-                       labels, MetricUnit::METRIC_UNIT_MILLISECONDS);
+                       labels, MetricUnit::METRIC_UNIT_SECONDS);
   SCP_INFO(kComponentName, kZeroUuid,
            absl::StrFormat("Retrieved export metadata. "
                            "(Bucket: '%s', Path: '%s')",
@@ -657,7 +657,7 @@ void MatchDataLoader::RecordGetDataExportInfoDurationMetric(
       result.Successful() ? kTrueMetricValue : kFalseMetricValue;
   RecordDurationMetric(kGetDataExportInfoDurationMetricName,
                        absl::Now() - start_time, MetricType::METRIC_TYPE_GAUGE,
-                       labels, MetricUnit::METRIC_UNIT_MILLISECONDS);
+                       labels, MetricUnit::METRIC_UNIT_SECONDS);
 }
 
 void MatchDataLoader::RecordLoadErrorCountMetric(

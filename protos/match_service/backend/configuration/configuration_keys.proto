@@ -32,4 +32,6 @@ enum ConfigurationKeys {
   CONFIGURATION_KEYS_SERVICE_ACCOUNT_EMAIL = 5;
   // A boolean to enable background refresh for CachedAuthTokenClient.
   CONFIGURATION_KEYS_ENABLE_BACKGROUND_AUTH_TOKEN_REFRESH = 6;
+  // A boolean to enable support for encrypted country code and zip code.
+  CONFIGURATION_KEYS_ENABLE_ENCRYPTED_COUNTRY_ZIP_CODE = 7;
 }

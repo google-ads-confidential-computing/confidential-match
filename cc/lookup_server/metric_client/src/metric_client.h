@@ -36,6 +36,8 @@ inline constexpr absl::string_view kLookupServerRequestLatencyMetricName =
     "lookup_server_request_latency";
 inline constexpr absl::string_view kLookupServerRequestErrorCountMetricName =
     "lookup_server_request_error_count";
+inline constexpr absl::string_view kLookupServerDataRecordPerRequestMetricName =
+    "lookup_server_data_record_per_request";
 
 // Data loader metric names
 
@@ -55,11 +57,11 @@ inline constexpr absl::string_view
     kDataLoaderDurationSinceLastRefreshMetricName =
         "data_loader_duration_since_last_refresh_in_seconds";
 // Measures the latency of fetching the DataExportInfo from the
-// OrchestratorClient in milliseconds.
+// OrchestratorClient in seconds.
 inline constexpr absl::string_view kGetDataExportInfoDurationMetricName =
     "data_loader_data_export_info_duration";
 // Measures the latency of fetching the ExportMetadata file from the
-// DataProvider in milliseconds.
+// DataProvider in seconds.
 inline constexpr absl::string_view kGetExportMetadataDurationMetricName =
     "data_loader_get_export_metadata_duration";
 // Measures the number of failed data refresh loads.

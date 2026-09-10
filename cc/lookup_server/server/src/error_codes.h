@@ -44,6 +44,16 @@ DEFINE_ERROR_CODE(
     "Invalid cert file path.",
     google::scp::core::errors::HttpStatusCode::INTERNAL_SERVER_ERROR)
 
+DEFINE_ERROR_CODE(
+    INVALID_COORDINATOR_SET_CONFIGURATIONS, LOOKUP_SERVER, 0x0005,
+    "Failed to parse coordinator set configurations.",
+    google::scp::core::errors::HttpStatusCode::INTERNAL_SERVER_ERROR)
+
+DEFINE_ERROR_CODE(
+    COORDINATOR_SET_CONFIGURATIONS_NOT_FOUND, LOOKUP_SERVER, 0x0006,
+    "Failed to find coordinator set configurations.",
+    google::scp::core::errors::HttpStatusCode::INTERNAL_SERVER_ERROR)
+
 }  // namespace google::confidential_match::lookup_server
 
 #endif  // CC_LOOKUP_SERVER_SERVER_SRC_ERROR_CODES_H_

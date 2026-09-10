@@ -569,15 +569,23 @@ TEST_F(LookupServiceTest, PostLookupWithValidRequestMultipleRecords) {
   WaitUntil([&]() { return finished.load(); });
 
   // Now, validate the recorded Open Telemetry metrics!
-  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 2);
+  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 3);
   const auto& req_count =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[0];
   EXPECT_EQ(req_count.name, "lookup_server_request_count");
   EXPECT_EQ(req_count.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_count.labels.at("KeyFormat"), kKeyFormatHashed);
 
-  const auto& req_latency =
+  const auto& req_record_number =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(req_record_number.name, "lookup_server_data_record_per_request");
+  EXPECT_EQ(req_record_number.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_EQ(req_record_number.value, "2");
+  EXPECT_EQ(req_record_number.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(req_record_number.labels.at("KeyFormat"), kKeyFormatHashed);
+
+  const auto& req_latency =
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
   EXPECT_EQ(req_latency.name, "lookup_server_request_latency");
   EXPECT_EQ(req_latency.type, MetricType::METRIC_TYPE_HISTOGRAM);
   EXPECT_FALSE(req_latency.value.empty());
@@ -779,7 +787,7 @@ TEST_F(LookupServiceTest, PostLookupValidRequestWithOutdatedShardingScheme) {
   WaitUntil([&]() { return finished.load(); });
 
   // Now, validate the recorded Open Telemetry metrics!
-  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 3);
+  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 4);
 
   const auto& req_count =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[0];
@@ -787,8 +795,16 @@ TEST_F(LookupServiceTest, PostLookupValidRequestWithOutdatedShardingScheme) {
   EXPECT_EQ(req_count.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_count.labels.at("KeyFormat"), kKeyFormatHashed);
 
-  const auto& req_error =
+  const auto& req_record_number =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(req_record_number.name, "lookup_server_data_record_per_request");
+  EXPECT_EQ(req_record_number.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_EQ(req_record_number.value, "1");
+  EXPECT_EQ(req_record_number.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(req_record_number.labels.at("KeyFormat"), kKeyFormatHashed);
+
+  const auto& req_error =
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
   EXPECT_EQ(req_error.name, "lookup_server_request_error_count");
   EXPECT_EQ(req_error.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_error.value, "1");
@@ -797,7 +813,7 @@ TEST_F(LookupServiceTest, PostLookupValidRequestWithOutdatedShardingScheme) {
             "The request scheme is not valid (likely out of date).");
 
   const auto& req_latency =
-      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[3];
   EXPECT_EQ(req_latency.name, "lookup_server_request_latency");
   EXPECT_EQ(req_latency.type, MetricType::METRIC_TYPE_HISTOGRAM);
   EXPECT_FALSE(req_latency.value.empty());
@@ -861,7 +877,7 @@ TEST_F(LookupServiceTest, PostLookupWithInvalidKeyFormat) {
   WaitUntil([&]() { return finished.load(); });
 
   // Now, validate the recorded Open Telemetry metrics!
-  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 3);
+  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 4);
 
   const auto& req_count =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[0];
@@ -869,8 +885,16 @@ TEST_F(LookupServiceTest, PostLookupWithInvalidKeyFormat) {
   EXPECT_EQ(req_count.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_count.labels.at("KeyFormat"), kKeyFormatUnspecified);
 
-  const auto& req_error =
+  const auto& req_record_number =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(req_record_number.name, "lookup_server_data_record_per_request");
+  EXPECT_EQ(req_record_number.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_EQ(req_record_number.value, "1");
+  EXPECT_EQ(req_record_number.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(req_record_number.labels.at("KeyFormat"), kKeyFormatUnspecified);
+
+  const auto& req_error =
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
   EXPECT_EQ(req_error.name, "lookup_server_request_error_count");
   EXPECT_EQ(req_error.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_error.value, "1");
@@ -879,7 +903,7 @@ TEST_F(LookupServiceTest, PostLookupWithInvalidKeyFormat) {
             "The key format is not valid (likely unspecified).");
 
   const auto& req_latency =
-      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[3];
   EXPECT_EQ(req_latency.name, "lookup_server_request_latency");
   EXPECT_EQ(req_latency.type, MetricType::METRIC_TYPE_HISTOGRAM);
   EXPECT_FALSE(req_latency.value.empty());
@@ -939,15 +963,23 @@ TEST_F(LookupServiceTest, PostLookupWithMissingHashTypeReturnsError) {
   WaitUntil([&]() { return finished.load(); });
 
   // Now, validate the recorded Open Telemetry metrics!
-  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 3);
+  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 4);
   const auto& req_count =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[0];
   EXPECT_EQ(req_count.name, "lookup_server_request_count");
   EXPECT_EQ(req_count.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_count.labels.at("KeyFormat"), kKeyFormatHashed);
 
-  const auto& req_error =
+  const auto& req_record_number =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(req_record_number.name, "lookup_server_data_record_per_request");
+  EXPECT_EQ(req_record_number.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_EQ(req_record_number.value, "1");
+  EXPECT_EQ(req_record_number.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(req_record_number.labels.at("KeyFormat"), kKeyFormatHashed);
+
+  const auto& req_error =
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
   EXPECT_EQ(req_error.name, "lookup_server_request_error_count");
   EXPECT_EQ(req_error.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_error.value, "1");
@@ -956,7 +988,7 @@ TEST_F(LookupServiceTest, PostLookupWithMissingHashTypeReturnsError) {
             "The request is invalid.");
 
   const auto& req_latency =
-      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[3];
   EXPECT_EQ(req_latency.name, "lookup_server_request_latency");
   EXPECT_EQ(req_latency.type, MetricType::METRIC_TYPE_HISTOGRAM);
   EXPECT_FALSE(req_latency.value.empty());
@@ -1020,21 +1052,33 @@ TEST_F(LookupServiceTest, PostLookupMultipleMetricCounterIncrements) {
   EXPECT_SUCCESS(lookup_service_with_otel_.PostLookup(http_context));
   WaitUntil([&]() { return finished.load(); });
 
-  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 4);
+  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 6);
   const auto& req_count_1 =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[0];
   EXPECT_EQ(req_count_1.name, "lookup_server_request_count");
   EXPECT_EQ(req_count_1.type, MetricType::METRIC_TYPE_COUNTER);
-  const auto& req_latency_1 =
+  const auto& req_record_number_1 =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(req_record_number_1.name, "lookup_server_data_record_per_request");
+  EXPECT_EQ(req_record_number_1.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_EQ(req_record_number_1.value, "1");
+  EXPECT_EQ(req_record_number_1.unit, MetricUnit::METRIC_UNIT_COUNT);
+  const auto& req_latency_1 =
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
   EXPECT_EQ(req_latency_1.name, "lookup_server_request_latency");
   EXPECT_EQ(req_latency_1.type, MetricType::METRIC_TYPE_HISTOGRAM);
   const auto& req_count_2 =
-      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[3];
   EXPECT_EQ(req_count_2.name, "lookup_server_request_count");
   EXPECT_EQ(req_count_2.type, MetricType::METRIC_TYPE_COUNTER);
+  const auto& req_record_number_2 =
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[4];
+  EXPECT_EQ(req_record_number_2.name, "lookup_server_data_record_per_request");
+  EXPECT_EQ(req_record_number_2.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_EQ(req_record_number_2.value, "1");
+  EXPECT_EQ(req_record_number_2.unit, MetricUnit::METRIC_UNIT_COUNT);
   const auto& req_latency_2 =
-      mock_fake_otel_metric_client_->GetRecordedMetrics()[3];
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[5];
   EXPECT_EQ(req_latency_2.name, "lookup_server_request_latency");
   EXPECT_EQ(req_latency_2.type, MetricType::METRIC_TYPE_HISTOGRAM);
 }
@@ -1468,15 +1512,24 @@ TEST_F(LookupServiceTest, PostLookupEncryptedWithPartialKeyDecryptionError) {
   WaitUntil([&]() { return finished.load(); });
 
   // Now, validate the recorded Open Telemetry metrics!
-  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 2);
+  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 3);
   const auto& req_count =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[0];
   EXPECT_EQ(req_count.name, "lookup_server_request_count");
   EXPECT_EQ(req_count.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_count.labels.at("KeyFormat"), kKeyFormatHashedEncrypted);
 
-  const auto& req_latency =
+  const auto& req_record_number =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(req_record_number.name, "lookup_server_data_record_per_request");
+  EXPECT_EQ(req_record_number.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_EQ(req_record_number.value, "2");
+  EXPECT_EQ(req_record_number.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(req_record_number.labels.at("KeyFormat"),
+            kKeyFormatHashedEncrypted);
+
+  const auto& req_latency =
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
   EXPECT_EQ(req_latency.name, "lookup_server_request_latency");
   EXPECT_EQ(req_latency.type, MetricType::METRIC_TYPE_HISTOGRAM);
   EXPECT_FALSE(req_latency.value.empty());
@@ -1543,15 +1596,24 @@ TEST_F(LookupServiceTest, PostLookupEncryptedWithMissingKeyInfoReturnsError) {
   WaitUntil([&]() { return finished.load(); });
 
   // Now, validate the recorded Open Telemetry metrics!
-  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 3);
+  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 4);
   const auto& req_count =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[0];
   EXPECT_EQ(req_count.name, "lookup_server_request_count");
   EXPECT_EQ(req_count.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_count.labels.at("KeyFormat"), kKeyFormatHashedEncrypted);
 
-  const auto& req_error =
+  const auto& req_record_number =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(req_record_number.name, "lookup_server_data_record_per_request");
+  EXPECT_EQ(req_record_number.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_EQ(req_record_number.value, "1");
+  EXPECT_EQ(req_record_number.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(req_record_number.labels.at("KeyFormat"),
+            kKeyFormatHashedEncrypted);
+
+  const auto& req_error =
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
   EXPECT_EQ(req_error.name, "lookup_server_request_error_count");
   EXPECT_EQ(req_error.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_error.value, "1");
@@ -1560,7 +1622,7 @@ TEST_F(LookupServiceTest, PostLookupEncryptedWithMissingKeyInfoReturnsError) {
             "The request is invalid.");
 
   const auto& req_latency =
-      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[3];
   EXPECT_EQ(req_latency.name, "lookup_server_request_latency");
   EXPECT_EQ(req_latency.type, MetricType::METRIC_TYPE_HISTOGRAM);
   EXPECT_FALSE(req_latency.value.empty());
@@ -1644,15 +1706,24 @@ TEST_F(LookupServiceTest, PostLookupEncryptedWithInvalidKmsReturnsError) {
   WaitUntil([&]() { return finished.load(); });
 
   // Now, validate the recorded Open Telemetry metrics!
-  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 3);
+  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 4);
   const auto& req_count =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[0];
   EXPECT_EQ(req_count.name, "lookup_server_request_count");
   EXPECT_EQ(req_count.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_count.labels.at("KeyFormat"), kKeyFormatHashedEncrypted);
 
-  const auto& req_error =
+  const auto& req_record_number =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(req_record_number.name, "lookup_server_data_record_per_request");
+  EXPECT_EQ(req_record_number.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_EQ(req_record_number.value, "1");
+  EXPECT_EQ(req_record_number.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(req_record_number.labels.at("KeyFormat"),
+            kKeyFormatHashedEncrypted);
+
+  const auto& req_error =
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
   EXPECT_EQ(req_error.name, "lookup_server_request_error_count");
   EXPECT_EQ(req_error.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_error.value, "1");
@@ -1661,7 +1732,7 @@ TEST_F(LookupServiceTest, PostLookupEncryptedWithInvalidKmsReturnsError) {
             "Crypto client failed to get Aead from Keyset.");
 
   const auto& req_latency =
-      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[3];
   EXPECT_EQ(req_latency.name, "lookup_server_request_latency");
   EXPECT_EQ(req_latency.type, MetricType::METRIC_TYPE_HISTOGRAM);
   EXPECT_FALSE(req_latency.value.empty());
@@ -1745,15 +1816,24 @@ TEST_F(LookupServiceTest, PostLookupEncryptedWithInvalidDekReturnsError) {
   WaitUntil([&]() { return finished.load(); });
 
   // Now, validate the recorded Open Telemetry metrics!
-  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 3);
+  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 4);
   const auto& req_count =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[0];
   EXPECT_EQ(req_count.name, "lookup_server_request_count");
   EXPECT_EQ(req_count.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_count.labels.at("KeyFormat"), kKeyFormatHashedEncrypted);
 
-  const auto& req_error =
+  const auto& req_record_number =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(req_record_number.name, "lookup_server_data_record_per_request");
+  EXPECT_EQ(req_record_number.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_EQ(req_record_number.value, "1");
+  EXPECT_EQ(req_record_number.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(req_record_number.labels.at("KeyFormat"),
+            kKeyFormatHashedEncrypted);
+
+  const auto& req_error =
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
   EXPECT_EQ(req_error.name, "lookup_server_request_error_count");
   EXPECT_EQ(req_error.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_error.value, "1");
@@ -1762,7 +1842,7 @@ TEST_F(LookupServiceTest, PostLookupEncryptedWithInvalidDekReturnsError) {
             "Crypto client failed to read keyset.");
 
   const auto& req_latency =
-      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[3];
   EXPECT_EQ(req_latency.name, "lookup_server_request_latency");
   EXPECT_EQ(req_latency.type, MetricType::METRIC_TYPE_HISTOGRAM);
   EXPECT_FALSE(req_latency.value.empty());
@@ -1837,16 +1917,25 @@ TEST_F(LookupServiceTest, PostLookupEncryptedWithInvalidKeyTypeReturnsError) {
   WaitUntil([&]() { return finished.load(); });
 
   // Now, validate the recorded Open Telemetry metrics!
-  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 3);
+  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 4);
   const auto& req_count =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[0];
   EXPECT_EQ(req_count.name, "lookup_server_request_count");
   EXPECT_EQ(req_count.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_count.labels.at("KeyFormat"), kKeyFormatHashedEncrypted);
 
+  const auto& req_record_number =
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(req_record_number.name, "lookup_server_data_record_per_request");
+  EXPECT_EQ(req_record_number.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_EQ(req_record_number.value, "1");
+  EXPECT_EQ(req_record_number.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(req_record_number.labels.at("KeyFormat"),
+            kKeyFormatHashedEncrypted);
+
   // Invalid request error is recorded.
   const auto& req_error =
-      mock_fake_otel_metric_client_->GetRecordedMetrics()[1];
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
   EXPECT_EQ(req_error.name, "lookup_server_request_error_count");
   EXPECT_EQ(req_error.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_error.value, "1");
@@ -1855,7 +1944,7 @@ TEST_F(LookupServiceTest, PostLookupEncryptedWithInvalidKeyTypeReturnsError) {
             "The request is invalid.");
 
   const auto& req_latency =
-      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[3];
   EXPECT_EQ(req_latency.name, "lookup_server_request_latency");
   EXPECT_EQ(req_latency.type, MetricType::METRIC_TYPE_HISTOGRAM);
   EXPECT_FALSE(req_latency.value.empty());
@@ -2138,7 +2227,7 @@ TEST_F(LookupServiceTest,
   WaitUntil([&]() { return finished.load(); });
 
   // Now, validate the recorded Open Telemetry metrics!
-  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 3);
+  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 4);
   const auto& req_count =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[0];
   EXPECT_EQ(req_count.name, "lookup_server_request_count");
@@ -2151,13 +2240,25 @@ TEST_F(LookupServiceTest,
   EXPECT_EQ(req_count.labels.at(std::string(kCallerIdLabel)),
             kCallerIdUnspecifiedMetricLabel);
 
+  const auto& req_record_number =
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(req_record_number.name, "lookup_server_data_record_per_request");
+  EXPECT_EQ(req_record_number.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_EQ(req_record_number.value, "1");
+  EXPECT_EQ(req_record_number.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(req_record_number.labels.size(), 2);
+  EXPECT_EQ(req_record_number.labels.at("KeyFormat"),
+            kKeyFormatHashedEncryptedCoordinator);
+  EXPECT_EQ(req_record_number.labels.at(std::string(kCallerIdLabel)),
+            kCallerIdUnspecifiedMetricLabel);
+
   // Bug only in test env. COORDINATOR_CLIENT error code has collision with
   // cc/core/test/utils/error_codes.h SC_TEST_UTILS component on 0x0115
   // https://source.corp.google.com/h/team/adm-cloud-git-owners/scp/+/main:cc/core/test/utils/error_codes.h;l=26
   // When evaluating GetErrorMessage, overridden by error message of
   // SC_TEST_UTILS_TEST_WAIT_TIMEOUT.
   const auto& req_error =
-      mock_fake_otel_metric_client_->GetRecordedMetrics()[1];
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
   EXPECT_EQ(req_error.name, "lookup_server_request_error_count");
   EXPECT_EQ(req_error.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_error.value, "1");
@@ -2171,7 +2272,7 @@ TEST_F(LookupServiceTest,
             kCallerIdUnspecifiedMetricLabel);
 
   const auto& req_latency =
-      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[3];
   EXPECT_EQ(req_latency.name, "lookup_server_request_latency");
   EXPECT_EQ(req_latency.type, MetricType::METRIC_TYPE_HISTOGRAM);
   EXPECT_FALSE(req_latency.value.empty());
@@ -2272,7 +2373,7 @@ TEST_F(LookupServiceTest,
   WaitUntil([&]() { return finished.load(); });
 
   // Now, validate the recorded Open Telemetry metrics!
-  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 2);
+  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 3);
 
   const auto& req_count =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[0];
@@ -2286,9 +2387,21 @@ TEST_F(LookupServiceTest,
   EXPECT_EQ(req_count.labels.at(std::string(kCallerIdLabel)),
             kCallerIdUnspecifiedMetricLabel);
 
+  const auto& req_record_number =
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(req_record_number.name, "lookup_server_data_record_per_request");
+  EXPECT_EQ(req_record_number.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_EQ(req_record_number.value, "1");
+  EXPECT_EQ(req_record_number.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(req_record_number.labels.size(), 2);
+  EXPECT_EQ(req_record_number.labels.at("KeyFormat"),
+            kKeyFormatHashedEncryptedCoordinator);
+  EXPECT_EQ(req_record_number.labels.at(std::string(kCallerIdLabel)),
+            kCallerIdUnspecifiedMetricLabel);
+
   // No error metric is recorded at the lookup request level.
   const auto& req_latency =
-      mock_fake_otel_metric_client_->GetRecordedMetrics()[1];
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
   EXPECT_EQ(req_latency.name, "lookup_server_request_latency");
   EXPECT_EQ(req_latency.type, MetricType::METRIC_TYPE_HISTOGRAM);
   EXPECT_FALSE(req_latency.value.empty());
@@ -2346,7 +2459,7 @@ TEST_F(LookupServiceTest, PostLookupOTelMetricSuccess) {
   WaitUntil([&]() { return finished.load(); });
 
   // Now, validate the recorded Open Telemetry metrics!
-  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 2);
+  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 3);
 
   // First recorded metric should be request count
   const auto& req_count =
@@ -2360,9 +2473,21 @@ TEST_F(LookupServiceTest, PostLookupOTelMetricSuccess) {
   EXPECT_EQ(req_count.labels.at(std::string(kCallerIdLabel)),
             "test-caller@google.com");
 
-  // Second recorded metric should be request latency
-  const auto& req_latency =
+  // Second recorded metric should be record number per request
+  const auto& req_record_number =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(req_record_number.name, "lookup_server_data_record_per_request");
+  EXPECT_EQ(req_record_number.value, "1");
+  EXPECT_EQ(req_record_number.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(req_record_number.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_EQ(req_record_number.labels.size(), 2);
+  EXPECT_EQ(req_record_number.labels.at("KeyFormat"), "HASHED");
+  EXPECT_EQ(req_record_number.labels.at(std::string(kCallerIdLabel)),
+            "test-caller@google.com");
+
+  // Third recorded metric should be request latency
+  const auto& req_latency =
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
   EXPECT_EQ(req_latency.name, "lookup_server_request_latency");
   EXPECT_FALSE(req_latency.value.empty());
   EXPECT_EQ(req_latency.unit, MetricUnit::METRIC_UNIT_MILLISECONDS);
@@ -2551,6 +2676,86 @@ TEST_F(LookupServiceTest, PostLookupCoordinatorEncryptedRequestRejected) {
 
   EXPECT_SUCCESS(validating_service.PostLookup(http_context));
   WaitUntil([&]() { return finished.load(); });
+}
+
+TEST_F(LookupServiceTest,
+       PostLookupRecordsDistributionOfRecordNumberPerRequest) {
+  EXPECT_SUCCESS(lookup_service_with_otel_.Init());
+  std::string request_body = R"({
+      "dataRecords": [
+        { "lookupKey": { "key": "+16505551234" } },
+        { "lookupKey": { "key": "+16505555678" } },
+        { "lookupKey": { "key": "+16505559999" } }
+      ],
+      "keyFormat": "KEY_FORMAT_HASHED",
+      "hashInfo": {
+        "hashType": "HASH_TYPE_SHA_256"
+      },
+      "shardingScheme": {
+        "type": "jch",
+        "numShards": 50
+      }
+  })";
+  AsyncContext<HttpRequest, HttpResponse> http_context;
+  http_context.request = std::make_shared<HttpRequest>();
+  http_context.request->method = scp::core::HttpMethod::POST;
+  http_context.request->headers = std::make_shared<HttpHeaders>();
+  http_context.request->headers->insert(
+      {"x-gscp-claimed-identity", "test-caller@google.com"});
+  http_context.request->body.bytes = std::make_shared<std::vector<Byte>>(
+      request_body.begin(), request_body.end());
+  http_context.request->body.length = request_body.length();
+  http_context.request->body.capacity = request_body.capacity();
+  http_context.response = std::make_shared<HttpResponse>();
+
+  EXPECT_CALL(*mock_match_data_storage_, Get)
+      .Times(3)
+      .WillRepeatedly(Return(std::vector<MatchDataRow>()));
+  EXPECT_CALL(*mock_match_data_storage_, IsValidRequestScheme)
+      .WillOnce(Return(true));
+
+  std::atomic<bool> finished = false;
+  http_context.callback =
+      [&finished](AsyncContext<HttpRequest, HttpResponse>& http_context) {
+        EXPECT_SUCCESS(http_context.result);
+        finished = true;
+      };
+
+  EXPECT_SUCCESS(lookup_service_with_otel_.PostLookup(http_context));
+  WaitUntil([&]() { return finished.load(); });
+
+  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 3);
+
+  const auto& req_count =
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[0];
+  EXPECT_EQ(req_count.name, "lookup_server_request_count");
+  EXPECT_EQ(req_count.value, "1");
+  EXPECT_EQ(req_count.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(req_count.type, MetricType::METRIC_TYPE_COUNTER);
+  EXPECT_EQ(req_count.labels.at("KeyFormat"), "HASHED");
+  EXPECT_EQ(req_count.labels.at(std::string(kCallerIdLabel)),
+            "test-caller@google.com");
+
+  const auto& req_record_number =
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[1];
+  EXPECT_EQ(req_record_number.name, "lookup_server_data_record_per_request");
+  EXPECT_EQ(req_record_number.value, "3");
+  EXPECT_EQ(req_record_number.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(req_record_number.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_EQ(req_record_number.labels.at("KeyFormat"), "HASHED");
+  EXPECT_EQ(req_record_number.labels.at(std::string(kCallerIdLabel)),
+            "test-caller@google.com");
+
+  const auto& req_latency =
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
+  EXPECT_EQ(req_latency.name, "lookup_server_request_latency");
+  EXPECT_FALSE(req_latency.value.empty());
+  EXPECT_EQ(req_latency.unit, MetricUnit::METRIC_UNIT_MILLISECONDS);
+  EXPECT_EQ(req_latency.type, MetricType::METRIC_TYPE_HISTOGRAM);
+  EXPECT_EQ(req_latency.labels.at("KeyFormat"), "HASHED");
+  EXPECT_EQ(req_latency.labels.at(kSuccessfulRequestLabel), "True");
+  EXPECT_EQ(req_latency.labels.at(std::string(kCallerIdLabel)),
+            "test-caller@google.com");
 }
 
 }  // namespace google::confidential_match::lookup_server

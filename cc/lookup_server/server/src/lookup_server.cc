@@ -22,6 +22,7 @@
 #include <utility>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
@@ -39,6 +40,7 @@
 #include "cc/lookup_server/auth/src/jwt_validator.h"
 #include "cc/lookup_server/coordinator_client/src/cached_coordinator_client.h"
 #include "cc/lookup_server/coordinator_client/src/coordinator_client.h"
+#include "cc/lookup_server/coordinator_client/src/cpio_cached_coordinator_client.h"
 #include "cc/lookup_server/crypto_client/src/aead_crypto_client.h"
 #include "cc/lookup_server/crypto_client/src/hpke_crypto_client.h"
 #include "cc/lookup_server/interface/cloud_platform_dependency_factory_interface.h"
@@ -65,8 +67,12 @@
 #include "cc/public/cpio/interface/kms_client/type_def.h"
 #include "cc/public/cpio/interface/metric_client/metric_client_interface.h"
 #include "cc/public/cpio/interface/parameter_client/parameter_client_interface.h"
+#include "cc/public/cpio/utils/dual_writing_metric_client/src/dual_writing_metric_client.h"
+#include "cc/public/cpio/utils/key_fetching/src/ondemand_key_fetcher_with_cache.h"
 #include "cc/public/cpio/utils/metric_instance/interface/metric_instance_factory_interface.h"
 #include "cc/public/cpio/utils/metric_instance/src/metric_instance_factory.h"
+#include "google/protobuf/text_format.h"
+#include "google/protobuf/util/time_util.h"
 
 #if defined(CLOUD_PLATFORM_GCP)
 #include "cc/lookup_server/server/src/cloud_platform_dependency_factory/gcp/gcp_dependency_factory.h"
@@ -82,7 +88,12 @@
 namespace google::confidential_match::lookup_server {
 namespace {
 
+using ::google::cmrt::sdk::v1::KeyCoordinatorConfiguration;
 using ::google::confidential_match::lookup_server::kEnabledLogLevels;
+using ::google::confidential_match::lookup_server::proto_backend::
+    KeyFetcherOptions;
+using ::google::protobuf::TextFormat;
+using ::google::protobuf::util::TimeUtil;
 using ::google::scp::core::AsyncContext;
 using ::google::scp::core::AsyncExecutor;
 using ::google::scp::core::AsyncExecutorInterface;
@@ -115,12 +126,15 @@ using ::google::scp::cpio::BlobStorageClientOptions;
 using ::google::scp::cpio::CloudInitializerFactory;
 using ::google::scp::cpio::Cpio;
 using ::google::scp::cpio::CpioOptions;
+using ::google::scp::cpio::DualWritingMetricClient;
+using ::google::scp::cpio::KeyFetcherWithCacheInterface;
 using ::google::scp::cpio::KmsClientFactory;
 using ::google::scp::cpio::KmsClientOptions;
 using ::google::scp::cpio::LogOption;
 using ::google::scp::cpio::MetricClientFactory;
 using ::google::scp::cpio::MetricClientOptions;
 using ::google::scp::cpio::MetricInstanceFactory;
+using ::google::scp::cpio::OndemandKeyFetcherWithCache;
 using ::google::scp::cpio::ParameterClientFactory;
 using ::google::scp::cpio::ParameterClientOptions;
 using ::google::scp::cpio::PrivateKeyClientFactory;
@@ -128,6 +142,7 @@ using ::google::scp::cpio::PrivateKeyClientOptions;
 
 using CfmMetricClient =
     ::google::confidential_match::lookup_server::MetricClient;
+using CpioKeyFetcherOptions = ::google::scp::cpio::KeyFetcherOptions;
 using CpioMetricClientInterface = ::google::scp::cpio::MetricClientInterface;
 using CfmParameterClient =
     ::google::confidential_match::lookup_server::ParameterClient;
@@ -204,6 +219,47 @@ constexpr absl::string_view kJwtIssuer = "https://accounts.google.com";
 
 // The default region at creation time for the AwsKmsClient
 constexpr absl::string_view kAwsDefaultRegion = "us-east-2";
+
+CpioKeyFetcherOptions ConvertKeyFetcherOptions(const KeyFetcherOptions& proto) {
+  CpioKeyFetcherOptions options;
+  options.prefetch_keys = proto.prefetch_keys();
+  options.prefetch_retry = proto.prefetch_retry();
+  options.max_prefetch_wait_time_millis = proto.max_prefetch_wait_time_millis();
+
+  if (proto.has_prefetch_keys_max_age()) {
+    options.prefetch_keys_max_age =
+        std::chrono::seconds(proto.prefetch_keys_max_age().seconds());
+  }
+  if (proto.has_key_cache_lifetime()) {
+    options.key_cache_lifetime =
+        std::chrono::seconds(proto.key_cache_lifetime().seconds());
+  }
+  if (proto.has_fetching_failure_cache_lifetime()) {
+    options.fetching_failure_cache_lifetime =
+        std::chrono::seconds(proto.fetching_failure_cache_lifetime().seconds());
+  }
+
+  if (proto.has_auto_refresh_time_duration()) {
+    options.auto_refresh_time_duration =
+        std::chrono::seconds(proto.auto_refresh_time_duration().seconds());
+  }
+
+  if (proto.has_on_demand_fetching_waiting_timeout()) {
+    options.on_demand_fetching_waiting_timeout =
+        std::chrono::milliseconds(TimeUtil::DurationToMilliseconds(
+            proto.on_demand_fetching_waiting_timeout()));
+  }
+  options.use_read_lock_for_cache_read = proto.use_read_lock_for_cache_read();
+  options.auto_refresh_key_cache_valid_in_days =
+      proto.auto_refresh_key_cache_valid_in_days();
+
+  for (const auto& config :
+       proto.encryption_key_prefetch_config().keyset_prefetch_configs()) {
+    options.encryption_key_prefetch_config_map[config.key_namespace()] = config;
+  }
+
+  return options;
+}
 
 // Helper to initialize a service and log information.
 ExecutionResult InitService(ServiceInterface& service,
@@ -898,6 +954,45 @@ ExecutionResult LookupServer::LoadParameters() noexcept {
       return FailureExecutionResult(INVALID_HTTP2_SERVER_CERT_FILE_PATH);
     }
   }
+
+  parameters_.enable_cpio_cached_coordinator_client = false;
+  if (!parameter_client_
+           ->GetBool(kEnableCpioCachedCoordinatorClient,
+                     parameters_.enable_cpio_cached_coordinator_client)
+           .Successful()) {
+    config_provider_->Get(kEnableCpioCachedCoordinatorClient,
+                          parameters_.enable_cpio_cached_coordinator_client);
+  }
+
+  if (parameters_.enable_cpio_cached_coordinator_client) {
+    SCP_DEBUG(kComponentName, kZeroUuid,
+              "CpioCachedCoordinatorClient is enabled.");
+    std::string coordinator_set_configs_str;
+    if (parameter_client_
+            ->GetString(kCoordinatorSetConfigurations,
+                        coordinator_set_configs_str)
+            .Successful() ||
+        config_provider_
+            ->Get(kCoordinatorSetConfigurations, coordinator_set_configs_str)
+            .Successful()) {
+      if (!TextFormat::ParseFromString(
+              coordinator_set_configs_str,
+              &parameters_.coordinator_set_configurations)) {
+        auto result =
+            FailureExecutionResult(INVALID_COORDINATOR_SET_CONFIGURATIONS);
+        SCP_CRITICAL(kComponentName, kZeroUuid, result,
+                     "Failed to parse coordinator set configurations.");
+        return result;
+      }
+    } else {
+      auto result =
+          FailureExecutionResult(COORDINATOR_SET_CONFIGURATIONS_NOT_FOUND);
+      SCP_CRITICAL(kComponentName, kZeroUuid, result,
+                   "Failed to find coordinator set configurations.");
+      return result;
+    }
+  }
+
   return SuccessExecutionResult();
 }
 
@@ -947,11 +1042,11 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
         *tee_options_config_.otel_metric_namespace;
     metric_client_options.remote_metric_collector_address =
         *tee_options_config_.collector_address;
-    std::shared_ptr<CpioMetricClientInterface> cpio_otel_metric_client =
+    parameters_.cpio_otel_metric_client =
         MetricClientFactory::Create(metric_client_options);
     otel_metric_client_ = std::make_shared<CfmMetricClient>(
-        cpio_otel_metric_client, *tee_options_config_.otel_metric_namespace,
-        metric_client_base_labels);
+        parameters_.cpio_otel_metric_client,
+        *tee_options_config_.otel_metric_namespace, metric_client_base_labels);
   }
   std::shared_ptr<CpioMetricClientInterface> cpio_metric_client =
       MetricClientFactory::Create(MetricClientOptions());
@@ -1019,8 +1114,41 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
       PrivateKeyClientFactory::Create(private_key_client_options);
   coordinator_client_ =
       std::make_shared<CoordinatorClient>(private_key_client_);
-  cached_coordinator_client_ = std::make_shared<CachedCoordinatorClient>(
-      async_executor_, coordinator_client_);
+
+  absl::flat_hash_set<std::string> coordinator_set_strings;
+  if (parameters_.enable_cpio_cached_coordinator_client) {
+    std::string metric_namespace =
+        tee_options_config_.enable_otel_metric_client
+            ? *tee_options_config_.otel_metric_namespace
+            : "";
+    dual_writing_metric_client_ = std::make_shared<DualWritingMetricClient>(
+        parameters_.cpio_otel_metric_client.get(), nullptr, metric_namespace);
+    absl::flat_hash_map<std::string,
+                        std::shared_ptr<KeyFetcherWithCacheInterface>>
+        key_fetcher_map;
+
+    for (const auto& coordinator_set_configuration :
+         parameters_.coordinator_set_configurations
+             .coordinator_set_configurations()) {
+      auto fetcher = std::make_shared<OndemandKeyFetcherWithCache>(
+          io_async_executor_, *private_key_client_,
+          *dual_writing_metric_client_,
+          coordinator_set_configuration.key_coordinator_configuration(),
+          ConvertKeyFetcherOptions(
+              coordinator_set_configuration.key_fetcher_options()));
+      key_fetchers_.push_back(fetcher);
+      std::string endpoints_str = StringifyEndpoints(
+          coordinator_set_configuration.key_coordinator_configuration());
+      key_fetcher_map[endpoints_str] = fetcher;
+      coordinator_set_strings.insert(endpoints_str);
+    }
+
+    cached_coordinator_client_ = std::make_shared<CpioCachedCoordinatorClient>(
+        async_executor_, key_fetcher_map);
+  } else {
+    cached_coordinator_client_ = std::make_shared<CachedCoordinatorClient>(
+        async_executor_, coordinator_client_);
+  }
 
   aead_crypto_client_ = std::make_shared<AeadCryptoClient>(
       aws_cached_kms_client_, gcp_cached_kms_client_,
@@ -1087,16 +1215,16 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
   lookup_service_ = std::make_shared<LookupService>(
       match_data_storage_, http_server_, aead_crypto_client_,
       hpke_crypto_client_, metric_client_, otel_metric_client_,
-      metric_instance_factory_, status_providers);
+      metric_instance_factory_, status_providers,
+      parameters_.enable_cpio_cached_coordinator_client,
+      coordinator_set_strings);
   health_service_ =
       std::make_shared<HealthService>(health_http_server_, status_providers);
-
   return SuccessExecutionResult();
 }
 
 ExecutionResult LookupServer::Init() noexcept {
   RETURN_IF_FAILURE(CreateComponents());
-
   SCP_INFO(kComponentName, kZeroUuid, "Initializing Lookup Server...");
 
   RETURN_IF_FAILURE(InitService(*http1_client_, kHttp1ClientServiceName));
@@ -1119,6 +1247,9 @@ ExecutionResult LookupServer::Init() noexcept {
       InitService(*aws_cached_kms_client_, kAwsCachedKmsClientName));
   RETURN_IF_FAILURE(InitService(*private_key_client_, kPrivateKeyClientName));
   RETURN_IF_FAILURE(InitService(*coordinator_client_, kCoordinatorClientName));
+  for (const auto& fetcher : key_fetchers_) {
+    RETURN_IF_FAILURE(InitService(*fetcher, "KeyFetcherWithCache"));
+  }
   RETURN_IF_FAILURE(
       InitService(*cached_coordinator_client_, kCachedCoordinatorClientName));
   RETURN_IF_FAILURE(InitService(*aead_crypto_client_, kAeadCryptoClientName));
@@ -1168,6 +1299,9 @@ ExecutionResult LookupServer::Run() noexcept {
       RunService(*aws_cached_kms_client_, kAwsCachedKmsClientName));
   RETURN_IF_FAILURE(RunService(*private_key_client_, kPrivateKeyClientName));
   RETURN_IF_FAILURE(RunService(*coordinator_client_, kCoordinatorClientName));
+  for (const auto& fetcher : key_fetchers_) {
+    RETURN_IF_FAILURE(RunService(*fetcher, "KeyFetcherWithCache"));
+  }
   RETURN_IF_FAILURE(
       RunService(*cached_coordinator_client_, kCachedCoordinatorClientName));
   RETURN_IF_FAILURE(RunService(*aead_crypto_client_, kAeadCryptoClientName));
@@ -1214,14 +1348,17 @@ ExecutionResult LookupServer::Stop() noexcept {
   RETURN_IF_FAILURE(StopService(*aead_crypto_client_, kAeadCryptoClientName));
   RETURN_IF_FAILURE(
       StopService(*cached_coordinator_client_, kCachedCoordinatorClientName));
+  for (const auto& fetcher : key_fetchers_) {
+    RETURN_IF_FAILURE(StopService(*fetcher, "KeyFetcherWithCache"));
+  }
   RETURN_IF_FAILURE(StopService(*coordinator_client_, kCoordinatorClientName));
   RETURN_IF_FAILURE(StopService(*private_key_client_, kPrivateKeyClientName));
   RETURN_IF_FAILURE(
-      StopService(*aws_cached_kms_client_, kGcpCachedKmsClientName));
+      StopService(*aws_cached_kms_client_, kAwsCachedKmsClientName));
   RETURN_IF_FAILURE(StopService(*aws_kms_client_, kAwsKmsClientName));
   RETURN_IF_FAILURE(
-      StopService(*gcp_cached_kms_client_, kAwsCachedKmsClientName));
-  RETURN_IF_FAILURE(StopService(*gcp_kms_client_, kAwsKmsClientName));
+      StopService(*gcp_cached_kms_client_, kGcpCachedKmsClientName));
+  RETURN_IF_FAILURE(StopService(*gcp_kms_client_, kGcpKmsClientName));
   RETURN_IF_FAILURE(
       StopService(*blob_storage_client_, kBlobStorageClientServiceName));
   RETURN_IF_FAILURE(StopService(*pass_thru_authorization_proxy_,

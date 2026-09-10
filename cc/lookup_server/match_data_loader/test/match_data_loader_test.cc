@@ -365,14 +365,14 @@ TEST_F(MatchDataLoaderTest, StartStop) {
     if (metric.name == "data_loader_data_export_info_duration") {
       found_get_data_export_info = true;
       EXPECT_EQ(metric.type, MetricType::METRIC_TYPE_GAUGE);
-      EXPECT_EQ(metric.unit, MetricUnit::METRIC_UNIT_MILLISECONDS);
+      EXPECT_EQ(metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
       VerifyMetricClusterLabels(metric);
       EXPECT_FALSE(metric.value.empty());
       EXPECT_EQ(metric.labels.at("IsSuccessful"), "true");
     } else if (metric.name == "data_loader_get_export_metadata_duration") {
       found_get_export_metadata = true;
       EXPECT_EQ(metric.type, MetricType::METRIC_TYPE_GAUGE);
-      EXPECT_EQ(metric.unit, MetricUnit::METRIC_UNIT_MILLISECONDS);
+      EXPECT_EQ(metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
       EXPECT_FALSE(metric.value.empty());
       EXPECT_EQ(metric.labels.at("IsSuccessful"), "true");
       VerifyMetricLabels(metric);
@@ -443,7 +443,7 @@ TEST_F(MatchDataLoaderTest, GetExportMetadataFetchScheduleError) {
   const auto& metric_dur = mock_otel_metric_client_->GetRecordedMetrics()[0];
   EXPECT_EQ(metric_dur.name, "data_loader_data_export_info_duration");
   EXPECT_EQ(metric_dur.type, MetricType::METRIC_TYPE_GAUGE);
-  EXPECT_EQ(metric_dur.unit, MetricUnit::METRIC_UNIT_MILLISECONDS);
+  EXPECT_EQ(metric_dur.unit, MetricUnit::METRIC_UNIT_SECONDS);
   EXPECT_EQ(metric_dur.labels.at("IsSuccessful"), "true");
   VerifyMetricClusterLabels(metric_dur);
 
@@ -459,7 +459,7 @@ TEST_F(MatchDataLoaderTest, GetExportMetadataFetchScheduleError) {
   const auto& metric_dur_2 = mock_otel_metric_client_->GetRecordedMetrics()[2];
   EXPECT_EQ(metric_dur_2.name, "data_loader_get_export_metadata_duration");
   EXPECT_EQ(metric_dur_2.type, MetricType::METRIC_TYPE_GAUGE);
-  EXPECT_EQ(metric_dur_2.unit, MetricUnit::METRIC_UNIT_MILLISECONDS);
+  EXPECT_EQ(metric_dur_2.unit, MetricUnit::METRIC_UNIT_SECONDS);
   EXPECT_EQ(metric_dur_2.labels.at("IsSuccessful"), "false");
   VerifyMetricLabels(metric_dur_2);
 }
@@ -494,7 +494,7 @@ TEST_F(MatchDataLoaderTest, GetExportMetadataFetchAsyncError) {
       mock_otel_metric_client_->GetRecordedMetrics()[0];
   EXPECT_EQ(export_info_duration.name, "data_loader_data_export_info_duration");
   EXPECT_EQ(export_info_duration.type, MetricType::METRIC_TYPE_GAUGE);
-  EXPECT_EQ(export_info_duration.unit, MetricUnit::METRIC_UNIT_MILLISECONDS);
+  EXPECT_EQ(export_info_duration.unit, MetricUnit::METRIC_UNIT_SECONDS);
   EXPECT_EQ(export_info_duration.labels.at("IsSuccessful"), "true");
   VerifyMetricClusterLabels(export_info_duration);
 
@@ -502,7 +502,7 @@ TEST_F(MatchDataLoaderTest, GetExportMetadataFetchAsyncError) {
       mock_otel_metric_client_->GetRecordedMetrics()[1];
   EXPECT_EQ(metadata_duration.name, "data_loader_get_export_metadata_duration");
   EXPECT_EQ(metadata_duration.type, MetricType::METRIC_TYPE_GAUGE);
-  EXPECT_EQ(metadata_duration.unit, MetricUnit::METRIC_UNIT_MILLISECONDS);
+  EXPECT_EQ(metadata_duration.unit, MetricUnit::METRIC_UNIT_SECONDS);
   EXPECT_EQ(metadata_duration.labels.at("IsSuccessful"), "false");
   VerifyMetricLabels(metadata_duration);
 

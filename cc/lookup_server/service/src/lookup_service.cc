@@ -308,6 +308,22 @@ void RecordLookupServerRequestErrorCount(
                                    MetricType::METRIC_TYPE_COUNTER, labels);
 }
 
+void RecordLookupServerRecordNumberPerRequest(
+    lookup_server::MetricClientInterface* otel_metric_client,
+    const std::string& key_format, const std::string& caller_id,
+    int64_t record_count) {
+  if (otel_metric_client == nullptr) {
+    return;
+  }
+  absl::flat_hash_map<std::string, std::string> labels;
+  labels[std::string(kKeyFormatLabel)] = key_format;
+  labels[std::string(kCallerIdLabel)] =
+      caller_id.empty() ? kCallerIdUnspecifiedMetricLabel : caller_id;
+  otel_metric_client->RecordMetric(
+      kLookupServerDataRecordPerRequestMetricName, absl::StrCat(record_count),
+      MetricUnit::METRIC_UNIT_COUNT, MetricType::METRIC_TYPE_HISTOGRAM, labels);
+}
+
 }  // namespace
 
 ExecutionResult LookupService::Init() noexcept {
@@ -433,6 +449,9 @@ ExecutionResult LookupService::PostLookup(
   request_count_metrics_->Increment(GetKeyFormatMetricLabel(*request));
   RecordLookupServerRequestCount(otel_metric_client_.get(),
                                  GetKeyFormatMetricLabel(*request), caller_id);
+  RecordLookupServerRecordNumberPerRequest(
+      otel_metric_client_.get(), GetKeyFormatMetricLabel(*request), caller_id,
+      request->data_records().size());
 
   AsyncContext<LookupRequest, LookupResponse> lookup_context;
   lookup_context.request = request;
@@ -489,10 +508,10 @@ void LookupService::PostLookupHandler(
     } else if (context.request->encryption_key_info()
                    .has_coordinator_key_info()) {
       if (enable_coordinator_set_validation_) {
-        std::string stringified_endpoints = StringifyCoordinators(
-            context.request->encryption_key_info()
-                .coordinator_key_info()
-                .coordinator_info());
+        std::string stringified_endpoints =
+            StringifyCoordinators(context.request->encryption_key_info()
+                                      .coordinator_key_info()
+                                      .coordinator_info());
         if (!valid_coordinator_sets_.contains(stringified_endpoints)) {
           context.result =
               FailureExecutionResult(LOOKUP_SERVICE_INVALID_REQUEST);

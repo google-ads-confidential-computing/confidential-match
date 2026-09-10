@@ -114,6 +114,12 @@ inline constexpr char kJwkCacheKeyExpirationSafetyPeriodSeconds[] =
 // Configuration key for JWT Validator Min JWK Duration in seconds.
 inline constexpr char kJwtValidatorMinJwkDurationSeconds[] =
     "jwt_validator_min_jwk_duration_seconds";
+// Configuration key for whether to enable CPIO cached coordinator client.
+inline constexpr char kEnableCpioCachedCoordinatorClient[] =
+    "enable_cpio_cached_coordinator_client";
+// Configuration key for the CoordinatorSetConfigurations proto.
+inline constexpr char kCoordinatorSetConfigurations[] =
+    "coordinator_set_configurations";
 
 }  // namespace google::confidential_match::lookup_server
 

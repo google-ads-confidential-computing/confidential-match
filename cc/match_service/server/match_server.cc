@@ -514,6 +514,24 @@ absl::Status MatchServer::SetConfigFromParameters() noexcept {
             << (config_.enable_background_auth_token_refresh ? "true"
                                                              : "false");
 
+  DLOG(INFO) << "Fetching EnableEncryptedCountryZipCode";
+  const auto enable_encrypted_cz_config_key = ConfigurationKeys::
+      CONFIGURATION_KEYS_ENABLE_ENCRYPTED_COUNTRY_ZIP_CODE;
+  auto enable_encrypted_cz_or = config_fetcher_->GetBoolByNameSync(
+      ConfigurationKeys_Name(enable_encrypted_cz_config_key));
+  if (enable_encrypted_cz_or.Successful()) {
+    config_.enable_encrypted_country_zip_code =
+        enable_encrypted_cz_or.value();
+  } else {
+    LOG(INFO) << "CONFIGURATION_KEYS_ENABLE_ENCRYPTED_COUNTRY_ZIP_CODE "
+              << "not found, using default: "
+              << (config_.enable_encrypted_country_zip_code ? "true"
+                                                             : "false");
+  }
+
+  LOG(INFO) << "EnableEncryptedCountryZipCode: "
+            << (config_.enable_encrypted_country_zip_code ? "true" : "false");
+
   return absl::OkStatus();
 }
 
@@ -637,7 +655,7 @@ absl::Status MatchServer::CreateComponents() noexcept {
       lookup_service_client_.get(), aead_crypto_client_.get(),
       sha256_hasher_.get(), hybrid_crypto_client_.get(),
       config_.private_key_endpoints, metric_client_.get(),
-      config_.metric_namespace);
+      config_.metric_namespace, config_.enable_encrypted_country_zip_code);
   match_task_ = std::make_unique<MatchTask>(hashed_match_task_.get(),
                                             kms_encrypted_match_task_.get());
   match_service_ = std::make_unique<MatchService>(

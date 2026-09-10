@@ -43,8 +43,12 @@
 #include "cc/lookup_server/service/src/lookup_service.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "cc/public/cpio/interface/blob_storage_client/blob_storage_client_interface.h"
+#include "cc/public/cpio/interface/metric_client/metric_client_interface.h"
 #include "cc/public/cpio/interface/private_key_client/private_key_client_interface.h"
+#include "cc/public/cpio/utils/dual_writing_metric_client/interface/dual_writing_metric_client_interface.h"
+#include "cc/public/cpio/utils/key_fetching/interface/key_fetcher_with_cache_interface.h"
 #include "cc/public/cpio/utils/metric_instance/interface/metric_instance_factory_interface.h"
+#include "protos/lookup_server/backend/coordinator_set_configurations.pb.h"
 
 namespace google::confidential_match::lookup_server {
 
@@ -123,6 +127,14 @@ struct LookupServerParameters {
   bool http2_server_use_tls = false;
   std::shared_ptr<std::string> http2_server_private_key_file_path;
   std::shared_ptr<std::string> http2_server_certificate_file_path;
+
+  // Whether to use CpioCachedCoordinatorClient instead of regular
+  // CachedCoordinatorClient.
+  bool enable_cpio_cached_coordinator_client = false;
+  // Configured CoordinatorSetConfigurations for CPIO key fetchers.
+  proto_backend::CoordinatorSetConfigurations coordinator_set_configurations;
+  // CPIO metric client used for Open Telemetry metrics.
+  std::shared_ptr<scp::cpio::MetricClientInterface> cpio_otel_metric_client;
 };
 
 // The main server responsible for running and managing all Lookup Server
@@ -164,6 +176,10 @@ class LookupServer : public scp::core::ServiceInterface {
   std::shared_ptr<scp::cpio::PrivateKeyClientInterface> private_key_client_;
   std::shared_ptr<CoordinatorClientInterface> coordinator_client_;
   std::shared_ptr<CoordinatorClientInterface> cached_coordinator_client_;
+  std::shared_ptr<scp::cpio::DualWritingMetricClientInterface>
+      dual_writing_metric_client_;
+  std::vector<std::shared_ptr<scp::cpio::KeyFetcherWithCacheInterface>>
+      key_fetchers_;
   std::shared_ptr<CryptoClientInterface> aead_crypto_client_;
   std::shared_ptr<CryptoClientInterface> hpke_crypto_client_;
   std::shared_ptr<OrchestratorClientInterface> orchestrator_client_;

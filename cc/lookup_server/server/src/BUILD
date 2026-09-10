@@ -81,6 +81,7 @@ lookup_server_lib_deps = [
     "//cc/lookup_server/parameter_client/src:parameter_client",
     "//cc/lookup_server/service/src:lookup_service_lib",
     "//cc/lookup_server/health_service/src:health_service_lib",
+    "//cc/external:absl_flat_hash_map",
     "//cc/external:absl_strings",
     "//cc/external:scp_core_async_executor",
     "//cc/external:scp_core_authorization_proxy_lib",
@@ -97,6 +98,10 @@ lookup_server_lib_deps = [
     "//cc/external:scp_cpio_metric_client_interface",
     "//cc/external:scp_cpio_metric_instance_interface",
     "//cc/external:scp_cpio_parameter_client_interface",
+    "//cc/external:scp_cpio_ondemand_key_fetcher",
+    "//cc/external:scp_cpio_dual_writing_metric_client",
+    "//cc/external:scp_cpio_key_fetcher_interface",
+    "//protos/lookup_server/backend:coordinator_set_configurations_cc_proto",
 ]
 
 lookup_server_lib_gcp_deps = lookup_server_lib_deps + [

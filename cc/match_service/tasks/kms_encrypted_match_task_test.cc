@@ -92,7 +92,9 @@ class KmsEncryptedMatchTaskTest : public ::testing::Test {
         kms_encrypted_match_task_(
             mock_lookup_service_client_.get(), mock_aead_crypto_client_.get(),
             mock_hasher_.get(), mock_hybrid_crypto_client_.get(),
-            PrivateKeyEndpoints()) {}
+            PrivateKeyEndpoints(), /*metric_client=*/nullptr,
+            /*metric_namespace=*/"",
+            /*enable_encrypted_country_zip_code=*/true) {}
 
   std::shared_ptr<LoggerInterface> logger_;
   std::unique_ptr<MockLookupServiceClient> mock_lookup_service_client_;
@@ -905,6 +907,154 @@ TEST_F(KmsEncryptedMatchTaskTest, MatchCompositeAddressAllEncryptedSuccess) {
       logger_);
 
   kms_encrypted_match_task_.Match(context);
+  finished.WaitForNotification();
+}
+
+TEST_F(KmsEncryptedMatchTaskTest,
+       MatchCompositeAddressAllEncryptedFlagDisabled) {
+  // When enable_encrypted_country_zip_code is false, country and zip code are
+  // not decrypted via KMS, only first name and last name are decrypted.
+  KmsEncryptedMatchTask task_with_flag_disabled(
+      mock_lookup_service_client_.get(), mock_aead_crypto_client_.get(),
+      mock_hasher_.get(), mock_hybrid_crypto_client_.get(),
+      PrivateKeyEndpoints(), /*metric_client=*/nullptr,
+      /*metric_namespace=*/"",
+      /*enable_encrypted_country_zip_code=*/false);
+
+  auto request = std::make_shared<MatchRequest>();
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        application: APPLICATION_ECL
+        match_key_format: MATCH_KEY_FORMAT_HASHED_ENCRYPTED
+        key_encoding: MATCH_KEY_ENCODING_BASE64
+        encryption_key {
+          wrapped_key {
+            key_type: KEY_TYPE_XCHACHA20_POLY1305
+            encrypted_dek: "test_dek"
+            kek_kms_resource_id: "test_kek_id"
+            gcp_wrapped_key_info { wip_provider: "test_wip_provider" }
+          }
+        }
+        data_records {
+          match_keys {
+            composite_field {
+              type: COMPOSITE_FIELD_TYPE_ADDRESS
+              values {
+                type: FIELD_TYPE_FIRST_NAME
+                value: "ZW5jX2ZpcnN0"  # "enc_first"
+              }
+              values {
+                type: FIELD_TYPE_LAST_NAME
+                value: "ZW5jX2xhc3Q="  # "enc_last"
+              }
+              values {
+                type: FIELD_TYPE_COUNTRY_CODE
+                value: "US"
+              }
+              values {
+                type: FIELD_TYPE_ZIP_CODE
+                value: "90210"
+              }
+            }
+          }
+        }
+      )pb",
+      request.get()));
+  auto mock_key = std::make_shared<MockCryptoKey>();
+  EXPECT_CALL(*mock_aead_crypto_client_, GetCryptoKeyAsync)
+      .WillOnce(absl::bind_front(MockGetCryptoKeySuccess, mock_key));
+  // Only first name and last name are decrypted.
+  EXPECT_CALL(*mock_key, Decrypt("enc_first")).WillOnce(Return("Sm9obg=="));
+  EXPECT_CALL(*mock_key, Decrypt("enc_last")).WillOnce(Return("RG9l"));
+  EXPECT_CALL(*mock_hasher_, Base64EncodedHash("Sm9obg==RG9lus90210"))
+      .WillOnce(Return("hashed_address"));
+  EXPECT_CALL(*mock_key, Encrypt("hashed_address"))
+      .WillOnce(Return("encrypted_hashed_address"));
+
+  LookupServiceRequest expected_lookup_req;
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        application: APPLICATION_ECL
+        key_format: KEY_FORMAT_HASHED_ENCRYPTED
+        hash_info { hash_type: HASH_TYPE_SHA_256 }
+        encryption_key {
+          wrapped_key {
+            key_type: KEY_TYPE_XCHACHA20_POLY1305
+            encrypted_dek: "test_dek"
+            kek_kms_resource_id: "test_kek_id"
+            gcp_wrapped_key_info { wip_provider: "test_wip_provider" }
+          }
+        }
+        data_records {
+          lookup_key {
+            key: "ZW5jcnlwdGVkX2hhc2hlZF9hZGRyZXNz"  # "encrypted_hashed_address"
+            decrypted_key: "hashed_address"
+          }
+          metadata { key: "d" int_value: 0 }
+          metadata { key: "m" int_value: 0 }
+        }
+      )pb",
+      &expected_lookup_req));
+
+  LookupServiceResponse mock_lookup_resp;
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        lookup_results {
+          status: STATUS_SUCCESS
+          client_data_record {
+            lookup_key { key: "ZW5jcnlwdGVkX2hhc2hlZF9hZGRyZXNz" }
+            metadata { key: "d" int_value: 0 }
+            metadata { key: "m" int_value: 0 }
+          }
+          matched_data_records {
+            lookup_key { key: "ZW5jcnlwdGVkX2hhc2hlZF9hZGRyZXNz" }
+          }
+        }
+      )pb",
+      &mock_lookup_resp));
+  EXPECT_CALL(*mock_lookup_service_client_, Lookup).WillOnce([&](auto& ctx) {
+    EXPECT_THAT(*ctx.request, EqualsProto(expected_lookup_req));
+    MockLookupSuccess(mock_lookup_resp, ctx);
+  });
+  MatchResponse expected_match_response;
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        matched_data_records {
+          matched_keys {
+            composite_field {
+              status: STATUS_SUCCESS_MATCHED
+              matched_field_info {
+                field_type: FIELD_TYPE_FIRST_NAME
+                field_value: "Sm9obg=="
+              }
+              matched_field_info {
+                field_type: FIELD_TYPE_LAST_NAME
+                field_value: "RG9l"
+              }
+              matched_field_info {
+                field_type: FIELD_TYPE_COUNTRY_CODE
+                field_value: "US"
+              }
+              matched_field_info {
+                field_type: FIELD_TYPE_ZIP_CODE
+                field_value: "90210"
+              }
+            }
+          }
+        }
+      )pb",
+      &expected_match_response));
+  absl::Notification finished;
+  AsyncContext<MatchRequest, MatchResponse> context(
+      request,
+      [&](auto& ctx) {
+        ASSERT_THAT(ctx.status, IsOk());
+        EXPECT_THAT(*ctx.response, EqualsProto(expected_match_response));
+        finished.Notify();
+      },
+      logger_);
+
+  task_with_flag_disabled.Match(context);
   finished.WaitForNotification();
 }
 
