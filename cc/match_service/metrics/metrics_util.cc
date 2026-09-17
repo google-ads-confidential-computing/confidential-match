@@ -102,8 +102,8 @@ void PutMetrics(
 
 Metric CreateServerStartupLatencyMetric(absl::Duration duration) {
   Metric m;
-  m.set_name(std::string(kServerStartupLatencyMetricName));
-  m.set_type(MetricType::METRIC_TYPE_HISTOGRAM);
+  m.set_name(std::string(kServerStartupLatencyInMilliMetricName));
+  m.set_type(MetricType::METRIC_TYPE_GAUGE);
   m.set_value(absl::StrCat(absl::ToInt64Milliseconds(duration)));
   m.set_unit(MetricUnit::METRIC_UNIT_MILLISECONDS);
   return m;

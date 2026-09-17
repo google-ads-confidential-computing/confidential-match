@@ -20,8 +20,10 @@
 
 #include "absl/functional/bind_front.h"
 #include "absl/strings/escaping.h"
+#include "absl/strings/str_cat.h"
+#include "absl/strings/str_format.h"
 #include "cc/core/interface/errors.h"
-#include "cc/match_service/crypto_client/hybrid_decrypt_crypto_key.h"
+#include "cc/match_service/crypto_client/hybrid_crypto_key.h"
 #include "cc/match_service/crypto_client/tink_utils.h"
 #include "cc/match_service/error/error.h"
 #include "cc/public/cpio/interface/error_codes.h"
@@ -29,12 +31,14 @@
 #include "tink/hybrid/hpke_config.h"
 #include "tink/hybrid_config.h"
 #include "tink/hybrid_decrypt.h"
+#include "tink/hybrid_encrypt.h"
 #include "tink/util/status.h"
 
 namespace google::confidential_match::match_service {
 
 using ::crypto::tink::HybridConfig;
 using ::crypto::tink::HybridDecrypt;
+using ::crypto::tink::HybridEncrypt;
 using ::crypto::tink::RegisterHpke;
 using ::google::confidential_match::match_service::backend::Error;
 using ::google::scp::core::errors::GetErrorMessage;
@@ -97,19 +101,38 @@ void HybridCryptoClient::GetCryptoKey(
     context.Finish();
     return;
   }
-  auto decrypt_or = GetTinkPrimitive<HybridDecrypt>(decoded_key);
-  if (!decrypt_or.ok()) {
+  auto keyset_handle_or = GetKeysetHandle(decoded_key);
+  if (!keyset_handle_or.ok()) {
     context.status = Status(
         Error::INVALID_COORDINATOR_KEY,
-        absl::StrCat("Failed to get tink primitive for key_id ", key_or->key_id,
-                     ": ", decrypt_or.status().message()));
+        absl::StrCat("Failed to get keyset handle for key ID ", key_or->key_id,
+                     ": ", keyset_handle_or.status().message()));
     LOG_ERROR(*context.logger, "%v", context.status);
     context.Finish();
     return;
   }
 
-  context.response =
-      std::make_shared<HybridDecryptCryptoKey>(std::move(*decrypt_or));
+  auto decrypt_or = GetTinkPrimitive<HybridDecrypt>(**keyset_handle_or);
+  auto encrypt_or = GetTinkPrimitive<HybridEncrypt>(**keyset_handle_or);
+
+  if (!decrypt_or.ok() && !encrypt_or.ok()) {
+    context.status =
+        Status(Error::INVALID_COORDINATOR_KEY,
+               absl::StrCat("Failed to get tink primitive for key_id ",
+                            key_or->key_id, ": ", decrypt_or.status().message(),
+                            "; ", encrypt_or.status().message()));
+    LOG_ERROR(*context.logger, "%v", context.status);
+    context.Finish();
+    return;
+  }
+
+  std::shared_ptr<HybridDecrypt> decrypt_primitive =
+      decrypt_or.ok() ? *std::move(decrypt_or) : nullptr;
+  std::shared_ptr<HybridEncrypt> encrypt_primitive =
+      encrypt_or.ok() ? *std::move(encrypt_or) : nullptr;
+
+  context.response = std::make_shared<HybridCryptoKey>(
+      std::move(decrypt_primitive), std::move(encrypt_primitive));
   context.Finish();
 }
 

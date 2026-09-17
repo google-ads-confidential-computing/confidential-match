@@ -19,6 +19,7 @@
 #include <string>
 
 #include "absl/status/status.h"
+#include "absl/status/status_matchers.h"
 #include "absl/strings/escaping.h"
 #include "cc/core/async/async_context.h"
 #include "cc/core/test/utils/conditional_wait.h"
@@ -37,6 +38,9 @@
 namespace google::confidential_match::match_service {
 namespace {
 
+using ::absl_testing::IsOk;
+using ::absl_testing::IsOkAndHolds;
+using ::absl_testing::StatusIs;
 using ::google::confidential_match::EncryptionKeyInfo;
 using ::google::confidential_match::match_service::backend::Error;
 using ::google::scp::core::ExecutionResult;
@@ -57,6 +61,11 @@ class MockKeyFetcherWithCache : public KeyFetcherWithCacheInterface {
   MOCK_METHOD(ExecutionResultOr<std::vector<Key>>, GetValidKeys,
               (google::scp::core::Timestamp), (noexcept, override));
 };
+
+constexpr absl::string_view kTestPublicHpkeP256 =
+    "CHsSjgEKhQEKNHR5cGUuZ29vZ2xlYXBpcy5jb20vZ29vZ2xlLmNyeXB0by50aW5rLkhwa2VQdW"
+    "JsaWNLZXkSSxIGCAIQARgBGkEE/owZzgkFGR68KYqSRXklMfJvDOziRgY56Lw5y39waoJqd5tM"
+    "+Wm4oOU5x/Yvs9MK1qqPgOMPHRKKr9aKLOcuoBgDEAEYeyAD";
 
 constexpr absl::string_view kTestPrivateHpkeP256 =
     "CHsSswEKqgEKNXR5cGUuZ29vZ2xlYXBpcy5jb20vZ29vZ2xlLmNyeXB0by50aW5rLkhwa2VQcm"
@@ -85,9 +94,9 @@ EncryptionKeyInfo GetEncryptionKeyInfo() {
 }
 
 TEST_F(HybridCryptoClientTest, StartStop) {
-  EXPECT_TRUE(crypto_client_->Init().ok());
-  EXPECT_TRUE(crypto_client_->Run().ok());
-  EXPECT_TRUE(crypto_client_->Stop().ok());
+  EXPECT_THAT(crypto_client_->Init(), IsOk());
+  EXPECT_THAT(crypto_client_->Run(), IsOk());
+  EXPECT_THAT(crypto_client_->Stop(), IsOk());
 }
 
 TEST_F(HybridCryptoClientTest, GetCryptoKeySuccess) {
@@ -104,8 +113,41 @@ TEST_F(HybridCryptoClientTest, GetCryptoKeySuccess) {
   AsyncContext<EncryptionKeyInfo, CryptoKeyInterface> context(
       request,
       [&is_complete](AsyncContext<EncryptionKeyInfo, CryptoKeyInterface>& ctx) {
-        EXPECT_TRUE(ctx.status.ok());
-        EXPECT_NE(ctx.response, nullptr);
+        EXPECT_THAT(ctx.status, IsOk());
+        ASSERT_NE(ctx.response, nullptr);
+        auto ciphertext_or = ctx.response->Encrypt("test_plaintext");
+        ASSERT_THAT(ciphertext_or, IsOk());
+        EXPECT_THAT(ctx.response->Decrypt(*ciphertext_or),
+                    IsOkAndHolds("test_plaintext"));
+        is_complete = true;
+      },
+      logger_);
+
+  crypto_client_->GetCryptoKey(context);
+
+  WaitUntil([&]() { return is_complete.load(); });
+}
+
+TEST_F(HybridCryptoClientTest, GetCryptoKeyPublicKeySuccess) {
+  auto request = std::make_shared<EncryptionKeyInfo>(GetEncryptionKeyInfo());
+  EXPECT_CALL(mock_key_fetcher_, GetKey(std::string(kKeyId)))
+      .WillOnce([](const std::string& key_id) {
+        Key key;
+        key.key_id = key_id;
+        key.private_key = std::string(kTestPublicHpkeP256);
+        return ExecutionResultOr<Key>(key);
+      });
+
+  std::atomic<bool> is_complete = false;
+  AsyncContext<EncryptionKeyInfo, CryptoKeyInterface> context(
+      request,
+      [&is_complete](AsyncContext<EncryptionKeyInfo, CryptoKeyInterface>& ctx) {
+        EXPECT_THAT(ctx.status, IsOk());
+        ASSERT_NE(ctx.response, nullptr);
+        auto ciphertext_or = ctx.response->Encrypt("test_plaintext");
+        ASSERT_THAT(ciphertext_or, IsOk());
+        EXPECT_THAT(ctx.response->Decrypt(*ciphertext_or),
+                    StatusIs(absl::StatusCode::kFailedPrecondition));
         is_complete = true;
       },
       logger_);

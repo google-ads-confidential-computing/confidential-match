@@ -271,6 +271,9 @@ ExecutionResult MatchDataLoader::Load(
                            location.blob_storage_location().bucket_name(),
                            location.blob_storage_location().path(),
                            data_export_info.data_export_id()));
+  RecordCountMetric(kDataLoaderLoadCountMetricName, 1,
+                    MetricType::METRIC_TYPE_COUNTER,
+                    BuildMetricLabels(data_export_info));
 
   // Decrypt the encrypted DEK, then start data loading in the callback if
   // successful
@@ -289,8 +292,10 @@ ExecutionResult MatchDataLoader::Load(
   wrapped_key_info->set_kek_kms_resource_id(kms_resource_name_);
   wrapped_key_info->mutable_gcp_wrapped_key_info()->set_wip_provider(
       kms_wip_provider_);
-  decrypt_context.callback = std::bind(
-      &MatchDataLoader::HandleGetCryptoKeyCallback, this, _1, data_export_info);
+  const absl::Time dek_decryption_start_time = absl::Now();
+  decrypt_context.callback =
+      std::bind(&MatchDataLoader::HandleGetCryptoKeyCallback, this, _1,
+                data_export_info, dek_decryption_start_time);
   crypto_client_->GetCryptoKey(decrypt_context);
 
   return SuccessExecutionResult();
@@ -299,7 +304,19 @@ ExecutionResult MatchDataLoader::Load(
 void MatchDataLoader::HandleGetCryptoKeyCallback(
     const AsyncContext<EncryptionKeyInfo, CryptoKeyInterface>&
         crypto_key_context,
-    const proto_backend::DataExportInfo& data_export_info) noexcept {
+    const proto_backend::DataExportInfo& data_export_info,
+    absl::Time dek_decryption_start_time) noexcept {
+  // Record latency metrics
+  absl::flat_hash_map<std::string, std::string> labels =
+      BuildMetricLabels(data_export_info);
+  labels[kIsSuccessfulLabel] = crypto_key_context.result.Successful()
+                                   ? kTrueMetricValue
+                                   : kFalseMetricValue;
+  RecordDurationMetric(kDataLoaderDekDecryptionLatencyMetricName,
+                       absl::Now() - dek_decryption_start_time,
+                       MetricType::METRIC_TYPE_GAUGE, labels,
+                       MetricUnit::METRIC_UNIT_SECONDS);
+
   if (!crypto_key_context.result.Successful()) {
     RecordLoadErrorCountMetric(crypto_key_context.result,
                                BuildMetricLabels(data_export_info));
@@ -311,8 +328,20 @@ void MatchDataLoader::HandleGetCryptoKeyCallback(
 
   std::shared_ptr<CryptoKeyInterface> data_encryption_key =
       crypto_key_context.response;
+  const absl::Time start_update_time = absl::Now();
   ExecutionResult start_update_result =
       match_data_storage_->StartUpdate(data_export_info);
+  const absl::Duration start_update_duration = absl::Now() - start_update_time;
+
+  // Record latency metrics
+  absl::flat_hash_map<std::string, std::string> start_update_labels =
+      BuildMetricLabels(data_export_info);
+  start_update_labels[kIsSuccessfulLabel] =
+      start_update_result.Successful() ? kTrueMetricValue : kFalseMetricValue;
+  RecordDurationMetric(kDataLoaderTableUpdateLatencyMetricName,
+                       start_update_duration, MetricType::METRIC_TYPE_GAUGE,
+                       start_update_labels, MetricUnit::METRIC_UNIT_SECONDS);
+
   if (start_update_result.status_code ==
       MATCH_DATA_STORAGE_UPDATE_ALREADY_IN_PROGRESS) {
     return;
@@ -508,7 +537,10 @@ void MatchDataLoader::HandleMatchDataBatchCallback(
 void MatchDataLoader::FinalizeUpdate(
     absl::flat_hash_map<std::string, std::string> metric_labels,
     uint64_t record_count, uint64_t key_count, absl::Time start_time) noexcept {
+  const absl::Time finalize_start_time = absl::Now();
   ExecutionResult finalize_result = match_data_storage_->FinalizeUpdate();
+  const absl::Duration finalize_duration = absl::Now() - finalize_start_time;
+
   // Record metrics and update last successful data load time.
   absl::flat_hash_map<std::string, std::string> legacy_metric_labels =
       metric_labels;
@@ -528,6 +560,9 @@ void MatchDataLoader::FinalizeUpdate(
   RecordMetric(kKeyCountMetricName, key_count, legacy_metric_labels);
   RecordMetric(kTableUpdateDurationMetricName, absl::Now() - start_time,
                legacy_metric_labels);
+  RecordDurationMetric(kDataLoaderTableFinalizeUpdateLatencyMetricName,
+                       finalize_duration, MetricType::METRIC_TYPE_GAUGE,
+                       metric_labels, MetricUnit::METRIC_UNIT_SECONDS);
   RecordDurationMetric(kDataLoaderUpdateFullCycleDurationMetricName,
                        absl::Now() - start_time, MetricType::METRIC_TYPE_GAUGE,
                        metric_labels);
@@ -586,10 +621,9 @@ ExecutionResultOr<ExportMetadata> MatchDataLoader::GetExportMetadata(
   labels[kIsSuccessfulLabel] = kFalseMetricValue;
   if (!schedule_result.Successful()) {
     RecordLoadErrorCountMetric(schedule_result, labels);
-    RecordDurationMetric(kGetExportMetadataDurationMetricName,
-                         absl::Now() - start_time,
-                         MetricType::METRIC_TYPE_GAUGE, labels,
-                         MetricUnit::METRIC_UNIT_SECONDS);
+    RecordDurationMetric(
+        kGetExportMetadataDurationMetricName, absl::Now() - start_time,
+        MetricType::METRIC_TYPE_GAUGE, labels, MetricUnit::METRIC_UNIT_SECONDS);
     SCP_ERROR(kComponentName, kZeroUuid, schedule_result,
               absl::StrFormat("Unable to schedule export metadata fetch. "
                               "(Bucket: '%s', Path: '%s')",
@@ -600,10 +634,9 @@ ExecutionResultOr<ExportMetadata> MatchDataLoader::GetExportMetadata(
 
   ExecutionResult get_result = result_promise.get_future().get();
   if (!get_result.Successful()) {
-    RecordDurationMetric(kGetExportMetadataDurationMetricName,
-                         absl::Now() - start_time,
-                         MetricType::METRIC_TYPE_GAUGE, labels,
-                         MetricUnit::METRIC_UNIT_SECONDS);
+    RecordDurationMetric(
+        kGetExportMetadataDurationMetricName, absl::Now() - start_time,
+        MetricType::METRIC_TYPE_GAUGE, labels, MetricUnit::METRIC_UNIT_SECONDS);
     RecordLoadErrorCountMetric(get_result, labels);
     SCP_ERROR(kComponentName, kZeroUuid, get_result,
               absl::StrFormat("Error while fetching export metadata. "
@@ -616,10 +649,9 @@ ExecutionResultOr<ExportMetadata> MatchDataLoader::GetExportMetadata(
   ExecutionResultOr<ExportMetadata> export_metadata_or =
       ParseExportMetadata(raw_export_metadata_promise.get_future().get());
   if (!export_metadata_or.result().Successful()) {
-    RecordDurationMetric(kGetExportMetadataDurationMetricName,
-                         absl::Now() - start_time,
-                         MetricType::METRIC_TYPE_GAUGE, labels,
-                         MetricUnit::METRIC_UNIT_SECONDS);
+    RecordDurationMetric(
+        kGetExportMetadataDurationMetricName, absl::Now() - start_time,
+        MetricType::METRIC_TYPE_GAUGE, labels, MetricUnit::METRIC_UNIT_SECONDS);
     RecordLoadErrorCountMetric(export_metadata_or.result(), labels);
     return export_metadata_or.result();
   }

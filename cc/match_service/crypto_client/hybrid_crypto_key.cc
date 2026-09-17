@@ -12,37 +12,54 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "cc/match_service/crypto_client/hybrid_decrypt_crypto_key.h"
+#include "cc/match_service/crypto_client/hybrid_crypto_key.h"
 
 #include <memory>
 #include <string>
 #include <utility>
 
+#include "absl/strings/str_cat.h"
 #include "cc/match_service/error/error.h"
 #include "protos/match_service/backend/error.pb.h"
+#include "tink/hybrid_decrypt.h"
+#include "tink/hybrid_encrypt.h"
 
 namespace google::confidential_match::match_service {
 
 using ::crypto::tink::HybridDecrypt;
+using ::crypto::tink::HybridEncrypt;
 using ::google::confidential_match::match_service::backend::Error;
 
-HybridDecryptCryptoKey::HybridDecryptCryptoKey(
-    std::shared_ptr<HybridDecrypt> hybrid_decrypt)
-    : hybrid_decrypt_(std::move(hybrid_decrypt)) {}
+HybridCryptoKey::HybridCryptoKey(std::shared_ptr<HybridDecrypt> hybrid_decrypt,
+                                 std::shared_ptr<HybridEncrypt> hybrid_encrypt)
+    : hybrid_decrypt_(std::move(hybrid_decrypt)),
+      hybrid_encrypt_(std::move(hybrid_encrypt)) {}
 
-// Unimplemented for this class
-absl::StatusOr<std::string> HybridDecryptCryptoKey::Encrypt(
+absl::StatusOr<std::string> HybridCryptoKey::Encrypt(
     absl::string_view plaintext) const noexcept {
-  return absl::UnimplementedError("Cannot encrypt with a HybridDecrypt");
+  if (hybrid_encrypt_ == nullptr) {
+    return absl::FailedPreconditionError("HybridEncrypt primitive is not set.");
+  }
+  auto ciphertext_or = hybrid_encrypt_->Encrypt(plaintext, /*context_info=*/"");
+  if (!ciphertext_or.ok()) {
+    return Status(
+        Error::ENCRYPTION_ERROR,
+        absl::StrCat("Tink HybridEncrypt failed to encrypt plaintext: ",
+                     ciphertext_or.status().message()));
+  }
+  return *ciphertext_or;
 }
 
-absl::StatusOr<std::string> HybridDecryptCryptoKey::Decrypt(
+absl::StatusOr<std::string> HybridCryptoKey::Decrypt(
     absl::string_view ciphertext) const noexcept {
+  if (hybrid_decrypt_ == nullptr) {
+    return absl::FailedPreconditionError("HybridDecrypt primitive is not set.");
+  }
   auto plaintext_or = hybrid_decrypt_->Decrypt(ciphertext, /*context_info=*/"");
   if (!plaintext_or.ok()) {
     return Status(
         Error::DECRYPTION_ERROR,
-        absl::StrCat("Tink HybridDecrypt failed to decrypt plaintext: ",
+        absl::StrCat("Tink HybridDecrypt failed to decrypt ciphertext: ",
                      plaintext_or.status().message()));
   }
   return *plaintext_or;

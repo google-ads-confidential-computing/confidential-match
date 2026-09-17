@@ -73,10 +73,35 @@ inline constexpr absl::string_view kDataLoaderKeyCountMetricName =
 // Measures the number of data records loaded into memory.
 inline constexpr absl::string_view kDataLoaderRecordCountMetricName =
     "data_loader_record_count";
+// Measures the number of times a Load() operation is initiated by the
+// DataRefreshLoop.
+inline constexpr absl::string_view kDataLoaderLoadCountMetricName =
+    "data_loader_load_operation_count";
+inline constexpr absl::string_view kDataLoaderLoadOperationCountMetricName =
+    kDataLoaderLoadCountMetricName;
+// Measures the latency of decrypting the Data Encryption Key using the
+// CryptoClient in seconds.
+inline constexpr absl::string_view kDataLoaderDekDecryptionLatencyMetricName =
+    "data_loader_dek_decryption_latency";
+// Measures the latency of the match data storage StartUpdate call in seconds.
+inline constexpr absl::string_view kDataLoaderTableUpdateLatencyMetricName =
+    "data_loader_table_update_latency";
+// Measures the latency of the match data storage FinalizeUpdate call in
+// seconds.
+inline constexpr absl::string_view
+    kDataLoaderTableFinalizeUpdateLatencyMetricName =
+        "data_loader_table_finalize_update_latency";
 
 // Match data provider metric names
 // Match data storage metric names
+
 // System level metric names
+
+// Measures the latency of the server startup in milliseconds.
+inline constexpr absl::string_view kServerStartupLatencyMetricName =
+    "ServerStartupLatency";
+inline constexpr absl::string_view kServerStartupErrorMetricName =
+    "ServerStartupError";
 
 // Lookup Server metric labels
 inline constexpr absl::string_view kKeyFormatLabel = "KeyFormat";

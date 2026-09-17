@@ -225,6 +225,45 @@ void VerifyMetricClusterLabels(const FakeMetricClient::RecordedMetric& metric) {
   EXPECT_EQ(metric.labels.at("cluster_group_id"), kClusterGroupId);
 }
 
+void VerifyOperationCountMetric(
+    const FakeMetricClient::RecordedMetric& metric) {
+  EXPECT_EQ(metric.name, "data_loader_load_operation_count");
+  EXPECT_EQ(metric.type, MetricType::METRIC_TYPE_COUNTER);
+  EXPECT_EQ(metric.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(metric.value, "1");
+  VerifyMetricLabels(metric);
+}
+
+void VerifyDekDecryptionLatencyMetric(
+    const FakeMetricClient::RecordedMetric& metric, bool is_successful = true) {
+  EXPECT_EQ(metric.name, "data_loader_dek_decryption_latency");
+  EXPECT_EQ(metric.type, MetricType::METRIC_TYPE_GAUGE);
+  EXPECT_EQ(metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_FALSE(metric.value.empty());
+  EXPECT_EQ(metric.labels.at("IsSuccessful"), is_successful ? "true" : "false");
+  VerifyMetricLabels(metric);
+}
+
+void VerifyTableUpdateLatencyMetric(
+    const FakeMetricClient::RecordedMetric& metric, bool is_successful = true) {
+  EXPECT_EQ(metric.name, "data_loader_table_update_latency");
+  EXPECT_EQ(metric.type, MetricType::METRIC_TYPE_GAUGE);
+  EXPECT_EQ(metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_FALSE(metric.value.empty());
+  EXPECT_EQ(metric.labels.at("IsSuccessful"), is_successful ? "true" : "false");
+  VerifyMetricLabels(metric);
+}
+
+void VerifyTableFinalizeUpdateLatencyMetric(
+    const FakeMetricClient::RecordedMetric& metric, bool is_successful = true) {
+  EXPECT_EQ(metric.name, "data_loader_table_finalize_update_latency");
+  EXPECT_EQ(metric.type, MetricType::METRIC_TYPE_GAUGE);
+  EXPECT_EQ(metric.unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_FALSE(metric.value.empty());
+  EXPECT_EQ(metric.labels.at("IsSuccessful"), is_successful ? "true" : "false");
+  VerifyMetricLabels(metric);
+}
+
 // Helper to capture the MatchDataRow arguments produced during a test.
 ExecutionResult MatchDataLoaderTest::CaptureMatchDataRow(
     absl::string_view key, absl::Span<const MatchDataRow> rows) {
@@ -567,8 +606,16 @@ TEST_F(MatchDataLoaderTest, LoadWithErrorStartingJobReturnsError) {
   EXPECT_SUCCESS(result);
   EXPECT_THAT(match_data_rows_, IsEmpty());
 
-  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 1);
-  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[0];
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 4);
+  VerifyOperationCountMetric(mock_otel_metric_client_->GetRecordedMetrics()[0]);
+  VerifyDekDecryptionLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[1],
+      /*is_successful=*/true);
+  VerifyTableUpdateLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[2],
+      /*is_successful=*/true);
+
+  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[3];
   EXPECT_EQ(error_metric.name, "data_loader_load_error_count");
   EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
@@ -576,7 +623,6 @@ TEST_F(MatchDataLoaderTest, LoadWithErrorStartingJobReturnsError) {
   EXPECT_EQ(error_metric.labels.at("BackendErrorReason"),
             "Failed to fetch requested data.");
   VerifyMetricLabels(error_metric);
-  // No duration metric is recorded.
 }
 
 TEST_F(MatchDataLoaderTest, LoadWithInvalidEncryptedDekReturnsError) {
@@ -590,8 +636,10 @@ TEST_F(MatchDataLoaderTest, LoadWithInvalidEncryptedDekReturnsError) {
                   MATCH_DATA_LOADER_INVALID_ENCRYPTED_DEK)));
   EXPECT_THAT(match_data_rows_, IsEmpty());
 
-  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 1);
-  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[0];
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 2);
+  VerifyOperationCountMetric(mock_otel_metric_client_->GetRecordedMetrics()[0]);
+
+  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[1];
   EXPECT_EQ(error_metric.name, "data_loader_load_error_count");
   EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
@@ -611,8 +659,13 @@ TEST_F(MatchDataLoaderTest, LoadGetCryptoKeyErrorYieldsEmptyList) {
   EXPECT_SUCCESS(match_data_loader_->Load(data_export_info_, kEncryptedDek));
   EXPECT_THAT(match_data_rows_, IsEmpty());
 
-  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 1);
-  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[0];
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 3);
+  VerifyOperationCountMetric(mock_otel_metric_client_->GetRecordedMetrics()[0]);
+  VerifyDekDecryptionLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[1],
+      /*is_successful=*/false);
+
+  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[2];
   EXPECT_EQ(error_metric.name, "data_loader_load_error_count");
   EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
@@ -641,9 +694,17 @@ TEST_F(MatchDataLoaderTest, LoadEmptyIsSuccessful) {
   absl::SleepFor(absl::Seconds(1));
 
   // Validate OpenTelemetry metrics.
-  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 5);
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 9);
+  VerifyOperationCountMetric(mock_otel_metric_client_->GetRecordedMetrics()[0]);
+  VerifyDekDecryptionLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[1],
+      /*is_successful=*/true);
+  VerifyTableUpdateLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[2],
+      /*is_successful=*/true);
+
   const auto& duration_metric =
-      mock_otel_metric_client_->GetRecordedMetrics()[0];
+      mock_otel_metric_client_->GetRecordedMetrics()[3];
   EXPECT_EQ(duration_metric.name, "data_loader_update_duration_in_seconds");
   EXPECT_EQ(duration_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_FALSE(duration_metric.value.empty());
@@ -651,8 +712,12 @@ TEST_F(MatchDataLoaderTest, LoadEmptyIsSuccessful) {
   EXPECT_EQ(duration_metric.labels.at("IsSuccessful"), "true");
   VerifyMetricLabels(duration_metric);
 
+  VerifyTableFinalizeUpdateLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[4],
+      /*is_successful=*/true);
+
   const auto& full_cycle_metric =
-      mock_otel_metric_client_->GetRecordedMetrics()[1];
+      mock_otel_metric_client_->GetRecordedMetrics()[5];
   EXPECT_EQ(full_cycle_metric.name,
             "data_loader_update_full_cycle_duration_in_seconds");
   EXPECT_EQ(full_cycle_metric.type, MetricType::METRIC_TYPE_GAUGE);
@@ -662,7 +727,7 @@ TEST_F(MatchDataLoaderTest, LoadEmptyIsSuccessful) {
   VerifyMetricLabels(full_cycle_metric);
 
   const auto& record_count_metric =
-      mock_otel_metric_client_->GetRecordedMetrics()[2];
+      mock_otel_metric_client_->GetRecordedMetrics()[6];
   EXPECT_EQ(record_count_metric.name, "data_loader_record_count");
   EXPECT_EQ(record_count_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_EQ(record_count_metric.value, "0");
@@ -671,7 +736,7 @@ TEST_F(MatchDataLoaderTest, LoadEmptyIsSuccessful) {
   VerifyMetricLabels(record_count_metric);
 
   const auto& key_count_metric =
-      mock_otel_metric_client_->GetRecordedMetrics()[3];
+      mock_otel_metric_client_->GetRecordedMetrics()[7];
   EXPECT_EQ(key_count_metric.name, "data_loader_key_count");
   EXPECT_EQ(key_count_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_EQ(key_count_metric.value, "0");
@@ -679,7 +744,7 @@ TEST_F(MatchDataLoaderTest, LoadEmptyIsSuccessful) {
   EXPECT_EQ(key_count_metric.labels.at("IsSuccessful"), "true");
   VerifyMetricLabels(key_count_metric);
 
-  const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[4];
+  const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[8];
   EXPECT_EQ(age_metric.name,
             "data_loader_duration_since_last_refresh_in_seconds");
   EXPECT_EQ(age_metric.type, MetricType::METRIC_TYPE_GAUGE);
@@ -715,9 +780,17 @@ TEST_F(MatchDataLoaderTest, LoadSingleEntryIsSuccessful) {
               ElementsAre(EqualsProto(GetSampleMatchDataRow())));
 
   // Validate OpenTelemetry metrics.
-  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 5);
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 9);
+  VerifyOperationCountMetric(mock_otel_metric_client_->GetRecordedMetrics()[0]);
+  VerifyDekDecryptionLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[1],
+      /*is_successful=*/true);
+  VerifyTableUpdateLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[2],
+      /*is_successful=*/true);
+
   const auto& duration_metric =
-      mock_otel_metric_client_->GetRecordedMetrics()[0];
+      mock_otel_metric_client_->GetRecordedMetrics()[3];
   EXPECT_EQ(duration_metric.name, "data_loader_update_duration_in_seconds");
   EXPECT_EQ(duration_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_FALSE(duration_metric.value.empty());
@@ -725,8 +798,12 @@ TEST_F(MatchDataLoaderTest, LoadSingleEntryIsSuccessful) {
   EXPECT_EQ(duration_metric.labels.at("IsSuccessful"), "true");
   VerifyMetricLabels(duration_metric);
 
+  VerifyTableFinalizeUpdateLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[4],
+      /*is_successful=*/true);
+
   const auto& full_cycle_metric =
-      mock_otel_metric_client_->GetRecordedMetrics()[1];
+      mock_otel_metric_client_->GetRecordedMetrics()[5];
   EXPECT_EQ(full_cycle_metric.name,
             "data_loader_update_full_cycle_duration_in_seconds");
   EXPECT_EQ(full_cycle_metric.type, MetricType::METRIC_TYPE_GAUGE);
@@ -736,7 +813,7 @@ TEST_F(MatchDataLoaderTest, LoadSingleEntryIsSuccessful) {
   VerifyMetricLabels(full_cycle_metric);
 
   const auto& record_count_metric =
-      mock_otel_metric_client_->GetRecordedMetrics()[2];
+      mock_otel_metric_client_->GetRecordedMetrics()[6];
   EXPECT_EQ(record_count_metric.name, "data_loader_record_count");
   EXPECT_EQ(record_count_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_EQ(record_count_metric.value, "1");
@@ -745,7 +822,7 @@ TEST_F(MatchDataLoaderTest, LoadSingleEntryIsSuccessful) {
   VerifyMetricLabels(record_count_metric);
 
   const auto& key_count_metric =
-      mock_otel_metric_client_->GetRecordedMetrics()[3];
+      mock_otel_metric_client_->GetRecordedMetrics()[7];
   EXPECT_EQ(key_count_metric.name, "data_loader_key_count");
   EXPECT_EQ(key_count_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_EQ(key_count_metric.value, "1");
@@ -753,7 +830,7 @@ TEST_F(MatchDataLoaderTest, LoadSingleEntryIsSuccessful) {
   EXPECT_EQ(key_count_metric.labels.at("IsSuccessful"), "true");
   VerifyMetricLabels(key_count_metric);
 
-  const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[4];
+  const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[8];
   EXPECT_EQ(age_metric.name,
             "data_loader_duration_since_last_refresh_in_seconds");
   EXPECT_EQ(age_metric.type, MetricType::METRIC_TYPE_GAUGE);
@@ -790,9 +867,17 @@ TEST_F(MatchDataLoaderTest, LoadMultipleEntriesIsSuccessful) {
                                    EqualsProto(GetSampleMatchDataRow2())));
 
   // Validate OpenTelemetry metrics.
-  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 5);
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 9);
+  VerifyOperationCountMetric(mock_otel_metric_client_->GetRecordedMetrics()[0]);
+  VerifyDekDecryptionLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[1],
+      /*is_successful=*/true);
+  VerifyTableUpdateLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[2],
+      /*is_successful=*/true);
+
   const auto& duration_metric =
-      mock_otel_metric_client_->GetRecordedMetrics()[0];
+      mock_otel_metric_client_->GetRecordedMetrics()[3];
   EXPECT_EQ(duration_metric.name, "data_loader_update_duration_in_seconds");
   EXPECT_EQ(duration_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_FALSE(duration_metric.value.empty());
@@ -801,8 +886,12 @@ TEST_F(MatchDataLoaderTest, LoadMultipleEntriesIsSuccessful) {
   EXPECT_EQ(duration_metric.labels.at("IsSuccessful"), "true");
   VerifyMetricLabels(duration_metric);
 
+  VerifyTableFinalizeUpdateLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[4],
+      /*is_successful=*/true);
+
   const auto& full_cycle_metric =
-      mock_otel_metric_client_->GetRecordedMetrics()[1];
+      mock_otel_metric_client_->GetRecordedMetrics()[5];
   EXPECT_EQ(full_cycle_metric.name,
             "data_loader_update_full_cycle_duration_in_seconds");
   EXPECT_EQ(full_cycle_metric.type, MetricType::METRIC_TYPE_GAUGE);
@@ -813,7 +902,7 @@ TEST_F(MatchDataLoaderTest, LoadMultipleEntriesIsSuccessful) {
   VerifyMetricLabels(full_cycle_metric);
 
   const auto& record_count_metric =
-      mock_otel_metric_client_->GetRecordedMetrics()[2];
+      mock_otel_metric_client_->GetRecordedMetrics()[6];
   EXPECT_EQ(record_count_metric.name, "data_loader_record_count");
   EXPECT_EQ(record_count_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_EQ(record_count_metric.value, "2");
@@ -823,7 +912,7 @@ TEST_F(MatchDataLoaderTest, LoadMultipleEntriesIsSuccessful) {
   VerifyMetricLabels(record_count_metric);
 
   const auto& key_count_metric =
-      mock_otel_metric_client_->GetRecordedMetrics()[3];
+      mock_otel_metric_client_->GetRecordedMetrics()[7];
   EXPECT_EQ(key_count_metric.name, "data_loader_key_count");
   EXPECT_EQ(key_count_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_EQ(key_count_metric.value, "2");
@@ -832,7 +921,7 @@ TEST_F(MatchDataLoaderTest, LoadMultipleEntriesIsSuccessful) {
   EXPECT_EQ(key_count_metric.labels.at("IsSuccessful"), "true");
   VerifyMetricLabels(key_count_metric);
 
-  const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[4];
+  const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[8];
   EXPECT_EQ(age_metric.name,
             "data_loader_duration_since_last_refresh_in_seconds");
   EXPECT_EQ(age_metric.type, MetricType::METRIC_TYPE_GAUGE);
@@ -864,9 +953,17 @@ TEST_F(MatchDataLoaderTest, LoadWithImmediateFetchFailureCancelsUpdate) {
 
   EXPECT_THAT(match_data_rows_, IsEmpty());
 
-  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 5);
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 8);
+  VerifyOperationCountMetric(mock_otel_metric_client_->GetRecordedMetrics()[0]);
+  VerifyDekDecryptionLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[1],
+      /*is_successful=*/true);
+  VerifyTableUpdateLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[2],
+      /*is_successful=*/true);
+
   const auto& full_cycle_metric =
-      mock_otel_metric_client_->GetRecordedMetrics()[0];
+      mock_otel_metric_client_->GetRecordedMetrics()[3];
   EXPECT_EQ(full_cycle_metric.name,
             "data_loader_update_full_cycle_duration_in_seconds");
   EXPECT_EQ(full_cycle_metric.type, MetricType::METRIC_TYPE_GAUGE);
@@ -875,7 +972,7 @@ TEST_F(MatchDataLoaderTest, LoadWithImmediateFetchFailureCancelsUpdate) {
   EXPECT_EQ(full_cycle_metric.labels.at("IsSuccessful"), "false");
   VerifyMetricLabels(full_cycle_metric);
 
-  const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[1];
+  const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[4];
   EXPECT_EQ(age_metric.name, "data_loader_update_duration_in_seconds");
   EXPECT_EQ(age_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_FALSE(age_metric.value.empty());
@@ -884,7 +981,7 @@ TEST_F(MatchDataLoaderTest, LoadWithImmediateFetchFailureCancelsUpdate) {
   VerifyMetricLabels(age_metric);
 
   const auto& record_count_metric =
-      mock_otel_metric_client_->GetRecordedMetrics()[2];
+      mock_otel_metric_client_->GetRecordedMetrics()[5];
   EXPECT_EQ(record_count_metric.name, "data_loader_record_count");
   EXPECT_EQ(record_count_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_EQ(record_count_metric.value, "0");
@@ -893,7 +990,7 @@ TEST_F(MatchDataLoaderTest, LoadWithImmediateFetchFailureCancelsUpdate) {
   VerifyMetricLabels(record_count_metric);
 
   const auto& key_count_metric =
-      mock_otel_metric_client_->GetRecordedMetrics()[3];
+      mock_otel_metric_client_->GetRecordedMetrics()[6];
   EXPECT_EQ(key_count_metric.name, "data_loader_key_count");
   EXPECT_EQ(key_count_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_EQ(key_count_metric.value, "0");
@@ -901,7 +998,7 @@ TEST_F(MatchDataLoaderTest, LoadWithImmediateFetchFailureCancelsUpdate) {
   EXPECT_EQ(key_count_metric.labels.at("IsSuccessful"), "false");
   VerifyMetricLabels(key_count_metric);
 
-  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[4];
+  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[7];
   EXPECT_EQ(error_metric.name, "data_loader_load_error_count");
   EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
@@ -935,9 +1032,17 @@ TEST_F(MatchDataLoaderTest, LoadWithSuccessThenFetchFailureCancelsUpdate) {
   EXPECT_THAT(match_data_rows_,
               ElementsAre(EqualsProto(GetSampleMatchDataRow())));
 
-  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 5);
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 8);
+  VerifyOperationCountMetric(mock_otel_metric_client_->GetRecordedMetrics()[0]);
+  VerifyDekDecryptionLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[1],
+      /*is_successful=*/true);
+  VerifyTableUpdateLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[2],
+      /*is_successful=*/true);
+
   const auto& full_cycle_metric =
-      mock_otel_metric_client_->GetRecordedMetrics()[0];
+      mock_otel_metric_client_->GetRecordedMetrics()[3];
   EXPECT_EQ(full_cycle_metric.name,
             "data_loader_update_full_cycle_duration_in_seconds");
   EXPECT_EQ(full_cycle_metric.type, MetricType::METRIC_TYPE_GAUGE);
@@ -946,7 +1051,7 @@ TEST_F(MatchDataLoaderTest, LoadWithSuccessThenFetchFailureCancelsUpdate) {
   EXPECT_EQ(full_cycle_metric.labels.at("IsSuccessful"), "false");
   VerifyMetricLabels(full_cycle_metric);
 
-  const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[1];
+  const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[4];
   EXPECT_EQ(age_metric.name, "data_loader_update_duration_in_seconds");
   EXPECT_EQ(age_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_FALSE(age_metric.value.empty());
@@ -955,7 +1060,7 @@ TEST_F(MatchDataLoaderTest, LoadWithSuccessThenFetchFailureCancelsUpdate) {
   VerifyMetricLabels(age_metric);
 
   const auto& record_count_metric =
-      mock_otel_metric_client_->GetRecordedMetrics()[2];
+      mock_otel_metric_client_->GetRecordedMetrics()[5];
   EXPECT_EQ(record_count_metric.name, "data_loader_record_count");
   EXPECT_EQ(record_count_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_EQ(record_count_metric.value, "1");
@@ -964,7 +1069,7 @@ TEST_F(MatchDataLoaderTest, LoadWithSuccessThenFetchFailureCancelsUpdate) {
   VerifyMetricLabels(record_count_metric);
 
   const auto& key_count_metric =
-      mock_otel_metric_client_->GetRecordedMetrics()[3];
+      mock_otel_metric_client_->GetRecordedMetrics()[6];
   EXPECT_EQ(key_count_metric.name, "data_loader_key_count");
   EXPECT_EQ(key_count_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_EQ(key_count_metric.value, "1");
@@ -972,7 +1077,7 @@ TEST_F(MatchDataLoaderTest, LoadWithSuccessThenFetchFailureCancelsUpdate) {
   EXPECT_EQ(key_count_metric.labels.at("IsSuccessful"), "false");
   VerifyMetricLabels(key_count_metric);
 
-  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[4];
+  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[7];
   EXPECT_EQ(error_metric.name, "data_loader_load_error_count");
   EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
@@ -1016,10 +1121,17 @@ TEST_F(MatchDataLoaderTest, LoadWithRetriedFailureIsSuccessful) {
               ElementsAre(EqualsProto(GetSampleMatchDataRow())));
 
   // Validate OpenTelemetry metrics that first load failed but second succeeded.
-  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 10);
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 17);
+  VerifyOperationCountMetric(mock_otel_metric_client_->GetRecordedMetrics()[0]);
+  VerifyDekDecryptionLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[1],
+      /*is_successful=*/true);
+  VerifyTableUpdateLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[2],
+      /*is_successful=*/true);
 
   const auto& first_full_cycle =
-      mock_otel_metric_client_->GetRecordedMetrics()[0];
+      mock_otel_metric_client_->GetRecordedMetrics()[3];
   EXPECT_EQ(first_full_cycle.name,
             "data_loader_update_full_cycle_duration_in_seconds");
   EXPECT_EQ(first_full_cycle.type, MetricType::METRIC_TYPE_GAUGE);
@@ -1028,7 +1140,7 @@ TEST_F(MatchDataLoaderTest, LoadWithRetriedFailureIsSuccessful) {
   VerifyMetricLabels(first_full_cycle);
 
   const auto& first_update_duration =
-      mock_otel_metric_client_->GetRecordedMetrics()[1];
+      mock_otel_metric_client_->GetRecordedMetrics()[4];
   EXPECT_EQ(first_update_duration.name,
             "data_loader_update_duration_in_seconds");
   EXPECT_EQ(first_update_duration.type, MetricType::METRIC_TYPE_GAUGE);
@@ -1037,7 +1149,7 @@ TEST_F(MatchDataLoaderTest, LoadWithRetriedFailureIsSuccessful) {
   VerifyMetricLabels(first_update_duration);
 
   const auto& first_record_count =
-      mock_otel_metric_client_->GetRecordedMetrics()[2];
+      mock_otel_metric_client_->GetRecordedMetrics()[5];
   EXPECT_EQ(first_record_count.name, "data_loader_record_count");
   EXPECT_EQ(first_record_count.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_EQ(first_record_count.unit, MetricUnit::METRIC_UNIT_COUNT);
@@ -1046,7 +1158,7 @@ TEST_F(MatchDataLoaderTest, LoadWithRetriedFailureIsSuccessful) {
   VerifyMetricLabels(first_record_count);
 
   const auto& first_key_count =
-      mock_otel_metric_client_->GetRecordedMetrics()[3];
+      mock_otel_metric_client_->GetRecordedMetrics()[6];
   EXPECT_EQ(first_key_count.name, "data_loader_key_count");
   EXPECT_EQ(first_key_count.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_EQ(first_key_count.unit, MetricUnit::METRIC_UNIT_COUNT);
@@ -1054,7 +1166,7 @@ TEST_F(MatchDataLoaderTest, LoadWithRetriedFailureIsSuccessful) {
   EXPECT_EQ(first_key_count.labels.at("IsSuccessful"), "false");
   VerifyMetricLabels(first_key_count);
 
-  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[4];
+  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[7];
   EXPECT_EQ(error_metric.name, "data_loader_load_error_count");
   EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
@@ -1063,16 +1175,28 @@ TEST_F(MatchDataLoaderTest, LoadWithRetriedFailureIsSuccessful) {
             "Failed to fetch requested data.");
   VerifyMetricLabels(error_metric);
 
+  VerifyOperationCountMetric(mock_otel_metric_client_->GetRecordedMetrics()[8]);
+  VerifyDekDecryptionLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[9],
+      /*is_successful=*/true);
+  VerifyTableUpdateLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[10],
+      /*is_successful=*/true);
+
   const auto& update_duration =
-      mock_otel_metric_client_->GetRecordedMetrics()[5];
+      mock_otel_metric_client_->GetRecordedMetrics()[11];
   EXPECT_EQ(update_duration.name, "data_loader_update_duration_in_seconds");
   EXPECT_EQ(update_duration.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_EQ(update_duration.unit, MetricUnit::METRIC_UNIT_SECONDS);
   EXPECT_EQ(update_duration.labels.at("IsSuccessful"), "true");
   VerifyMetricLabels(update_duration);
 
+  VerifyTableFinalizeUpdateLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[12],
+      /*is_successful=*/true);
+
   const auto& second_full_cycle =
-      mock_otel_metric_client_->GetRecordedMetrics()[6];
+      mock_otel_metric_client_->GetRecordedMetrics()[13];
   EXPECT_EQ(second_full_cycle.name,
             "data_loader_update_full_cycle_duration_in_seconds");
   EXPECT_EQ(second_full_cycle.type, MetricType::METRIC_TYPE_GAUGE);
@@ -1081,7 +1205,7 @@ TEST_F(MatchDataLoaderTest, LoadWithRetriedFailureIsSuccessful) {
   VerifyMetricLabels(second_full_cycle);
 
   const auto& second_record_count =
-      mock_otel_metric_client_->GetRecordedMetrics()[7];
+      mock_otel_metric_client_->GetRecordedMetrics()[14];
   EXPECT_EQ(second_record_count.name, "data_loader_record_count");
   EXPECT_EQ(second_record_count.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_EQ(second_record_count.unit, MetricUnit::METRIC_UNIT_COUNT);
@@ -1090,7 +1214,7 @@ TEST_F(MatchDataLoaderTest, LoadWithRetriedFailureIsSuccessful) {
   VerifyMetricLabels(second_record_count);
 
   const auto& second_key_count =
-      mock_otel_metric_client_->GetRecordedMetrics()[8];
+      mock_otel_metric_client_->GetRecordedMetrics()[15];
   EXPECT_EQ(second_key_count.name, "data_loader_key_count");
   EXPECT_EQ(second_key_count.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_EQ(second_key_count.unit, MetricUnit::METRIC_UNIT_COUNT);
@@ -1098,7 +1222,7 @@ TEST_F(MatchDataLoaderTest, LoadWithRetriedFailureIsSuccessful) {
   EXPECT_EQ(second_key_count.labels.at("IsSuccessful"), "true");
   VerifyMetricLabels(second_key_count);
 
-  const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[9];
+  const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[16];
   EXPECT_EQ(age_metric.name,
             "data_loader_duration_since_last_refresh_in_seconds");
   EXPECT_EQ(age_metric.type, MetricType::METRIC_TYPE_GAUGE);
@@ -1122,8 +1246,15 @@ TEST_F(MatchDataLoaderTest, LoadStartUpdateFailure) {
 
   EXPECT_SUCCESS(match_data_loader_->Load(data_export_info_, kEncryptedDek));
 
-  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 1);
-  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[0];
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 4);
+  VerifyOperationCountMetric(mock_otel_metric_client_->GetRecordedMetrics()[0]);
+  VerifyDekDecryptionLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[1],
+      /*is_successful=*/true);
+  VerifyTableUpdateLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[2],
+      /*is_successful=*/false);
+  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[3];
   EXPECT_EQ(error_metric.name, "data_loader_load_error_count");
   EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
@@ -1145,8 +1276,15 @@ TEST_F(MatchDataLoaderTest, LoadReplaceFailure) {
 
   EXPECT_SUCCESS(match_data_loader_->Load(data_export_info_, kEncryptedDek));
 
-  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 1);
-  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[0];
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 4);
+  VerifyOperationCountMetric(mock_otel_metric_client_->GetRecordedMetrics()[0]);
+  VerifyDekDecryptionLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[1],
+      /*is_successful=*/true);
+  VerifyTableUpdateLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[2],
+      /*is_successful=*/true);
+  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[3];
   EXPECT_EQ(error_metric.name, "data_loader_load_error_count");
   EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
@@ -1174,16 +1312,24 @@ TEST_F(MatchDataLoaderTest, LoadFinalizeUpdateFailure) {
 
   // Verify OpenTelemetry metrics. Table update is successful, but full cycle
   // update is not successful.
-  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 6);
+  ASSERT_EQ(mock_otel_metric_client_->GetRecordedMetrics().size(), 10);
+
+  VerifyOperationCountMetric(mock_otel_metric_client_->GetRecordedMetrics()[0]);
+  VerifyDekDecryptionLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[1],
+      /*is_successful=*/true);
+  VerifyTableUpdateLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[2],
+      /*is_successful=*/true);
 
   const auto& update_duration =
-      mock_otel_metric_client_->GetRecordedMetrics()[0];
+      mock_otel_metric_client_->GetRecordedMetrics()[3];
   EXPECT_EQ(update_duration.name, "data_loader_update_duration_in_seconds");
   EXPECT_EQ(update_duration.labels.at("IsSuccessful"), "true");
   EXPECT_FALSE(update_duration.value.empty());
   VerifyMetricLabels(update_duration);
 
-  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[1];
+  const auto& error_metric = mock_otel_metric_client_->GetRecordedMetrics()[4];
   EXPECT_EQ(error_metric.name, "data_loader_load_error_count");
   EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
@@ -1192,8 +1338,12 @@ TEST_F(MatchDataLoaderTest, LoadFinalizeUpdateFailure) {
             "Failed to replace the match data.");
   VerifyMetricLabels(error_metric);
 
+  VerifyTableFinalizeUpdateLatencyMetric(
+      mock_otel_metric_client_->GetRecordedMetrics()[5],
+      /*is_successful=*/false);
+
   const auto& dur_full_metric =
-      mock_otel_metric_client_->GetRecordedMetrics()[2];
+      mock_otel_metric_client_->GetRecordedMetrics()[6];
   EXPECT_EQ(dur_full_metric.name,
             "data_loader_update_full_cycle_duration_in_seconds");
   EXPECT_EQ(dur_full_metric.labels.at("IsSuccessful"), "false");
@@ -1201,7 +1351,7 @@ TEST_F(MatchDataLoaderTest, LoadFinalizeUpdateFailure) {
   VerifyMetricLabels(dur_full_metric);
 
   const auto& record_count_metric =
-      mock_otel_metric_client_->GetRecordedMetrics()[3];
+      mock_otel_metric_client_->GetRecordedMetrics()[7];
   EXPECT_EQ(record_count_metric.name, "data_loader_record_count");
   EXPECT_EQ(record_count_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_EQ(record_count_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
@@ -1210,7 +1360,7 @@ TEST_F(MatchDataLoaderTest, LoadFinalizeUpdateFailure) {
   VerifyMetricLabels(record_count_metric);
 
   const auto& key_count_metric =
-      mock_otel_metric_client_->GetRecordedMetrics()[4];
+      mock_otel_metric_client_->GetRecordedMetrics()[8];
   EXPECT_EQ(key_count_metric.name, "data_loader_key_count");
   EXPECT_EQ(key_count_metric.type, MetricType::METRIC_TYPE_GAUGE);
   EXPECT_EQ(key_count_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
@@ -1218,7 +1368,7 @@ TEST_F(MatchDataLoaderTest, LoadFinalizeUpdateFailure) {
   EXPECT_EQ(key_count_metric.labels.at("IsSuccessful"), "false");
   VerifyMetricLabels(key_count_metric);
 
-  const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[5];
+  const auto& age_metric = mock_otel_metric_client_->GetRecordedMetrics()[9];
   EXPECT_EQ(age_metric.name,
             "data_loader_duration_since_last_refresh_in_seconds");
   EXPECT_FALSE(age_metric.value.empty());

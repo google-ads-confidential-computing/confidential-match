@@ -12,27 +12,30 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef CONFIDENTIAL_MATCH_HYBRID_DECRYPT_CRYPTO_KEY_H
-#define CONFIDENTIAL_MATCH_HYBRID_DECRYPT_CRYPTO_KEY_H
-
-#include "cc/match_service/crypto_client/crypto_key_interface.h"
+#ifndef CC_MATCH_SERVICE_CRYPTO_CLIENT_HYBRID_CRYPTO_KEY_H_
+#define CC_MATCH_SERVICE_CRYPTO_CLIENT_HYBRID_CRYPTO_KEY_H_
 
 #include <memory>
 #include <string>
 
+#include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "cc/match_service/crypto_client/crypto_key_interface.h"
 #include "tink/hybrid_decrypt.h"
+#include "tink/hybrid_encrypt.h"
 
 namespace google::confidential_match::match_service {
 
-// A cryptographic key used for decryption.
-// This internally wraps a Tink HybridDecrypt primitive.
-class HybridDecryptCryptoKey : public CryptoKeyInterface {
+// A cryptographic key used for hybrid encryption and decryption.
+// This internally wraps Tink HybridDecrypt and HybridEncrypt primitives.
+class HybridCryptoKey : public CryptoKeyInterface {
  public:
-  explicit HybridDecryptCryptoKey(
-      std::shared_ptr<::crypto::tink::HybridDecrypt> hybrid_decrypt);
+  // At least one of hybrid_decrypt or hybrid_encrypt should be provided for
+  // meaningful functionality.
+  explicit HybridCryptoKey(
+      std::shared_ptr<::crypto::tink::HybridDecrypt> hybrid_decrypt = nullptr,
+      std::shared_ptr<::crypto::tink::HybridEncrypt> hybrid_encrypt = nullptr);
 
-  // Unimplemented for this class. This class will not support encryption but
-  // this method is here due to the interface it inherits.
   absl::StatusOr<std::string> Encrypt(
       absl::string_view plaintext) const noexcept override;
 
@@ -41,8 +44,9 @@ class HybridDecryptCryptoKey : public CryptoKeyInterface {
 
  private:
   std::shared_ptr<::crypto::tink::HybridDecrypt> hybrid_decrypt_;
+  std::shared_ptr<::crypto::tink::HybridEncrypt> hybrid_encrypt_;
 };
 
 }  // namespace google::confidential_match::match_service
 
-#endif  // CONFIDENTIAL_MATCH_HYBRID_DECRYPT_CRYPTO_KEY_H
+#endif  // CC_MATCH_SERVICE_CRYPTO_CLIENT_HYBRID_CRYPTO_KEY_H_

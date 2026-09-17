@@ -43,9 +43,11 @@ class MetricsUtilTest : public ::testing::Test {
 TEST_F(MetricsUtilTest, LogsErrorWhenLoggerIsNullAndPutMetricFails) {
   absl::ScopedMockLog mock_log;
 
-  EXPECT_CALL(mock_log,
-              Log(absl::LogSeverity::kError, _,
-                  HasSubstr("Failed to PutMetric [ServerStartupLatency]: ")))
+  EXPECT_CALL(
+      mock_log,
+      Log(absl::LogSeverity::kError, _,
+          HasSubstr(
+              "Failed to PutMetric [ServerStartupLatencyInMilliseconds]: ")))
       .Times(1);
 
   EXPECT_CALL(mock_metric_client_, PutMetrics).WillOnce([](auto& ctx) {
@@ -56,7 +58,7 @@ TEST_F(MetricsUtilTest, LogsErrorWhenLoggerIsNullAndPutMetricFails) {
   mock_log.StartCapturingLogs();
 
   google::cmrt::sdk::metric_service::v1::Metric m;
-  m.set_name(std::string(kServerStartupLatencyMetricName));
+  m.set_name(std::string(kServerStartupLatencyInMilliMetricName));
   PutMetric(/*logger=*/nullptr, &mock_metric_client_, "namespace",
             std::move(m));
 }
@@ -64,13 +66,13 @@ TEST_F(MetricsUtilTest, LogsErrorWhenLoggerIsNullAndPutMetricFails) {
 TEST_F(MetricsUtilTest, CreateServerStartupLatencyMetricHasCorrectValues) {
   absl::Duration duration = absl::Seconds(5);
   auto metric = CreateServerStartupLatencyMetric(duration);
-  EXPECT_EQ(metric.name(), kServerStartupLatencyMetricName);
+  EXPECT_EQ(metric.name(), kServerStartupLatencyInMilliMetricName);
   EXPECT_EQ(metric.value(), "5000");
   EXPECT_EQ(metric.unit(), google::cmrt::sdk::metric_service::v1::MetricUnit::
                                METRIC_UNIT_MILLISECONDS);
   EXPECT_EQ(
       metric.type(),
-      google::cmrt::sdk::metric_service::v1::MetricType::METRIC_TYPE_HISTOGRAM);
+      google::cmrt::sdk::metric_service::v1::MetricType::METRIC_TYPE_GAUGE);
 }
 
 TEST_F(MetricsUtilTest, CreateServerStartupErrorCountMetricHasCorrectValues) {

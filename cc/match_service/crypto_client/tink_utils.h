@@ -15,11 +15,25 @@
 #ifndef CC_MATCH_SERVICE_CRYPTO_CLIENT_TINK_UTILS_H_
 #define CC_MATCH_SERVICE_CRYPTO_CLIENT_TINK_UTILS_H_
 
+#include <memory>
+
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
+#include "tink/keyset_handle.h"
 
 namespace google::confidential_match::match_service {
 
-// Acquires a Tink key given the (unencoded) key material.
+// Parses and reads a KeysetHandle from binary (unencoded) key material.
+absl::StatusOr<std::unique_ptr<::crypto::tink::KeysetHandle>> GetKeysetHandle(
+    absl::string_view key_material);
+
+// Acquires a Tink primitive from a KeysetHandle.
+// Valid TinkPrimitive's: Aead, HybridEncrypt, HybridDecrypt.
+template <typename TinkPrimitive>
+absl::StatusOr<std::unique_ptr<TinkPrimitive>> GetTinkPrimitive(
+    const ::crypto::tink::KeysetHandle& keyset_handle);
+
+// Acquires a Tink primitive given the (unencoded) key material.
 // Valid TinkPrimitive's: Aead, HybridEncrypt, HybridDecrypt.
 template <typename TinkPrimitive>
 absl::StatusOr<std::unique_ptr<TinkPrimitive>> GetTinkPrimitive(

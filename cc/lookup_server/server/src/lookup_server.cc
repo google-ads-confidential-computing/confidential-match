@@ -26,6 +26,7 @@
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "cc/core/async_executor/src/async_executor.h"
 #include "cc/core/authorization_proxy/src/pass_thru_authorization_proxy.h"
 #include "cc/core/common/global_logger/src/global_logger.h"
@@ -1224,6 +1225,7 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
 }
 
 ExecutionResult LookupServer::Init() noexcept {
+  startup_start_time_ = absl::Now();
   RETURN_IF_FAILURE(CreateComponents());
   SCP_INFO(kComponentName, kZeroUuid, "Initializing Lookup Server...");
 
@@ -1279,47 +1281,59 @@ ExecutionResult LookupServer::Run() noexcept {
 
   SCP_INFO(kComponentName, kZeroUuid, "Running Lookup Server components...");
 
-  RETURN_IF_FAILURE(RunService(*http1_client_, kHttp1ClientServiceName));
-  RETURN_IF_FAILURE(RunService(*http2_client_, kHttp2ClientServiceName));
-  if (otel_metric_client_ != nullptr) {
-    RETURN_IF_FAILURE(RunService(*otel_metric_client_, kOtelMetricClientName));
+  auto run_services = [this]() -> ExecutionResult {
+    RETURN_IF_FAILURE(RunService(*http1_client_, kHttp1ClientServiceName));
+    RETURN_IF_FAILURE(RunService(*http2_client_, kHttp2ClientServiceName));
+    if (otel_metric_client_ != nullptr) {
+      RETURN_IF_FAILURE(
+          RunService(*otel_metric_client_, kOtelMetricClientName));
+    }
+    RETURN_IF_FAILURE(RunService(*metric_client_, kMetricClientName));
+    RETURN_IF_FAILURE(
+        RunService(*authorization_proxy_, kAuthorizationProxyServiceName));
+    RETURN_IF_FAILURE(RunService(*pass_thru_authorization_proxy_,
+                                 kPassThruAuthorizationProxyServiceName));
+    RETURN_IF_FAILURE(
+        RunService(*blob_storage_client_, kBlobStorageClientServiceName));
+    RETURN_IF_FAILURE(RunService(*gcp_kms_client_, kGcpKmsClientName));
+    RETURN_IF_FAILURE(
+        RunService(*gcp_cached_kms_client_, kGcpCachedKmsClientName));
+    RETURN_IF_FAILURE(RunService(*aws_kms_client_, kAwsKmsClientName));
+    RETURN_IF_FAILURE(
+        RunService(*aws_cached_kms_client_, kAwsCachedKmsClientName));
+    RETURN_IF_FAILURE(RunService(*private_key_client_, kPrivateKeyClientName));
+    RETURN_IF_FAILURE(RunService(*coordinator_client_, kCoordinatorClientName));
+    for (const auto& fetcher : key_fetchers_) {
+      RETURN_IF_FAILURE(RunService(*fetcher, "KeyFetcherWithCache"));
+    }
+    RETURN_IF_FAILURE(
+        RunService(*cached_coordinator_client_, kCachedCoordinatorClientName));
+    RETURN_IF_FAILURE(RunService(*aead_crypto_client_, kAeadCryptoClientName));
+    RETURN_IF_FAILURE(RunService(*hpke_crypto_client_, kHpkeCryptoClientName));
+    RETURN_IF_FAILURE(
+        RunService(*orchestrator_client_, kOrchestratorClientName));
+    RETURN_IF_FAILURE(RunService(*data_provider_, kDataProviderServiceName));
+    RETURN_IF_FAILURE(RunService(*streamed_match_data_provider_,
+                                 kStreamedMatchDataProviderServiceName));
+    RETURN_IF_FAILURE(
+        RunService(*match_data_storage_, kMatchDataStorageServiceName));
+    RETURN_IF_FAILURE(
+        RunService(*match_data_loader_, kMatchDataLoaderServiceName));
+    RETURN_IF_FAILURE(RunService(*http_server_, kHttpServerServiceName));
+    RETURN_IF_FAILURE(RunService(*health_http_server_, kHealthHttpServerName));
+    RETURN_IF_FAILURE(RunService(*lookup_service_, kLookupServiceName));
+    RETURN_IF_FAILURE(RunService(*health_service_, kHealthServiceName));
+    return SuccessExecutionResult();
+  };
+
+  ExecutionResult run_result = run_services();
+  if (!run_result.Successful()) {
+    RecordServerStartupErrorMetric();
+    return run_result;
   }
-  RETURN_IF_FAILURE(RunService(*metric_client_, kMetricClientName));
-  RETURN_IF_FAILURE(
-      RunService(*authorization_proxy_, kAuthorizationProxyServiceName));
-  RETURN_IF_FAILURE(RunService(*pass_thru_authorization_proxy_,
-                               kPassThruAuthorizationProxyServiceName));
-  RETURN_IF_FAILURE(
-      RunService(*blob_storage_client_, kBlobStorageClientServiceName));
-  RETURN_IF_FAILURE(RunService(*gcp_kms_client_, kGcpKmsClientName));
-  RETURN_IF_FAILURE(
-      RunService(*gcp_cached_kms_client_, kGcpCachedKmsClientName));
-  RETURN_IF_FAILURE(RunService(*aws_kms_client_, kAwsKmsClientName));
-  RETURN_IF_FAILURE(
-      RunService(*aws_cached_kms_client_, kAwsCachedKmsClientName));
-  RETURN_IF_FAILURE(RunService(*private_key_client_, kPrivateKeyClientName));
-  RETURN_IF_FAILURE(RunService(*coordinator_client_, kCoordinatorClientName));
-  for (const auto& fetcher : key_fetchers_) {
-    RETURN_IF_FAILURE(RunService(*fetcher, "KeyFetcherWithCache"));
-  }
-  RETURN_IF_FAILURE(
-      RunService(*cached_coordinator_client_, kCachedCoordinatorClientName));
-  RETURN_IF_FAILURE(RunService(*aead_crypto_client_, kAeadCryptoClientName));
-  RETURN_IF_FAILURE(RunService(*hpke_crypto_client_, kHpkeCryptoClientName));
-  RETURN_IF_FAILURE(RunService(*orchestrator_client_, kOrchestratorClientName));
-  RETURN_IF_FAILURE(RunService(*data_provider_, kDataProviderServiceName));
-  RETURN_IF_FAILURE(RunService(*streamed_match_data_provider_,
-                               kStreamedMatchDataProviderServiceName));
-  RETURN_IF_FAILURE(
-      RunService(*match_data_storage_, kMatchDataStorageServiceName));
-  RETURN_IF_FAILURE(
-      RunService(*match_data_loader_, kMatchDataLoaderServiceName));
-  RETURN_IF_FAILURE(RunService(*http_server_, kHttpServerServiceName));
-  RETURN_IF_FAILURE(RunService(*health_http_server_, kHealthHttpServerName));
-  RETURN_IF_FAILURE(RunService(*lookup_service_, kLookupServiceName));
-  RETURN_IF_FAILURE(RunService(*health_service_, kHealthServiceName));
 
   is_running_ = true;
+  RecordServerStartupLatencyMetric(absl::Now() - startup_start_time_);
   SCP_INFO(kComponentName, kZeroUuid, "Lookup Server running.");
   return SuccessExecutionResult();
 }
@@ -1379,6 +1393,29 @@ ExecutionResult LookupServer::Stop() noexcept {
   is_running_ = false;
   SCP_INFO(kComponentName, kZeroUuid, "Lookup Server stopped.");
   return SuccessExecutionResult();
+}
+
+void LookupServer::RecordServerStartupLatencyMetric(
+    absl::Duration duration) noexcept {
+  if (otel_metric_client_ == nullptr) {
+    return;
+  }
+  const absl::flat_hash_map<std::string, std::string> labels;
+  otel_metric_client_->RecordMetric(
+      kServerStartupLatencyMetricName,
+      absl::StrCat(absl::ToInt64Milliseconds(duration)),
+      MetricUnit::METRIC_UNIT_MILLISECONDS, MetricType::METRIC_TYPE_GAUGE,
+      labels);
+}
+
+void LookupServer::RecordServerStartupErrorMetric() noexcept {
+  if (otel_metric_client_ == nullptr) {
+    return;
+  }
+  const absl::flat_hash_map<std::string, std::string> labels;
+  otel_metric_client_->RecordMetric(kServerStartupErrorMetricName, "1",
+                                    MetricUnit::METRIC_UNIT_COUNT,
+                                    MetricType::METRIC_TYPE_COUNTER, labels);
 }
 
 }  // namespace google::confidential_match::lookup_server

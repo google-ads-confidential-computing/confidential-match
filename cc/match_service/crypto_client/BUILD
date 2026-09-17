@@ -54,21 +54,24 @@ cc_test(
 )
 
 cc_library(
-    name = "hybrid_decrypt_crypto_key",
-    srcs = ["hybrid_decrypt_crypto_key.cc"],
-    hdrs = ["hybrid_decrypt_crypto_key.h"],
+    name = "hybrid_crypto_key",
+    srcs = ["hybrid_crypto_key.cc"],
+    hdrs = ["hybrid_crypto_key.h"],
     deps = [
         ":crypto_key_interface",
+        "//cc/external:absl_status",
+        "//cc/external:absl_strings",
         "//cc/external:tink_cc_hybrid",
         "//cc/match_service/error",
     ],
 )
 
 cc_test(
-    name = "hybrid_decrypt_crypto_key_test",
-    srcs = ["hybrid_decrypt_crypto_key_test.cc"],
+    name = "hybrid_crypto_key_test",
+    srcs = ["hybrid_crypto_key_test.cc"],
     deps = [
-        ":hybrid_decrypt_crypto_key",
+        ":crypto_key_interface",
+        ":hybrid_crypto_key",
         "//cc/external:absl_status_matchers",
         "//cc/external:google_gtest_main",
         "//cc/external:tink_cc",
@@ -142,9 +145,11 @@ cc_library(
     hdrs = ["hybrid_crypto_client.h"],
     deps = [
         ":crypto_client_interface",
-        ":hybrid_decrypt_crypto_key",
+        ":hybrid_crypto_key",
         ":tink_utils",
         "//cc/external:absl_bind_front",
+        "//cc/external:absl_str_format",
+        "//cc/external:absl_strings",
         "//cc/external:scp_core_errors_lib",
         "//cc/external:scp_core_interface_lib",
         "//cc/external:scp_cpio_dual_writing_metric_client",

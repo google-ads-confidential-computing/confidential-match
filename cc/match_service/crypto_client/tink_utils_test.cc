@@ -18,6 +18,7 @@
 
 #include "absl/status/status_matchers.h"
 #include "absl/strings/escaping.h"
+#include "cc/match_service/error/error.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "tink/aead.h"
@@ -26,8 +27,6 @@
 #include "tink/hybrid/hybrid_config.h"
 #include "tink/hybrid_decrypt.h"
 #include "tink/hybrid_encrypt.h"
-
-#include "cc/match_service/error/error.h"
 
 namespace google::confidential_match::match_service {
 
@@ -105,6 +104,22 @@ TEST_F(TinkUtilsTest, CreatesHpke) {
   ASSERT_THAT(decrypt.Decrypt(*ciphertext_or, ""), IsOkAndHolds(payload));
 }
 
+TEST_F(TinkUtilsTest, CreatesHpkeEncryptFromPrivateKey) {
+  std::string decoded_key;
+  ASSERT_TRUE(absl::Base64Unescape(kTestPrivateHpkeP256, &decoded_key));
+  auto encrypt_or = GetTinkPrimitive<HybridEncrypt>(decoded_key);
+  ASSERT_THAT(encrypt_or, IsOk());
+
+  auto decrypt_or = GetTinkPrimitive<HybridDecrypt>(decoded_key);
+  ASSERT_THAT(decrypt_or, IsOk());
+
+  auto payload = "some payload";
+  auto ciphertext_or = (*encrypt_or)->Encrypt(payload, "");
+  ASSERT_THAT(ciphertext_or, IsOk());
+  EXPECT_THAT((*decrypt_or)->Decrypt(*ciphertext_or, ""),
+              IsOkAndHolds(payload));
+}
+
 TEST_F(TinkUtilsTest, FailsIfBadKeyMaterial) {
   EXPECT_THAT(GetTinkPrimitive<Aead>("bad material"),
               StatusIs(absl::StatusCode::kInternal,
@@ -117,6 +132,47 @@ TEST_F(TinkUtilsTest, FailsIfWrongKeyType) {
   EXPECT_THAT(GetTinkPrimitive<Aead>(decoded_key),
               StatusIs(absl::StatusCode::kInternal,
                        ContainsRegex("Failed to get .*Aead")));
+}
+
+TEST_F(TinkUtilsTest, FailsDecryptIfPublicKeyMaterial) {
+  std::string decoded_key;
+  ASSERT_TRUE(absl::Base64Unescape(kTestPublicHpkeP256, &decoded_key));
+  EXPECT_THAT(GetTinkPrimitive<HybridDecrypt>(decoded_key),
+              StatusIs(absl::StatusCode::kInternal,
+                       ContainsRegex("Failed to get .*HybridDecrypt")));
+}
+
+TEST_F(TinkUtilsTest, GetKeysetHandleSuccess) {
+  std::string decoded_key;
+  ASSERT_TRUE(absl::Base64Unescape(kTestPrivateHpkeP256, &decoded_key));
+  auto keyset_handle_or = GetKeysetHandle(decoded_key);
+  ASSERT_THAT(keyset_handle_or, IsOk());
+  EXPECT_NE(*keyset_handle_or, nullptr);
+}
+
+TEST_F(TinkUtilsTest, GetKeysetHandleFailsIfBadKeyMaterial) {
+  EXPECT_THAT(GetKeysetHandle("bad material"),
+              StatusIs(absl::StatusCode::kInternal,
+                       ContainsRegex("Failed to read keyset")));
+}
+
+TEST_F(TinkUtilsTest, ExtractsBothPrimitivesFromSingleKeysetHandle) {
+  std::string decoded_key;
+  ASSERT_TRUE(absl::Base64Unescape(kTestPrivateHpkeP256, &decoded_key));
+  auto keyset_handle_or = GetKeysetHandle(decoded_key);
+  ASSERT_THAT(keyset_handle_or, IsOk());
+
+  auto decrypt_or = GetTinkPrimitive<HybridDecrypt>(**keyset_handle_or);
+  ASSERT_THAT(decrypt_or, IsOk());
+
+  auto encrypt_or = GetTinkPrimitive<HybridEncrypt>(**keyset_handle_or);
+  ASSERT_THAT(encrypt_or, IsOk());
+
+  auto payload = "some payload";
+  auto ciphertext_or = (*encrypt_or)->Encrypt(payload, "");
+  ASSERT_THAT(ciphertext_or, IsOk());
+  EXPECT_THAT((*decrypt_or)->Decrypt(*ciphertext_or, ""),
+              IsOkAndHolds(payload));
 }
 
 }  // namespace

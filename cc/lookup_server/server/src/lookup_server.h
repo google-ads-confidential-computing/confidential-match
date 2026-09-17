@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include "absl/time/time.h"
 #include "cc/core/interface/async_executor_interface.h"
 #include "cc/core/interface/authorization_proxy_interface.h"
 #include "cc/core/interface/blob_storage_provider_interface.h"
@@ -143,7 +144,7 @@ class LookupServer : public scp::core::ServiceInterface {
  public:
   explicit LookupServer(
       std::shared_ptr<scp::core::ConfigProviderInterface> config_provider)
-      : config_provider_(config_provider) {}
+      : config_provider_(config_provider), startup_start_time_(absl::Now()) {}
 
   scp::core::ExecutionResult Init() noexcept override;
   scp::core::ExecutionResult Run() noexcept override;
@@ -154,6 +155,10 @@ class LookupServer : public scp::core::ServiceInterface {
   virtual scp::core::ExecutionResult LoadTeeConfigs() noexcept;
   virtual scp::core::ExecutionResult LoadParameters() noexcept;
   virtual scp::core::ExecutionResult CreateComponents() noexcept;
+
+  virtual void RecordServerStartupLatencyMetric(
+      absl::Duration duration) noexcept;
+  virtual void RecordServerStartupErrorMetric() noexcept;
 
   std::shared_ptr<scp::core::ConfigProviderInterface> config_provider_;
   std::shared_ptr<scp::core::AsyncExecutorInterface> async_executor_;
@@ -196,6 +201,7 @@ class LookupServer : public scp::core::ServiceInterface {
   std::shared_ptr<LookupService> lookup_service_;
   std::shared_ptr<HealthService> health_service_;
   bool is_running_ = false;
+  absl::Time startup_start_time_;
   CpioOptionsConfig cpio_options_config_;
   TeeOptionsConfig tee_options_config_;
   LookupServerParameters parameters_;

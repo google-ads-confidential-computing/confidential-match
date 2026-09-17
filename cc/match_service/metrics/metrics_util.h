@@ -52,8 +52,8 @@ inline constexpr absl::string_view kErrorCountMetricName =
     "MatchRequestErrorCount";
 inline constexpr absl::string_view kGrpcErrorCountMetricName =
     "MatchRequestGrpcErrorCount";
-inline constexpr absl::string_view kServerStartupLatencyMetricName =
-    "ServerStartupLatency";
+inline constexpr absl::string_view kServerStartupLatencyInMilliMetricName =
+    "ServerStartupLatencyInMilliseconds";
 inline constexpr absl::string_view kServerStartupErrorCountMetricName =
     "ServerStartupErrorCount";
 

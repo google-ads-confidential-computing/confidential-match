@@ -101,11 +101,13 @@ class MatchDataLoader : public MatchDataLoaderInterface {
    *
    * @param crypto_key_context the context containing the crypto key result
    * @param data_export_info information tied to the data export
+   * @param start_time the time at which the DEK decryption was started
    */
   void HandleGetCryptoKeyCallback(
       const scp::core::AsyncContext<proto_backend::EncryptionKeyInfo,
                                     CryptoKeyInterface>& crypto_key_context,
-      const proto_backend::DataExportInfo& data_export_info) noexcept;
+      const proto_backend::DataExportInfo& data_export_info,
+      absl::Time dek_decryption_start_time) noexcept;
 
   /**
    * @brief Handles the callbacks made after starting the match data fetch.

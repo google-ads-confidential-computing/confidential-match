@@ -83,6 +83,7 @@ lookup_server_lib_deps = [
     "//cc/lookup_server/health_service/src:health_service_lib",
     "//cc/external:absl_flat_hash_map",
     "//cc/external:absl_strings",
+    "//cc/external:absl_time",
     "//cc/external:scp_core_async_executor",
     "//cc/external:scp_core_authorization_proxy_lib",
     "//cc/external:scp_core_common_uuid",

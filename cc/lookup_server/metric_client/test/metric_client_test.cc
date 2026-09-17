@@ -20,6 +20,9 @@
 #include "absl/strings/str_format.h"
 #include "cc/core/interface/type_def.h"
 #include "cc/core/test/utils/proto_test_utils.h"
+#include "cc/lookup_server/metric_client/mock/fake_metric_client.h"
+#include "cc/lookup_server/metric_client/mock/mock_metric_client.h"
+#include "cc/lookup_server/metric_client/src/error_codes.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "cc/public/core/test/interface/execution_result_matchers.h"
 #include "cc/public/cpio/interface/metric_client/metric_client_interface.h"
@@ -27,14 +30,11 @@
 #include "gtest/gtest.h"
 #include "public/cpio/mock/metric_client/mock_metric_client.h"
 
-#include "cc/lookup_server/metric_client/mock/fake_metric_client.h"
-#include "cc/lookup_server/metric_client/mock/mock_metric_client.h"
-#include "cc/lookup_server/metric_client/src/error_codes.h"
-
 namespace google::confidential_match::lookup_server {
 namespace {
 
 using ::google::cmrt::sdk::metric_service::v1::Metric;
+using ::google::cmrt::sdk::metric_service::v1::MetricType;
 using ::google::cmrt::sdk::metric_service::v1::PutMetricsRequest;
 using ::google::cmrt::sdk::metric_service::v1::PutMetricsResponse;
 using ::google::scp::core::AsyncContext;
@@ -189,6 +189,58 @@ TEST_F(MetricClientTest, RecordMetricWithBaseAndArgLabelsIsSuccessful) {
   // ignore timestamp
   expected_metric->mutable_timestamp()->set_seconds(
       captured_context_.request->metrics().Get(0).timestamp().seconds());
+  EXPECT_THAT(*captured_context_.request, EqualsProto(expected));
+}
+
+TEST_F(MetricClientTest, RecordServerStartupLatencyMetricIsSuccessful) {
+  absl::flat_hash_map<std::string, std::string> base_labels;
+  base_labels[kBaseLabelKey] = kBaseLabelValue;
+  MetricClient metric_client(mock_cpio_metric_client_, kMetricNamespace,
+                             base_labels);
+  EXPECT_CALL(*mock_cpio_metric_client_, PutMetrics)
+      .WillOnce(Invoke(this, &MetricClientTest::CaptureAsyncContext));
+
+  PutMetricsRequest expected;
+  *expected.mutable_metric_namespace() = kMetricNamespace;
+  Metric* expected_metric = expected.add_metrics();
+  *expected_metric->mutable_name() =
+      std::string(kServerStartupLatencyMetricName);
+  *expected_metric->mutable_value() = "1234";
+  expected_metric->set_unit(MetricUnit::METRIC_UNIT_MILLISECONDS);
+  expected_metric->set_type(MetricType::METRIC_TYPE_GAUGE);
+  (*expected_metric->mutable_labels())[kBaseLabelKey] = kBaseLabelValue;
+
+  ExecutionResult result = metric_client.RecordMetric(
+      kServerStartupLatencyMetricName, "1234",
+      MetricUnit::METRIC_UNIT_MILLISECONDS, MetricType::METRIC_TYPE_GAUGE,
+      /*labels=*/{});
+
+  EXPECT_SUCCESS(result);
+  EXPECT_THAT(*captured_context_.request, EqualsProto(expected));
+}
+
+TEST_F(MetricClientTest, RecordServerStartupErrorMetricIsSuccessful) {
+  absl::flat_hash_map<std::string, std::string> base_labels;
+  base_labels[kBaseLabelKey] = kBaseLabelValue;
+  MetricClient metric_client(mock_cpio_metric_client_, kMetricNamespace,
+                             base_labels);
+  EXPECT_CALL(*mock_cpio_metric_client_, PutMetrics)
+      .WillOnce(Invoke(this, &MetricClientTest::CaptureAsyncContext));
+
+  PutMetricsRequest expected;
+  *expected.mutable_metric_namespace() = kMetricNamespace;
+  Metric* expected_metric = expected.add_metrics();
+  *expected_metric->mutable_name() = std::string(kServerStartupErrorMetricName);
+  *expected_metric->mutable_value() = "1";
+  expected_metric->set_unit(MetricUnit::METRIC_UNIT_COUNT);
+  expected_metric->set_type(MetricType::METRIC_TYPE_COUNTER);
+  (*expected_metric->mutable_labels())[kBaseLabelKey] = kBaseLabelValue;
+
+  ExecutionResult result = metric_client.RecordMetric(
+      kServerStartupErrorMetricName, "1", MetricUnit::METRIC_UNIT_COUNT,
+      MetricType::METRIC_TYPE_COUNTER, /*labels=*/{});
+
+  EXPECT_SUCCESS(result);
   EXPECT_THAT(*captured_context_.request, EqualsProto(expected));
 }
 
