@@ -24,11 +24,13 @@
 #include <utility>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
 #include "absl/strings/match.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
+#include "absl/time/time.h"
 #include "absl/types/span.h"
 #include "cc/core/common/concurrent_queue/src/concurrent_queue.h"
 #include "cc/core/common/concurrent_queue/src/error_codes.h"
@@ -37,17 +39,17 @@
 #include "cc/core/interface/async_context.h"
 #include "cc/core/interface/errors.h"
 #include "cc/core/interface/streaming_context.h"
+#include "cc/lookup_server/interface/crypto_key_interface.h"
+#include "cc/lookup_server/interface/streamed_match_data_provider_interface.h"
+#include "cc/lookup_server/match_data_provider/src/error_codes.h"
+#include "cc/lookup_server/metric_client/src/metric_client.h"
+#include "cc/lookup_server/parsers/src/match_data_file_parser.h"
 #include "cc/public/core/interface/execution_result_macros.h"
 #include "cc/public/core/interface/execution_result_or_macros.h"
 #include "cc/public/cpio/interface/blob_storage_client/blob_storage_client_interface.h"
 #include "cc/public/cpio/proto/blob_storage_service/v1/blob_storage_service.pb.h"
-#include "re2/re2.h"
-
-#include "cc/lookup_server/interface/crypto_key_interface.h"
-#include "cc/lookup_server/interface/streamed_match_data_provider_interface.h"
-#include "cc/lookup_server/match_data_provider/src/error_codes.h"
-#include "cc/lookup_server/parsers/src/match_data_file_parser.h"
 #include "protos/lookup_server/backend/location.pb.h"
+#include "re2/re2.h"
 
 namespace google::confidential_match::lookup_server {
 
@@ -65,6 +67,7 @@ using ::google::scp::core::FinishStreamingContext;
 using ::google::scp::core::SuccessExecutionResult;
 using ::google::scp::core::common::ConcurrentQueue;
 using ::google::scp::core::common::kZeroUuid;
+using ::google::scp::core::errors::GetErrorHttpStatusCode;
 using ::google::scp::core::errors::GetErrorMessage;
 using ::google::scp::core::errors::SC_CONCURRENT_QUEUE_CANNOT_DEQUEUE;
 using ::google::scp::cpio::BlobStorageClientInterface;
@@ -239,10 +242,12 @@ class BlobStorageMatchDataProvider::GetMatchDataStreamTracker {
 BlobStorageMatchDataProvider::BlobStorageMatchDataProvider(
     std::shared_ptr<BlobStorageClientInterface> blob_storage_client,
     std::shared_ptr<DataProviderInterface> blob_storage_data_provider,
-    uint64_t max_concurrent_file_reads)
+    uint64_t max_concurrent_file_reads,
+    std::shared_ptr<MetricClientInterface> metric_client)
     : blob_storage_client_(blob_storage_client),
       blob_storage_data_provider_(blob_storage_data_provider),
-      max_concurrent_file_reads_(max_concurrent_file_reads) {}
+      max_concurrent_file_reads_(max_concurrent_file_reads),
+      metric_client_(metric_client) {}
 
 ExecutionResult BlobStorageMatchDataProvider::Init() noexcept {
   return SuccessExecutionResult();
@@ -348,6 +353,7 @@ ExecutionResult BlobStorageMatchDataProvider::StartAsyncFileReader(
   ExecutionResult schedule_result =
       blob_storage_data_provider_->Get(file_fetch_context);
   if (!schedule_result.Successful()) {
+    RecordFilesProcessedErrorCountMetric(schedule_result);
     SCP_ERROR(
         kComponentName, kZeroUuid, schedule_result,
         absl::StrFormat(
@@ -366,6 +372,7 @@ void BlobStorageMatchDataProvider::HandleSingleFileCallback(
     std::shared_ptr<GetMatchDataStreamTracker> stream_tracker,
     std::shared_ptr<CryptoKeyInterface> data_encryption_key) noexcept {
   if (!file_fetch_context.result.Successful()) {
+    RecordFilesProcessedErrorCountMetric(file_fetch_context.result);
     SCP_ERROR_CONTEXT(
         kComponentName, file_fetch_context, file_fetch_context.result,
         absl::StrFormat(
@@ -380,11 +387,14 @@ void BlobStorageMatchDataProvider::HandleSingleFileCallback(
   ExecutionResult parse_result = ParseMatchDataFile(
       *file_fetch_context.response, data_encryption_key, data_batch);
   if (!parse_result.Successful()) {
+    RecordFilesProcessedErrorCountMetric(parse_result);
     SCP_ERROR_CONTEXT(kComponentName, file_fetch_context, parse_result,
                       "Failed to parse the fragment file.");
     stream_tracker->MarkSubstreamFinished(parse_result);
     return;
   }
+
+  RecordFilesProcessedMetric();
 
   // Emit the match data up to the calling context
   ExecutionResult emit_result = stream_tracker->Emit(data_batch);
@@ -441,12 +451,13 @@ BlobStorageMatchDataProvider::ListFragmentFiles(
 
 ExecutionResult BlobStorageMatchDataProvider::ListFragmentFiles(
     AsyncContext<Location, std::vector<Location>>& context) noexcept {
-  return ListFragmentFilesImpl(context, "");
+  RecordListCountMetric();
+  return ListFragmentFilesImpl(context, "", absl::Now());
 }
 
 ExecutionResult BlobStorageMatchDataProvider::ListFragmentFilesImpl(
     AsyncContext<Location, std::vector<Location>>& parent_context,
-    absl::string_view page_token) noexcept {
+    absl::string_view page_token, absl::Time start_time) noexcept {
   AsyncContext<ListBlobsMetadataRequest, ListBlobsMetadataResponse>
       list_context;
   list_context.request = std::make_shared<ListBlobsMetadataRequest>();
@@ -470,7 +481,7 @@ ExecutionResult BlobStorageMatchDataProvider::ListFragmentFilesImpl(
 
   list_context.callback =
       std::bind(&BlobStorageMatchDataProvider::HandleListBlobsMetadataCallback,
-                this, parent_context, _1);
+                this, parent_context, _1, start_time);
 
   blob_storage_client_->ListBlobsMetadata(list_context);
   return SuccessExecutionResult();
@@ -478,9 +489,10 @@ ExecutionResult BlobStorageMatchDataProvider::ListFragmentFilesImpl(
 
 void BlobStorageMatchDataProvider::HandleListBlobsMetadataCallback(
     AsyncContext<Location, std::vector<Location>>& parent_context,
-    AsyncContext<ListBlobsMetadataRequest, ListBlobsMetadataResponse>&
-        context) noexcept {
+    AsyncContext<ListBlobsMetadataRequest, ListBlobsMetadataResponse>& context,
+    absl::Time start_time) noexcept {
   if (!context.result.Successful()) {
+    RecordListLatencyMetric(absl::Now() - start_time, /*is_successful=*/false);
     SCP_ERROR_CONTEXT(
         kComponentName, context, context.result,
         absl::StrCat("Got error response from list blobs operation: ",
@@ -509,18 +521,70 @@ void BlobStorageMatchDataProvider::HandleListBlobsMetadataCallback(
   }
 
   if (context.response->next_page_token().empty()) {
+    RecordListLatencyMetric(absl::Now() - start_time, /*is_successful=*/true);
     parent_context.result = SuccessExecutionResult();
     parent_context.Finish();
     return;
   }
 
   ExecutionResult next_result = ListFragmentFilesImpl(
-      parent_context, context.response->next_page_token());
+      parent_context, context.response->next_page_token(), start_time);
   if (!next_result.Successful()) {
+    RecordListLatencyMetric(absl::Now() - start_time, /*is_successful=*/false);
     parent_context.result = context.result;
     parent_context.Finish();
     return;
   }
+}
+
+void BlobStorageMatchDataProvider::RecordListCountMetric() noexcept {
+  if (metric_client_ == nullptr) {
+    return;
+  }
+  metric_client_->RecordMetric(kDataProviderListCountMetricName, "1",
+                               MetricUnit::METRIC_UNIT_COUNT,
+                               MetricType::METRIC_TYPE_COUNTER,
+                               /*labels=*/{});
+}
+
+void BlobStorageMatchDataProvider::RecordListLatencyMetric(
+    absl::Duration latency, bool is_successful) noexcept {
+  if (metric_client_ == nullptr) {
+    return;
+  }
+  absl::flat_hash_map<std::string, std::string> labels;
+  labels[std::string(kIsSuccessfulLabel)] =
+      is_successful ? std::string(kTrueMetricValue)
+                    : std::string(kFalseMetricValue);
+  metric_client_->RecordMetric(kDataProviderListLatencyMetricName,
+                               absl::StrCat(absl::ToDoubleSeconds(latency)),
+                               MetricUnit::METRIC_UNIT_SECONDS,
+                               MetricType::METRIC_TYPE_GAUGE, labels);
+}
+
+void BlobStorageMatchDataProvider::RecordFilesProcessedMetric() noexcept {
+  if (metric_client_ == nullptr) {
+    return;
+  }
+  metric_client_->RecordMetric(kDataProviderFilesProcessedMetricName, "1",
+                               MetricUnit::METRIC_UNIT_COUNT,
+                               MetricType::METRIC_TYPE_COUNTER,
+                               /*labels=*/{});
+}
+
+void BlobStorageMatchDataProvider::RecordFilesProcessedErrorCountMetric(
+    const ExecutionResult& result) noexcept {
+  if (metric_client_ == nullptr) {
+    return;
+  }
+  absl::flat_hash_map<std::string, std::string> labels;
+  auto http_status = GetErrorHttpStatusCode(result.status_code);
+  std::string numeric_status_str =
+      std::to_string(static_cast<int>(http_status));
+  labels[std::string(kBackendErrorReasonLabel)] = numeric_status_str;
+  metric_client_->RecordMetric(kDataProviderFilesProcessedErrorCountMetricName,
+                               "1", MetricUnit::METRIC_UNIT_COUNT,
+                               MetricType::METRIC_TYPE_COUNTER, labels);
 }
 
 }  // namespace google::confidential_match::lookup_server

@@ -36,6 +36,8 @@ cc_test(
         "//cc/lookup_server/crypto_client/mock:crypto_client_mock",
         "//cc/lookup_server/match_data_provider/mock:match_data_provider_mock",
         "//cc/lookup_server/match_data_provider/src:match_data_provider",
+        "//cc/lookup_server/metric_client/mock:metric_client_mock",
+        "//cc/lookup_server/metric_client/src:metric_client",
         "//protos/lookup_server/backend:cc_proto",
     ],
 )

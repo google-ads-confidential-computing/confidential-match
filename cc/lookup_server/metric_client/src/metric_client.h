@@ -93,6 +93,26 @@ inline constexpr absl::string_view
         "data_loader_table_finalize_update_latency";
 
 // Match data provider metric names
+
+inline constexpr absl::string_view kDataProviderGetRequestCountMetricName =
+    "data_provider_get_request_count";
+inline constexpr absl::string_view kDataProviderGetRequestErrorCountMetricName =
+    "data_provider_get_request_error_count";
+// Measures the latency of data provider Get requests in seconds.
+inline constexpr absl::string_view kDataProviderGetRequestLatencyMetricName =
+    "data_provider_get_request_latency_in_seconds";
+inline constexpr absl::string_view kDataProviderListCountMetricName =
+    "data_provider_list_count";
+inline constexpr absl::string_view kDataProviderListLatencyMetricName =
+    "data_provider_list_latency_in_seconds";
+// Measures the number of files successfully fetched and parsed.
+inline constexpr absl::string_view kDataProviderFilesProcessedMetricName =
+    "data_provider_files_processed_success_count";
+// Measures the number of files that failed during fetch or parse.
+inline constexpr absl::string_view
+    kDataProviderFilesProcessedErrorCountMetricName =
+        "data_provider_files_processed_error_count";
+
 // Match data storage metric names
 
 // System level metric names

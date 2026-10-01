@@ -1160,12 +1160,12 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
   orchestrator_client_ = std::make_shared<OrchestratorClient>(
       http1_client_, http2_client_, *parameters_.orchestrator_host_address);
 
-  data_provider_ =
-      std::make_shared<BlobStorageDataProvider>(blob_storage_client_);
+  data_provider_ = std::make_shared<BlobStorageDataProvider>(
+      blob_storage_client_, otel_metric_client_);
   streamed_match_data_provider_ =
       std::make_shared<BlobStorageMatchDataProvider>(
           blob_storage_client_, data_provider_,
-          parameters_.max_concurrent_streamed_file_reads);
+          parameters_.max_concurrent_streamed_file_reads, otel_metric_client_);
   if (parameters_.storage_hash_bucket_count_ == 0) {
     match_data_storage_ = std::make_shared<InMemoryMatchDataStorage>();
   } else {
@@ -1186,7 +1186,9 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
   http_server_ = std::make_shared<Http2Server>(
       *parameters_.host_address, *parameters_.host_port,
       parameters_.http2server_thread_pool_size, async_executor_,
-      authorization_proxy_, metric_instance_factory_, config_provider_,
+      authorization_proxy_, metric_instance_factory_,
+      parameters_.cpio_otel_metric_client,
+      config_provider_,
       Http2ServerOptions(
           parameters_.http2_server_use_tls,
           parameters_.http2_server_private_key_file_path,
@@ -1194,7 +1196,8 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
           RetryStrategyOptions(
               RetryStrategyType::Exponential, kHttpServerRetryStrategyDelayInMs,
               google::scp::core::kDefaultRetryStrategyMaxRetries),
-          kHttp2ServerMetricNamespace, kHttp2ServerLookupServiceMetricName));
+          kHttp2ServerMetricNamespace, kHttp2ServerLookupServiceMetricName,
+          *tee_options_config_.otel_metric_namespace));
 
   health_http_server_ = std::make_shared<Http2Server>(
       *parameters_.host_address, *parameters_.health_service_port, 1,

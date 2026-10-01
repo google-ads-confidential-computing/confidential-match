@@ -51,6 +51,15 @@ struct KeyIndex {
   int data_records_index;
   // The index of the match key containing the key.
   int match_keys_index;
+
+  // The equality and inequality operators need to be defined currently since
+  // the codebase is configured to compile with C++17.
+  bool operator==(const KeyIndex& other) const {
+    return data_records_index == other.data_records_index &&
+           match_keys_index == other.match_keys_index;
+  }
+
+  bool operator!=(const KeyIndex& other) const { return !(*this == other); }
 };
 
 // Represents an encrypted match key and associated metadata.

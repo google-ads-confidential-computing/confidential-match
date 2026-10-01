@@ -729,13 +729,13 @@ void MatchDataLoader::RecordDurationMetric(
   if (otel_metric_client_ == nullptr) {
     return;
   }
-  int64_t value = (unit == MetricUnit::METRIC_UNIT_MILLISECONDS)
-                      ? absl::ToInt64Milliseconds(duration)
-                      : absl::ToInt64Seconds(duration);
+  double value = (unit == MetricUnit::METRIC_UNIT_MILLISECONDS)
+                     ? absl::ToDoubleMilliseconds(duration)
+                     : absl::ToDoubleSeconds(duration);
   absl::flat_hash_map<std::string, std::string> metric_labels = labels;
   metric_labels[kClusterIdLabel] = cluster_id_;
   metric_labels[kClusterGroupIdLabel] = cluster_group_id_;
-  otel_metric_client_->RecordMetric(name, std::to_string(value), unit, type,
+  otel_metric_client_->RecordMetric(name, absl::StrCat(value), unit, type,
                                     metric_labels);
 }
 

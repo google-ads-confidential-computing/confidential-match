@@ -140,3 +140,57 @@ oci_load(
     repo_tags = ["bazel/cc/lookup_server/deploy:lookup_server_gcp_image_48_vcpu"],
     tags = ["manual"],
 )
+
+oci_image(
+    name = "lookup_server_gcp_image",
+    base = "@debian12_base",
+    entrypoint = ["/startup_script.sh"],
+    env = {
+        "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "enabled_log_levels": "Info,Warning,Error,Critical",
+        "async_executor_queue_size": "100000",
+        "async_executor_threads_count": "48",  # For n2d-highmem-48
+        "io_async_executor_queue_size": "100000",
+        "io_async_executor_threads_count": "500",
+        # Required to use :cacerts, see that target definition for details
+        "SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt",
+    },
+    exposed_ports = [
+        "8080/tcp",
+        "8081/tcp",
+    ],
+    labels = {
+        "tee.launch_policy.allow_cmd_override": "false",
+        "tee.launch_policy.allow_env_override": ",".join([
+            "cluster_id",
+            "cluster_group_id",
+            "environment",
+            "otel_metric_namespace",
+            "enable_otel_metric_client",
+            "collector_address",
+            "async_executor_queue_size",
+            "async_executor_threads_count",
+            "io_async_executor_queue_size",
+            "io_async_executor_threads_count",
+        ]),
+        "tee.launch_policy.log_redirect": "always",
+        "tee.launch_policy.monitoring_memory_allow": "always",
+    },
+    tags = ["manual"],
+    # Tar layers are ordered from least-to-most likely to change between builds
+    tars = [
+        ":startup_script_layer",
+        ":cacerts",
+        "@lookup_server_apt//:flat",
+        ":lookup_service_layer",
+    ],
+    user = "0",
+    workdir = "/",
+)
+
+oci_load(
+    name = "lookup_server_gcp_image_load",
+    image = ":lookup_server_gcp_image",
+    repo_tags = ["bazel/cc/lookup_server/deploy:lookup_server_gcp_image"],
+    tags = ["manual"],
+)

@@ -22,16 +22,17 @@
 #include <vector>
 
 #include "absl/strings/string_view.h"
+#include "absl/time/time.h"
 #include "cc/core/interface/async_context.h"
 #include "cc/core/interface/async_executor_interface.h"
 #include "cc/core/interface/service_interface.h"
 #include "cc/core/interface/streaming_context.h"
-#include "cc/public/core/interface/execution_result.h"
-#include "cc/public/cpio/interface/blob_storage_client/blob_storage_client_interface.h"
-
 #include "cc/lookup_server/interface/crypto_key_interface.h"
 #include "cc/lookup_server/interface/data_provider_interface.h"
+#include "cc/lookup_server/interface/metric_client_interface.h"
 #include "cc/lookup_server/interface/streamed_match_data_provider_interface.h"
+#include "cc/public/core/interface/execution_result.h"
+#include "cc/public/cpio/interface/blob_storage_client/blob_storage_client_interface.h"
 #include "protos/lookup_server/backend/location.pb.h"
 #include "protos/lookup_server/backend/match_data_row.pb.h"
 
@@ -50,12 +51,14 @@ class BlobStorageMatchDataProvider : public StreamedMatchDataProviderInterface {
    * @param blob_storage_client the CPIO blob storage client
    * @param blob_storage_data_provider the generic blob storage data provider
    * @param max_concurrent_file_reads the max number of files to read at a time
+   * @param metric_client optional metric client for recording metrics
    */
   explicit BlobStorageMatchDataProvider(
       std::shared_ptr<scp::cpio::BlobStorageClientInterface>
           blob_storage_client,
       std::shared_ptr<DataProviderInterface> blob_storage_data_provider,
-      uint64_t max_concurrent_file_reads);
+      uint64_t max_concurrent_file_reads,
+      std::shared_ptr<MetricClientInterface> metric_client = nullptr);
 
   scp::core::ExecutionResult Init() noexcept override;
 
@@ -178,13 +181,14 @@ class BlobStorageMatchDataProvider : public StreamedMatchDataProviderInterface {
    * @param context the AsyncContext containing the request location, which
    * will be populated with a response vector
    * @param page_token the token indicating the page to start listing files from
+   * @param start_time the timestamp when the top-level listing operation began
    * @return an ExecutionResult indicating if the operation started successfully
    */
   scp::core::ExecutionResult ListFragmentFilesImpl(
       scp::core::AsyncContext<
           lookup_server::proto_backend::Location,
           std::vector<lookup_server::proto_backend::Location>>& context,
-      absl::string_view page_token) noexcept;
+      absl::string_view page_token, absl::Time start_time) noexcept;
 
   /**
    * @brief Callback handler for ListBlobsMetadata.
@@ -196,12 +200,28 @@ class BlobStorageMatchDataProvider : public StreamedMatchDataProviderInterface {
       scp::core::AsyncContext<
           cmrt::sdk::blob_storage_service::v1::ListBlobsMetadataRequest,
           cmrt::sdk::blob_storage_service::v1::ListBlobsMetadataResponse>&
-          context) noexcept;
+          context,
+      absl::Time start_time) noexcept;
+
+  /** @brief Records the DataProviderListCount metric. */
+  void RecordListCountMetric() noexcept;
+
+  /** @brief Records the DataProviderListLatency metric. */
+  void RecordListLatencyMetric(absl::Duration latency,
+                               bool is_successful) noexcept;
+
+  /** @brief Records the DataProviderFilesProcessed metric. */
+  void RecordFilesProcessedMetric() noexcept;
+
+  /** @brief Records the DataProviderFilesProcessedErrorCount metric. */
+  void RecordFilesProcessedErrorCountMetric(
+      const scp::core::ExecutionResult& result) noexcept;
 
   std::shared_ptr<scp::cpio::BlobStorageClientInterface> blob_storage_client_;
   std::shared_ptr<DataProviderInterface> blob_storage_data_provider_;
   // The max number of files to read concurrently per data loading operation.
   uint64_t max_concurrent_file_reads_;
+  std::shared_ptr<MetricClientInterface> metric_client_;
 };
 }  // namespace google::confidential_match::lookup_server
 

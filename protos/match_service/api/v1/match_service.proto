@@ -94,8 +94,10 @@ message MatchKey {
   oneof field_info {
     // Match data consisting of a single standalone component.
     Field field = 1;
+
     // Match data consisting of multiple linked components.
     CompositeField composite_field = 2;
+
     // Future use case:
     // Match data in compressed form that will be fanned out to
     // multiple individual fields, such as a GTag.
@@ -146,6 +148,7 @@ message EncryptionKey {
   oneof key {
     // A wrapped key that can be decrypted by a KMS.
     WrappedKey wrapped_key = 1;
+
     // A coordinator key to be fetched and decrypted in attested TEE.
     CoordinatorKey coordinator_key = 2;
   }
@@ -173,6 +176,7 @@ message WrappedKey {
   message AwsWrappedKeyInfo {
     // The ARN of the role required to send KMS requests.
     string role_arn = 1;
+
     // A list of signatures to send with KMS request.
     repeated string signatures = 2;
   }
@@ -181,6 +185,7 @@ message WrappedKey {
   oneof cloud_wrapped_key_info {
     // Key information for DEKs encrypted with GCP KMS.
     GcpWrappedKeyInfo gcp_wrapped_key_info = 4;
+
     // Key information for DEKs encrypted with AWS KMS.
     AwsWrappedKeyInfo aws_wrapped_key_info = 5;
   }
@@ -196,6 +201,7 @@ message CoordinatorKey {
 message KeyValue {
   // The key associated with the key-value pair.
   string key = 1;
+
   // The value associated with the key-value pair.
   oneof value {
     string string_value = 2;
@@ -232,8 +238,10 @@ message MatchedKey {
   oneof field_info {
     // Match data consisting of a single standalone component.
     MatchedField field = 1;
+
     // Match data consisting of multiple linked components.
     MatchedCompositeField composite_field = 2;
+
     // Match data in compressed form that will be fanned out to
     // multiple individual fields.
     MatchedFanOutField fan_out_key_field = 3;
@@ -312,6 +320,7 @@ message FannedOutMatchedKey {
   oneof field_info {
     // Match data consisting of a single standalone component.
     MatchedField field = 1;
+
     // Match data consisting of multiple linked components.
     MatchedCompositeField composite_field = 2;
   }
@@ -333,9 +342,11 @@ message MatchedFieldInfo {
   message GTagMetadata {
     // The index of the PII element within the GTag.
     int64 index = 1;
+
     // Optional: The error code within the GTag field, if any.
     string error_code = 2;
   }
+
   GTagMetadata gtag_metadata = 3;
 }
 
@@ -362,27 +373,39 @@ message DataRecordAssociatedData {
 enum Application {
   // The default value of Application. Should not be used.
   APPLICATION_UNSPECIFIED = 0;
+
   // Identifier for ECL.
   APPLICATION_ECL = 1;
+
   // Identifier for Online EC.
   APPLICATION_ONLINE_EC = 2;
+
   // Identifier for Voyager.
   APPLICATION_VOYAGER = 3;
+
+  // Identifier for Store Sales.
+  APPLICATION_STORE_SALES = 4;
 }
 
 enum FieldType {
   // The default value of FieldType.
   FIELD_TYPE_UNSPECIFIED = 0;
+
   // Indicates an email.
   FIELD_TYPE_EMAIL = 1;
+
   // Indicates a phone.
   FIELD_TYPE_PHONE = 2;
+
   // Indicates a first name.
   FIELD_TYPE_FIRST_NAME = 3;
+
   // Indicates a last (family) name.
   FIELD_TYPE_LAST_NAME = 4;
+
   // Indicates a country code.
   FIELD_TYPE_COUNTRY_CODE = 5;
+
   // Indicates a postal code.
   FIELD_TYPE_ZIP_CODE = 6;
 }
@@ -390,6 +413,7 @@ enum FieldType {
 enum CompositeFieldType {
   // The default value of CompositeFieldType.
   COMPOSITE_FIELD_TYPE_UNSPECIFIED = 0;
+
   // Indicates an address, which consists of a first name, last name,
   // country code, and zip code.
   COMPOSITE_FIELD_TYPE_ADDRESS = 1;
@@ -398,8 +422,10 @@ enum CompositeFieldType {
 enum FanOutFieldType {
   // The default value of FanOutFieldType.
   FAN_OUT_FIELD_TYPE_UNSPECIFIED = 0;
+
   // Indicates a GTag.
   FAN_OUT_FIELD_TYPE_GTAG = 1;
+
   // Indicates an encrypted GTag.
   FAN_OUT_FIELD_TYPE_ENCRYPTED_GTAG = 2;
 }

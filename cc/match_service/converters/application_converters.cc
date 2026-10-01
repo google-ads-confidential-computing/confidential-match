@@ -40,6 +40,9 @@ absl::Status ToBackend(const api::v1::Application& in,
     case api::v1::APPLICATION_VOYAGER:
       out = backend::APPLICATION_VOYAGER;
       return absl::OkStatus();
+    case api::v1::APPLICATION_STORE_SALES:
+      out = backend::APPLICATION_STORE_SALES;
+      return absl::OkStatus();
     default:
       return Status(
           Error::CONVERTER_PARSE_ERROR,
@@ -60,6 +63,9 @@ absl::Status ToApi(const backend::Application& in, api::v1::Application& out) {
       return absl::OkStatus();
     case backend::APPLICATION_VOYAGER:
       out = api::v1::APPLICATION_VOYAGER;
+      return absl::OkStatus();
+    case backend::APPLICATION_STORE_SALES:
+      out = api::v1::APPLICATION_STORE_SALES;
       return absl::OkStatus();
     default:
       return Status(

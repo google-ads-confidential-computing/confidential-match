@@ -491,12 +491,11 @@ size_t CountSubkeysForMatchKey(absl::Span<const EncryptedMatchKey> keys,
     return 0;
   }
   const KeyIndex& target_index = keys[start_index].key_index;
-  size_t count = 1;
-  while (start_index + count < keys.size() &&
-         keys[start_index + count].key_index.data_records_index ==
-             target_index.data_records_index &&
-         keys[start_index + count].key_index.match_keys_index ==
-             target_index.match_keys_index) {
+  size_t count = 0;
+  for (const auto& key : keys.subspan(start_index)) {
+    if (key.key_index != target_index) {
+      break;
+    }
     ++count;
   }
   return count;

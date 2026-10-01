@@ -24,18 +24,20 @@
 #include "cc/core/interface/async_context.h"
 #include "cc/core/interface/streaming_context.h"
 #include "cc/core/test/utils/conditional_wait.h"
+#include "cc/lookup_server/crypto_client/mock/fake_crypto_key.h"
+#include "cc/lookup_server/interface/metric_client_interface.h"
+#include "cc/lookup_server/interface/streamed_match_data_provider_interface.h"
+#include "cc/lookup_server/match_data_provider/mock/mock_data_provider.h"
+#include "cc/lookup_server/match_data_provider/src/error_codes.h"
+#include "cc/lookup_server/metric_client/mock/fake_metric_client.h"
+#include "cc/lookup_server/metric_client/src/metric_client.h"
+#include "cc/lookup_server/parsers/src/error_codes.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "cc/public/core/test/interface/execution_result_matchers.h"
 #include "cc/public/cpio/interface/blob_storage_client/blob_storage_client_interface.h"
 #include "cc/public/cpio/mock/blob_storage_client/mock_blob_storage_client.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-
-#include "cc/lookup_server/crypto_client/mock/fake_crypto_key.h"
-#include "cc/lookup_server/interface/streamed_match_data_provider_interface.h"
-#include "cc/lookup_server/match_data_provider/mock/mock_data_provider.h"
-#include "cc/lookup_server/match_data_provider/src/error_codes.h"
-#include "cc/lookup_server/parsers/src/error_codes.h"
 #include "protos/lookup_server/backend/location.pb.h"
 #include "protos/lookup_server/backend/match_data_row.pb.h"
 
@@ -55,6 +57,7 @@ using ::google::scp::core::ExecutionResultOr;
 using ::google::scp::core::FailureExecutionResult;
 using ::google::scp::core::SuccessExecutionResult;
 using ::google::scp::core::common::ConcurrentQueue;
+using ::google::scp::core::errors::GetErrorHttpStatusCode;
 using ::google::scp::core::test::IsSuccessful;
 using ::google::scp::core::test::ResultIs;
 using ::google::scp::core::test::WaitUntil;
@@ -122,13 +125,15 @@ class BlobStorageMatchDataProviderTest : public testing::Test {
   BlobStorageMatchDataProviderTest()
       : mock_blob_storage_client_(std::make_shared<MockBlobStorageClient>()),
         mock_blob_storage_data_provider_(std::make_shared<MockDataProvider>()),
+        mock_metric_client_(std::make_shared<FakeMetricClient>()),
         crypto_key_(std::make_shared<FakeCryptoKey>()),
         match_data_provider_(std::make_unique<BlobStorageMatchDataProvider>(
             mock_blob_storage_client_, mock_blob_storage_data_provider_,
-            kMaxConcurrentFileReads)) {}
+            kMaxConcurrentFileReads, mock_metric_client_)) {}
 
   std::shared_ptr<MockBlobStorageClient> mock_blob_storage_client_;
   std::shared_ptr<MockDataProvider> mock_blob_storage_data_provider_;
+  std::shared_ptr<FakeMetricClient> mock_metric_client_;
   std::shared_ptr<CryptoKeyInterface> crypto_key_;
   std::unique_ptr<StreamedMatchDataProviderInterface> match_data_provider_;
 };
@@ -318,6 +323,19 @@ TEST_F(BlobStorageMatchDataProviderTest,
   EXPECT_THAT(result, IsSuccessful());
   WaitUntil([&callback_invoked]() { return callback_invoked.load(); });
   EXPECT_TRUE(context.IsMarkedDone());
+
+  const auto& metrics = mock_metric_client_->GetRecordedMetrics();
+  ASSERT_EQ(metrics.size(), 2);
+  EXPECT_EQ(metrics[0].name, kDataProviderListCountMetricName);
+  EXPECT_EQ(metrics[0].value, "1");
+  EXPECT_EQ(metrics[0].unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(metrics[0].type, MetricType::METRIC_TYPE_COUNTER);
+
+  EXPECT_EQ(metrics[1].name, kDataProviderListLatencyMetricName);
+  EXPECT_EQ(metrics[1].unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_EQ(metrics[1].type, MetricType::METRIC_TYPE_GAUGE);
+  ASSERT_EQ(metrics[1].labels.size(), 1);
+  EXPECT_EQ(metrics[1].labels.at(kIsSuccessfulLabel), kTrueMetricValue);
 }
 
 TEST_F(BlobStorageMatchDataProviderTest, GetMatchDataWithListErrorYieldsError) {
@@ -334,6 +352,17 @@ TEST_F(BlobStorageMatchDataProviderTest, GetMatchDataWithListErrorYieldsError) {
       .WillOnce(MockListBlobsMetadataError);
   EXPECT_SUCCESS(match_data_provider_->GetMatchData(context, crypto_key_));
   WaitUntil([&is_finished]() { return is_finished.load(); });
+
+  const auto& metrics = mock_metric_client_->GetRecordedMetrics();
+  ASSERT_EQ(metrics.size(), 2);
+  EXPECT_EQ(metrics[0].name, kDataProviderListCountMetricName);
+  EXPECT_EQ(metrics[0].value, "1");
+
+  EXPECT_EQ(metrics[1].name, kDataProviderListLatencyMetricName);
+  EXPECT_EQ(metrics[1].unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_EQ(metrics[1].type, MetricType::METRIC_TYPE_GAUGE);
+  ASSERT_EQ(metrics[1].labels.size(), 1);
+  EXPECT_EQ(metrics[1].labels.at(kIsSuccessfulLabel), kFalseMetricValue);
 }
 
 TEST_F(BlobStorageMatchDataProviderTest,
@@ -373,6 +402,16 @@ TEST_F(BlobStorageMatchDataProviderTest,
   EXPECT_TRUE(context.IsMarkedDone());
   EXPECT_THAT(context_result, IsSuccessful());
   EXPECT_THAT(results, ElementsAre(ElementsAre(HasKey(kMatchDataKey))));
+
+  const auto& metrics = mock_metric_client_->GetRecordedMetrics();
+  ASSERT_EQ(metrics.size(), 3);
+  EXPECT_EQ(metrics[0].name, kDataProviderListCountMetricName);
+  EXPECT_EQ(metrics[1].name, kDataProviderListLatencyMetricName);
+  EXPECT_EQ(metrics[1].labels.at(kIsSuccessfulLabel), kTrueMetricValue);
+  EXPECT_EQ(metrics[2].name, kDataProviderFilesProcessedMetricName);
+  EXPECT_EQ(metrics[2].value, "1");
+  EXPECT_EQ(metrics[2].unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(metrics[2].type, MetricType::METRIC_TYPE_COUNTER);
 }
 
 TEST_F(BlobStorageMatchDataProviderTest,
@@ -497,6 +536,15 @@ TEST_F(BlobStorageMatchDataProviderTest,
   EXPECT_THAT(results,
               UnorderedElementsAre(ElementsAre(HasKey(kMatchDataKey)),
                                    ElementsAre(HasKey(kMatchDataKey2))));
+
+  const auto& metrics = mock_metric_client_->GetRecordedMetrics();
+  ASSERT_EQ(metrics.size(), 4);
+  EXPECT_EQ(metrics[0].name, kDataProviderListCountMetricName);
+  EXPECT_EQ(metrics[0].value, "1");
+  EXPECT_EQ(metrics[1].name, kDataProviderListLatencyMetricName);
+  EXPECT_EQ(metrics[1].labels.at(kIsSuccessfulLabel), kTrueMetricValue);
+  EXPECT_EQ(metrics[2].name, kDataProviderFilesProcessedMetricName);
+  EXPECT_EQ(metrics[3].name, kDataProviderFilesProcessedMetricName);
 }
 
 TEST_F(BlobStorageMatchDataProviderTest,
@@ -575,6 +623,17 @@ TEST_F(BlobStorageMatchDataProviderTest,
   EXPECT_THAT(context_result,
               ResultIs(FailureExecutionResult(PARSER_INVALID_BASE64_DATA)));
   EXPECT_THAT(results, IsEmpty());
+
+  const auto& metrics = mock_metric_client_->GetRecordedMetrics();
+  ASSERT_EQ(metrics.size(), 3);
+  EXPECT_EQ(metrics[0].name, kDataProviderListCountMetricName);
+  EXPECT_EQ(metrics[1].name, kDataProviderListLatencyMetricName);
+  EXPECT_EQ(metrics[2].name, kDataProviderFilesProcessedErrorCountMetricName);
+  EXPECT_EQ(metrics[2].value, "1");
+  EXPECT_EQ(metrics[2].unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(metrics[2].type, MetricType::METRIC_TYPE_COUNTER);
+  ASSERT_EQ(metrics[2].labels.size(), 1);
+  ASSERT_EQ(metrics[2].labels.at(kBackendErrorReasonLabel), "500");
 }
 
 TEST_F(BlobStorageMatchDataProviderTest,
@@ -615,6 +674,14 @@ TEST_F(BlobStorageMatchDataProviderTest,
       context_result,
       ResultIs(FailureExecutionResult(MATCH_DATA_PROVIDER_FETCH_ERROR)));
   EXPECT_THAT(results, IsEmpty());
+
+  const auto& metrics = mock_metric_client_->GetRecordedMetrics();
+  ASSERT_EQ(metrics.size(), 3);
+  EXPECT_EQ(metrics[0].name, kDataProviderListCountMetricName);
+  EXPECT_EQ(metrics[1].name, kDataProviderListLatencyMetricName);
+  EXPECT_EQ(metrics[2].name, kDataProviderFilesProcessedErrorCountMetricName);
+  ASSERT_EQ(metrics[2].labels.size(), 1);
+  EXPECT_EQ(metrics[2].labels.at(kBackendErrorReasonLabel), "500");
 }
 
 TEST_F(BlobStorageMatchDataProviderTest, GetMatchDataWithSingleFileAsyncError) {
@@ -654,6 +721,14 @@ TEST_F(BlobStorageMatchDataProviderTest, GetMatchDataWithSingleFileAsyncError) {
       context_result,
       ResultIs(FailureExecutionResult(MATCH_DATA_PROVIDER_FETCH_ERROR)));
   EXPECT_THAT(results, IsEmpty());
+
+  const auto& metrics = mock_metric_client_->GetRecordedMetrics();
+  ASSERT_EQ(metrics.size(), 3);
+  EXPECT_EQ(metrics[0].name, kDataProviderListCountMetricName);
+  EXPECT_EQ(metrics[1].name, kDataProviderListLatencyMetricName);
+  EXPECT_EQ(metrics[2].name, kDataProviderFilesProcessedErrorCountMetricName);
+  ASSERT_EQ(metrics[2].labels.size(), 1);
+  EXPECT_EQ(metrics[2].labels.at(kBackendErrorReasonLabel), "500");
 }
 
 TEST_F(BlobStorageMatchDataProviderTest,

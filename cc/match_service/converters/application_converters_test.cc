@@ -65,6 +65,16 @@ TEST(ApplicationConvertersTest, ToBackendConvertsVoyager) {
   EXPECT_EQ(out, backend::APPLICATION_VOYAGER);
 }
 
+TEST(ApplicationConvertersTest, ToBackendConvertsStoreSales) {
+  api::v1::Application in = api::v1::APPLICATION_STORE_SALES;
+  backend::Application out;
+
+  absl::Status status = ToBackend(in, out);
+
+  EXPECT_THAT(status, IsOk());
+  EXPECT_EQ(out, backend::APPLICATION_STORE_SALES);
+}
+
 TEST(ApplicationConvertersTest, ToApiConvertsUnspecified) {
   backend::Application in = backend::APPLICATION_UNSPECIFIED;
   api::v1::Application out;
@@ -103,6 +113,16 @@ TEST(ApplicationConvertersTest, ToApiConvertsVoyager) {
 
   EXPECT_THAT(status, IsOk());
   EXPECT_EQ(out, api::v1::APPLICATION_VOYAGER);
+}
+
+TEST(ApplicationConvertersTest, ToApiConvertsStoreSales) {
+  backend::Application in = backend::APPLICATION_STORE_SALES;
+  api::v1::Application out;
+
+  absl::Status status = ToApi(in, out);
+
+  EXPECT_THAT(status, IsOk());
+  EXPECT_EQ(out, api::v1::APPLICATION_STORE_SALES);
 }
 
 }  // namespace google::confidential_match::match_service

@@ -20,12 +20,13 @@
 #include <memory>
 #include <string>
 
+#include "absl/time/time.h"
 #include "cc/core/interface/async_context.h"
 #include "cc/core/interface/service_interface.h"
+#include "cc/lookup_server/interface/data_provider_interface.h"
+#include "cc/lookup_server/interface/metric_client_interface.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "cc/public/cpio/interface/blob_storage_client/blob_storage_client_interface.h"
-
-#include "cc/lookup_server/interface/data_provider_interface.h"
 #include "protos/lookup_server/backend/location.pb.h"
 
 namespace google::confidential_match::lookup_server {
@@ -35,8 +36,10 @@ class BlobStorageDataProvider : public DataProviderInterface {
  public:
   explicit BlobStorageDataProvider(
       std::shared_ptr<scp::cpio::BlobStorageClientInterface>
-          blob_storage_client)
-      : blob_storage_client_(blob_storage_client) {}
+          blob_storage_client,
+      std::shared_ptr<MetricClientInterface> metric_client = nullptr)
+      : blob_storage_client_(blob_storage_client),
+        metric_client_(metric_client) {}
 
   scp::core::ExecutionResult Init() noexcept override;
 
@@ -68,9 +71,17 @@ class BlobStorageDataProvider : public DataProviderInterface {
           google::cmrt::sdk::blob_storage_service::v1::GetBlobResponse>&
           get_blob_context,
       scp::core::AsyncContext<proto_backend::Location, std::string>
-          parent_context) noexcept;
+          parent_context,
+      absl::Time start_time) noexcept;
+
+  void RecordGetRequestCountMetric() noexcept;
+  void RecordGetRequestErrorCountMetric(
+      const scp::core::ExecutionResult& result) noexcept;
+  void RecordGetRequestLatencyMetric(absl::Duration latency,
+                                     bool is_successful) noexcept;
 
   std::shared_ptr<scp::cpio::BlobStorageClientInterface> blob_storage_client_;
+  std::shared_ptr<MetricClientInterface> metric_client_;
 };
 }  // namespace google::confidential_match::lookup_server
 

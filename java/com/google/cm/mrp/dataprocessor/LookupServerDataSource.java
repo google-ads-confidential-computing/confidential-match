@@ -29,6 +29,7 @@ import static com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode.UNSUPPO
 import static com.google.cm.mrp.dataprocessor.models.MatchColumnIndices.Kind.SINGLE_COLUMN_INDICES;
 import static com.google.common.hash.Hashing.sha256;
 import static java.nio.charset.StandardCharsets.UTF_8;
+import static java.util.stream.Collectors.counting;
 import static java.util.stream.Collectors.groupingBy;
 
 import com.google.cm.lookupserver.api.LookupProto;
@@ -47,6 +48,7 @@ import com.google.cm.mrp.backend.DataRecordEncryptionFieldsProto.DataRecordEncry
 import com.google.cm.mrp.backend.DataRecordProto.DataRecord;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata;
 import com.google.cm.mrp.backend.EncryptionMetadataProto.EncryptionMetadata.EncryptionKeyInfo;
+import com.google.cm.mrp.backend.JobResultCodeProto.JobResultCode;
 import com.google.cm.mrp.backend.LookupDataRecordProto.LookupDataRecord;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig;
 import com.google.cm.mrp.backend.MatchConfigProto.MatchConfig.SuccessConfig;
@@ -953,6 +955,13 @@ public final class LookupServerDataSource implements LookupDataSource {
 
   private LookupDataSourceResult constructLookupDataSourceResultWithError(
       ImmutableList<DataRecord> lookupResults, ImmutableList<DataRecord> erroredDataRecordsList) {
+    if (!erroredDataRecordsList.isEmpty()) {
+      Map<JobResultCode, Long> errorCodeCounts =
+          erroredDataRecordsList.stream()
+              .collect(groupingBy(DataRecord::getErrorCode, counting()));
+      logger.info(
+          "Lookup request returned data records with errors: {}", errorCodeCounts);
+    }
     Schema responseSchema = getResponseSchema();
     Optional<DataChunk> errorChunk =
         erroredDataRecordsList.isEmpty()

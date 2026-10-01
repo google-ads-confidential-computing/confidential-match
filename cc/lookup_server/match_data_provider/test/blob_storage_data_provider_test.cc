@@ -21,15 +21,17 @@
 #include "absl/strings/string_view.h"
 #include "cc/core/interface/async_context.h"
 #include "cc/core/test/utils/conditional_wait.h"
+#include "cc/lookup_server/interface/data_provider_interface.h"
+#include "cc/lookup_server/interface/metric_client_interface.h"
+#include "cc/lookup_server/match_data_provider/src/error_codes.h"
+#include "cc/lookup_server/metric_client/mock/fake_metric_client.h"
+#include "cc/lookup_server/metric_client/src/metric_client.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "cc/public/core/test/interface/execution_result_matchers.h"
 #include "cc/public/cpio/interface/blob_storage_client/blob_storage_client_interface.h"
 #include "cc/public/cpio/mock/blob_storage_client/mock_blob_storage_client.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-
-#include "cc/lookup_server/interface/data_provider_interface.h"
-#include "cc/lookup_server/match_data_provider/src/error_codes.h"
 #include "protos/lookup_server/backend/location.pb.h"
 
 namespace google::confidential_match::lookup_server {
@@ -43,6 +45,7 @@ using ::google::scp::core::ExecutionResult;
 using ::google::scp::core::ExecutionResultOr;
 using ::google::scp::core::FailureExecutionResult;
 using ::google::scp::core::SuccessExecutionResult;
+using ::google::scp::core::errors::GetErrorMessage;
 using ::google::scp::core::test::IsSuccessful;
 using ::google::scp::core::test::ResultIs;
 using ::google::scp::core::test::WaitUntil;
@@ -58,11 +61,13 @@ class BlobStorageDataProviderTest : public testing::Test {
  protected:
   BlobStorageDataProviderTest() {
     mock_blob_storage_client_ = std::make_shared<MockBlobStorageClient>();
-    match_data_provider_ =
-        std::make_unique<BlobStorageDataProvider>(mock_blob_storage_client_);
+    mock_metric_client_ = std::make_shared<FakeMetricClient>();
+    match_data_provider_ = std::make_unique<BlobStorageDataProvider>(
+        mock_blob_storage_client_, mock_metric_client_);
   }
 
   std::shared_ptr<MockBlobStorageClient> mock_blob_storage_client_;
+  std::shared_ptr<FakeMetricClient> mock_metric_client_;
   std::unique_ptr<DataProviderInterface> match_data_provider_;
 };
 
@@ -97,7 +102,8 @@ ExecutionResult MockGetBlobWithResponseProtoError(
 }
 
 TEST_F(BlobStorageDataProviderTest, StartStop) {
-  BlobStorageDataProvider match_data_provider(mock_blob_storage_client_);
+  BlobStorageDataProvider match_data_provider(mock_blob_storage_client_,
+                                              mock_metric_client_);
 
   EXPECT_THAT(match_data_provider.Init(), IsSuccessful());
   EXPECT_THAT(match_data_provider.Run(), IsSuccessful());
@@ -125,6 +131,21 @@ TEST_F(BlobStorageDataProviderTest, GetWithDataYieldsSuccess) {
   EXPECT_THAT(get_result, IsSuccessful());
   EXPECT_THAT(result_promise.get_future().get(), IsSuccessful());
   EXPECT_EQ(data_promise.get_future().get(), kSampleData);
+
+  const auto& metrics = mock_metric_client_->GetRecordedMetrics();
+  ASSERT_EQ(metrics.size(), 2);
+
+  EXPECT_EQ(metrics[0].name, kDataProviderGetRequestCountMetricName);
+  EXPECT_EQ(metrics[0].value, "1");
+  EXPECT_EQ(metrics[0].unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(metrics[0].type, MetricType::METRIC_TYPE_COUNTER);
+  EXPECT_TRUE(metrics[0].labels.empty());
+
+  EXPECT_EQ(metrics[1].name, kDataProviderGetRequestLatencyMetricName);
+  EXPECT_EQ(metrics[1].unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_EQ(metrics[1].type, MetricType::METRIC_TYPE_GAUGE);
+  ASSERT_EQ(metrics[1].labels.size(), 1);
+  EXPECT_EQ(metrics[1].labels.at(kIsSuccessfulLabel), kTrueMetricValue);
 }
 
 TEST_F(BlobStorageDataProviderTest, GetWithContextError) {
@@ -147,6 +168,28 @@ TEST_F(BlobStorageDataProviderTest, GetWithContextError) {
   EXPECT_THAT(
       result_promise.get_future().get(),
       ResultIs(FailureExecutionResult(MATCH_DATA_PROVIDER_FETCH_ERROR)));
+
+  const auto& metrics = mock_metric_client_->GetRecordedMetrics();
+  ASSERT_EQ(metrics.size(), 3);
+
+  EXPECT_EQ(metrics[0].name, kDataProviderGetRequestCountMetricName);
+  EXPECT_EQ(metrics[0].value, "1");
+  EXPECT_EQ(metrics[0].unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(metrics[0].type, MetricType::METRIC_TYPE_COUNTER);
+
+  EXPECT_EQ(metrics[1].name, kDataProviderGetRequestLatencyMetricName);
+  EXPECT_EQ(metrics[1].unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_EQ(metrics[1].type, MetricType::METRIC_TYPE_GAUGE);
+  ASSERT_EQ(metrics[1].labels.size(), 1);
+  EXPECT_EQ(metrics[1].labels.at(kIsSuccessfulLabel), kFalseMetricValue);
+
+  EXPECT_EQ(metrics[2].name, kDataProviderGetRequestErrorCountMetricName);
+  EXPECT_EQ(metrics[2].value, "1");
+  EXPECT_EQ(metrics[2].unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(metrics[2].type, MetricType::METRIC_TYPE_COUNTER);
+  ASSERT_EQ(metrics[2].labels.size(), 1);
+  EXPECT_EQ(metrics[2].labels.at(kBackendErrorReasonLabel),
+            GetErrorMessage(MATCH_DATA_PROVIDER_FETCH_ERROR));
 }
 
 TEST_F(BlobStorageDataProviderTest, GetWithResponseProtoError) {
@@ -169,6 +212,28 @@ TEST_F(BlobStorageDataProviderTest, GetWithResponseProtoError) {
   EXPECT_THAT(
       result_promise.get_future().get(),
       ResultIs(FailureExecutionResult(MATCH_DATA_PROVIDER_FETCH_ERROR)));
+
+  const auto& metrics = mock_metric_client_->GetRecordedMetrics();
+  ASSERT_EQ(metrics.size(), 3);
+
+  EXPECT_EQ(metrics[0].name, kDataProviderGetRequestCountMetricName);
+  EXPECT_EQ(metrics[0].value, "1");
+  EXPECT_EQ(metrics[0].unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(metrics[0].type, MetricType::METRIC_TYPE_COUNTER);
+
+  EXPECT_EQ(metrics[1].name, kDataProviderGetRequestLatencyMetricName);
+  EXPECT_EQ(metrics[1].unit, MetricUnit::METRIC_UNIT_SECONDS);
+  EXPECT_EQ(metrics[1].type, MetricType::METRIC_TYPE_GAUGE);
+  ASSERT_EQ(metrics[1].labels.size(), 1);
+  EXPECT_EQ(metrics[1].labels.at(kIsSuccessfulLabel), kFalseMetricValue);
+
+  EXPECT_EQ(metrics[2].name, kDataProviderGetRequestErrorCountMetricName);
+  EXPECT_EQ(metrics[2].value, "1");
+  EXPECT_EQ(metrics[2].unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(metrics[2].type, MetricType::METRIC_TYPE_COUNTER);
+  ASSERT_EQ(metrics[2].labels.size(), 1);
+  EXPECT_EQ(metrics[2].labels.at(kBackendErrorReasonLabel),
+            GetErrorMessage(MATCH_DATA_PROVIDER_FETCH_ERROR));
 }
 
 }  // namespace

@@ -377,6 +377,8 @@ enum Application {
   APPLICATION_ONLINE_EC = 2;
   // Identifier for Voyager.
   APPLICATION_VOYAGER = 3;
+  // Identifier for Store Sales.
+  APPLICATION_STORE_SALES = 4;
 }
 
 enum FieldType {
