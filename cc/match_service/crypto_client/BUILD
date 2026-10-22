@@ -140,6 +140,46 @@ cc_library(
 )
 
 cc_library(
+    name = "cpio_aead_crypto_client",
+    srcs = ["cpio_aead_crypto_client.cc"],
+    hdrs = ["cpio_aead_crypto_client.h"],
+    deps = [
+        ":aead_crypto_key",
+        ":crypto_client_interface",
+        ":tink_utils",
+        "//cc/core/async",
+        "//cc/core/logger",
+        "//cc/external:absl_status",
+        "//cc/external:absl_strings",
+        "//cc/external:scp_core_errors_lib",
+        "//cc/external:scp_core_interface_lib",
+        "//cc/external:scp_cpio_cloud_wrapped_key_cc_proto",
+        "//cc/external:scp_cpio_wrapped_key_handler",
+        "//cc/external:tink_cc",
+        "//cc/match_service/error",
+        "//protos/core:cc_proto",
+        "//protos/match_service/backend:error_cc_proto",
+    ],
+)
+
+cc_test(
+    name = "cpio_aead_crypto_client_test",
+    srcs = ["cpio_aead_crypto_client_test.cc"],
+    deps = [
+        ":cpio_aead_crypto_client",
+        "//cc/external:absl_status",
+        "//cc/external:absl_strings",
+        "//cc/external:google_gtest_main",
+        "//cc/external:scp_cpio_cloud_wrapped_key_cc_proto",
+        "//cc/external:scp_cpio_wrapped_key_handler_mock",
+        "//cc/external:scp_test_utils",
+        "//cc/match_service/error",
+        "//protos/core:cc_proto",
+        "//protos/match_service/backend:error_cc_proto",
+    ],
+)
+
+cc_library(
     name = "hybrid_crypto_client",
     srcs = ["hybrid_crypto_client.cc"],
     hdrs = ["hybrid_crypto_client.h"],

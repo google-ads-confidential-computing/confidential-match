@@ -18,6 +18,7 @@
 #include <memory>
 #include <vector>
 
+#include "absl/status/status.h"
 #include "absl/strings/string_view.h"
 #include "cc/core/logger/logger_interface.h"
 #include "cc/public/cpio/interface/metric_client/metric_client_interface.h"
@@ -50,6 +51,8 @@ inline constexpr absl::string_view kRequestLatencyMetricName =
     "MatchRequestLatency";
 inline constexpr absl::string_view kErrorCountMetricName =
     "MatchRequestErrorCount";
+inline constexpr absl::string_view kFieldLevelErrorCountMetricName =
+    "MatchRequestFieldLevelErrorCount";
 inline constexpr absl::string_view kGrpcErrorCountMetricName =
     "MatchRequestGrpcErrorCount";
 inline constexpr absl::string_view kServerStartupLatencyInMilliMetricName =
@@ -97,6 +100,12 @@ google::cmrt::sdk::metric_service::v1::Metric CreateServerStartupLatencyMetric(
 
 google::cmrt::sdk::metric_service::v1::Metric
 CreateServerStartupErrorCountMetric();
+
+// Configures millisecond-granularity histogram bucket views on the global
+// OpenTelemetry MeterProvider (for grpc.server.call.duration and
+// grpc.client.attempt.duration) and registers the global gRPC OpenTelemetry
+// plugin.
+absl::Status RegisterGrpcOpenTelemetryPlugin();
 
 }  // namespace google::confidential_match::match_service::metrics
 

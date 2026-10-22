@@ -16,6 +16,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -76,6 +77,9 @@ const EncryptionKey* ResolveEncryptionKeyForMatchKey(
   return nullptr;
 }
 
+// Returns a string_view backed by a static string constant (from metrics::*).
+// If `not_encrypted` is passed by the caller, it must also have static storage
+// duration (or outlive any map keys storing the returned string_view).
 absl::string_view GetEncryptionKeyType(
     const EncryptionKey* key,
     absl::string_view not_encrypted = metrics::kNotEncrypted) {
@@ -200,6 +204,118 @@ Metric CreateGrpcErrorCountMetric(const MatchRequest& request,
   return m;
 }
 
+// Key for aggregating field-level error counts by encryption type and error
+// reason.
+struct FieldLevelErrorKey {
+  // Must refer to a string with static storage duration (or that outlives the
+  // hash map using this key), such as the constants returned by
+  // `GetEncryptionKeyType`.
+  absl::string_view encryption_type;
+  backend::ErrorReason error_reason;
+
+  // Explicitly defined rather than `= default` for C++17 compatibility.
+  bool operator==(const FieldLevelErrorKey& other) const {
+    return encryption_type == other.encryption_type &&
+           error_reason == other.error_reason;
+  }
+
+  template <typename H>
+  friend H AbslHashValue(H h, const FieldLevelErrorKey& key) {
+    return H::combine(std::move(h), key.encryption_type, key.error_reason);
+  }
+};
+
+Metric CreateFieldLevelErrorCountMetric(const MatchRequest& request,
+                                        const FieldLevelErrorKey& error_key,
+                                        int64_t count) {
+  Metric m;
+  m.set_name(metrics::kFieldLevelErrorCountMetricName);
+  m.set_type(MetricType::METRIC_TYPE_COUNTER);
+  m.set_unit(MetricUnit::METRIC_UNIT_COUNT);
+  m.set_value(absl::StrCat(count));
+  (*m.mutable_labels())[metrics::kEncryptionTypeLabel] =
+      std::string(error_key.encryption_type);
+  (*m.mutable_labels())[metrics::kApplicationLabel] = GetApplication(request);
+  (*m.mutable_labels())[metrics::kMatchKeyFormatLabel] =
+      GetMatchKeyFormat(request);
+  (*m.mutable_labels())[metrics::kBackendErrorReasonLabel] =
+      backend::ErrorReason_Name(error_key.error_reason);
+  return m;
+}
+
+template <typename MatchedFieldT>
+std::optional<backend::ErrorReason> ExtractErrorReason(
+    const MatchedFieldT& matched_field) {
+  if (matched_field.status() != backend::STATUS_FAILED) {
+    return std::nullopt;
+  }
+  return matched_field.has_error_reason() ? matched_field.error_reason()
+                                          : backend::ERROR_REASON_UNKNOWN;
+}
+
+std::optional<backend::ErrorReason> GetFieldLevelErrorReason(
+    const backend::MatchedKey& matched_key) {
+  switch (matched_key.field_info_case()) {
+    case backend::MatchedKey::kField:
+      return ExtractErrorReason(matched_key.field());
+    case backend::MatchedKey::kCompositeField:
+      return ExtractErrorReason(matched_key.composite_field());
+    case backend::MatchedKey::kFanOutKeyField:
+      return ExtractErrorReason(matched_key.fan_out_key_field());
+    case backend::MatchedKey::FIELD_INFO_NOT_SET:
+      return std::nullopt;
+  }
+  return std::nullopt;
+}
+
+bool HasMatchingRecordAndKeyCounts(const MatchRequest& request,
+                                   const backend::MatchResponse& response) {
+  if (response.matched_data_records_size() != request.data_records_size()) {
+    return false;
+  }
+  for (int i = 0; i < response.matched_data_records_size(); ++i) {
+    if (response.matched_data_records(i).matched_keys_size() !=
+        request.data_records(i).match_keys_size()) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Aggregates field-level error counts across all matched records and keys.
+// Assumes 1:1 index mapping between `response.matched_data_records` /
+// `matched_keys` and `request.data_records` / `match_keys` (validated by
+// caller via `HasMatchingRecordAndKeyCounts`, with defensive bounds checks).
+absl::flat_hash_map<FieldLevelErrorKey, int64_t> CountFieldLevelErrors(
+    const MatchRequest& request, const backend::MatchResponse& response) {
+  absl::flat_hash_map<FieldLevelErrorKey, int64_t> error_counts;
+
+  for (int i = 0; i < response.matched_data_records_size() &&
+                  i < request.data_records_size();
+       ++i) {
+    const backend::MatchedDataRecord& matched_record =
+        response.matched_data_records(i);
+    const DataRecord& request_record = request.data_records(i);
+
+    for (int j = 0; j < matched_record.matched_keys_size() &&
+                    j < request_record.match_keys_size();
+         ++j) {
+      std::optional<backend::ErrorReason> error_reason =
+          GetFieldLevelErrorReason(matched_record.matched_keys(j));
+      if (!error_reason.has_value()) {
+        continue;
+      }
+
+      const EncryptionKey* encryption_key = ResolveEncryptionKeyForMatchKey(
+          request, request_record, request_record.match_keys(j));
+      absl::string_view encryption_type = GetEncryptionKeyType(encryption_key);
+      error_counts[FieldLevelErrorKey{encryption_type, *error_reason}]++;
+    }
+  }
+
+  return error_counts;
+}
+
 }  // namespace
 
 // Helper to store context across a single request.
@@ -271,19 +387,24 @@ class MatchService::RequestContext {
   }
 
   // Returns a pointer to the request object.
-  const TRequest* Request() noexcept { return request_; }
+  const TRequest* Request() const noexcept { return request_; }
 
   // Returns a pointer to where the response will be written.
-  TResponse* Response() noexcept { return response_; }
+  TResponse* Response() const noexcept { return response_; }
 
   // Returns the gRPC server unary reactor for the request.
-  ServerUnaryReactor* Reactor() noexcept { return reactor_; }
+  ServerUnaryReactor* Reactor() const noexcept { return reactor_; }
 
   // Returns a reference to the Logger object.
-  const class Logger& Logger() noexcept { return *logger_; }
+  const class Logger& Logger() const noexcept { return *logger_; }
+
+  // Returns a shared pointer to the Logger object.
+  std::shared_ptr<class Logger> SharedLogger() const noexcept {
+    return logger_;
+  }
 
   // Returns the gRPC authentication context for this request.
-  std::shared_ptr<const grpc::AuthContext> AuthContext() noexcept {
+  std::shared_ptr<const grpc::AuthContext> AuthContext() const noexcept {
     return grpc_context_->auth_context();
   }
 
@@ -399,6 +520,12 @@ void MatchService::OnProcessMatchRequestCallback(
     return;
   }
 
+  if (HasMatchingRecordAndKeyCounts(*ctx.Request(), *result_context.response)) {
+    RecordFieldLevelErrorMetrics(ctx, *result_context.response);
+  } else {
+    LOG_WARNING(ctx.Logger(), "Response record/key counts do not metrics.");
+  }
+
   if (auto status = ToApi(*result_context.response, *ctx.Response());
       !status.ok()) {
     LOG_ERROR(ctx.Logger(), "Failed to convert match response to API proto: %v",
@@ -409,6 +536,30 @@ void MatchService::OnProcessMatchRequestCallback(
 
   LOG_INFO(ctx.Logger(), "Match request completed successfully.");
   ctx.Finish(absl::OkStatus());
+}
+
+void MatchService::RecordFieldLevelErrorMetrics(
+    const RequestContext<MatchRequest, MatchResponse>& ctx,
+    const backend::MatchResponse& response) noexcept {
+  if (metric_client_ == nullptr || ctx.Request() == nullptr) {
+    return;
+  }
+
+  absl::flat_hash_map<FieldLevelErrorKey, int64_t> error_counts =
+      CountFieldLevelErrors(*ctx.Request(), response);
+  if (error_counts.empty()) {
+    return;
+  }
+
+  std::vector<Metric> metrics;
+  metrics.reserve(error_counts.size());
+  for (const auto& [error_key, count] : error_counts) {
+    metrics.push_back(
+        CreateFieldLevelErrorCountMetric(*ctx.Request(), error_key, count));
+  }
+
+  metrics::PutMetrics(ctx.SharedLogger(), metric_client_, metric_namespace_,
+                      std::move(metrics));
 }
 
 template <typename TRequest, typename TResponse>

@@ -176,8 +176,26 @@ alias(
 )
 
 alias(
+    name = "grpc++_otel_plugin",
+    actual = "@com_github_grpc_grpc//:grpcpp_otel_plugin",
+    tags = ["manual"],
+)
+
+alias(
     name = "grpc++_reflection",
     actual = "@com_github_grpc_grpc//:grpc++_reflection",
+    tags = ["manual"],
+)
+
+alias(
+    name = "opentelemetry_api",
+    actual = "@io_opentelemetry_cpp//api:api",
+    tags = ["manual"],
+)
+
+alias(
+    name = "opentelemetry_sdk",
+    actual = "@io_opentelemetry_cpp//sdk/src/metrics:metrics",
     tags = ["manual"],
 )
 
@@ -500,6 +518,26 @@ alias(
 alias(
     name = "scp_cpio_key_coordinator_configuration_cc_proto",
     actual = "@com_google_adm_cloud_scp//cc/public/cpio/utils/key_fetching/proto:key_coordinator_configuration_cc_proto",
+)
+
+alias(
+    name = "scp_cpio_cloud_wrapped_key_proto",
+    actual = "@com_google_adm_cloud_scp//cc/public/cpio/utils/key_fetching/proto:cloud_wrapped_key_proto",
+)
+
+alias(
+    name = "scp_cpio_cloud_wrapped_key_cc_proto",
+    actual = "@com_google_adm_cloud_scp//cc/public/cpio/utils/key_fetching/proto:cloud_wrapped_key_cc_proto",
+)
+
+alias(
+    name = "scp_cpio_wrapped_key_handler",
+    actual = "@com_google_adm_cloud_scp//cc/public/cpio/utils/key_fetching/src:key_fetching",
+)
+
+alias(
+    name = "scp_cpio_wrapped_key_handler_mock",
+    actual = "@com_google_adm_cloud_scp//cc/public/cpio/utils/key_fetching/src:wrapped_key_handler_mock",
 )
 
 alias(

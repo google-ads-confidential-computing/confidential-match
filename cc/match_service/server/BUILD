@@ -124,6 +124,7 @@ cc_library(
         "//cc/match_service/lookup_service_client:lookup_service_client_interface",
         "//cc/match_service/lookup_service_shard_client",
         "//cc/match_service/lookup_service_shard_client:lookup_service_shard_client_interface",
+        "//cc/match_service/metrics:metrics_util",
         "//cc/match_service/orchestrator_client",
         "//cc/match_service/orchestrator_client:cached_orchestrator_client",
         "//cc/match_service/orchestrator_client:orchestrator_client_interface",

@@ -23,12 +23,11 @@
 #include <vector>
 
 #include "absl/random/random.h"
+#include "cc/core/async/async_context.h"
 #include "cc/core/interface/async_executor_interface.h"
+#include "cc/match_service/tasks/match_task_interface.h"
 #include "cc/public/cpio/interface/metric_client/metric_client_interface.h"
 #include "grpcpp/grpcpp.h"
-
-#include "cc/core/async/async_context.h"
-#include "cc/match_service/tasks/match_task_interface.h"
 #include "protos/match_service/api/v1/match_service.grpc.pb.h"
 
 namespace google::confidential_match::match_service {
@@ -78,6 +77,11 @@ class MatchService final : public api::v1::MatchService::CallbackService {
       RequestContext<api::v1::MatchRequest, api::v1::MatchResponse> ctx,
       AsyncContext<backend::MatchRequest, backend::MatchResponse>&
           result_context) noexcept;
+
+  // Records field-level error metrics based on the backend match response.
+  void RecordFieldLevelErrorMetrics(
+      const RequestContext<api::v1::MatchRequest, api::v1::MatchResponse>& ctx,
+      const backend::MatchResponse& response) noexcept;
 
   // Returns true if the client is authorized or all callers are allowed.
   // Otherwise, finishes the request and returns false.

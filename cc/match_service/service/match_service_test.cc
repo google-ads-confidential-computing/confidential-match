@@ -27,6 +27,7 @@
 #include "absl/strings/str_cat.h"
 #include "cc/core/async/async_context.h"
 #include "cc/core/async_executor/mock/mock_async_executor.h"
+#include "cc/core/test/src/parse_text_proto.h"
 #include "cc/core/test/utils/proto_test_utils.h"
 #include "cc/match_service/error/error.h"
 #include "cc/match_service/tasks/mock_match_task.h"
@@ -467,6 +468,147 @@ TEST_F(MatchServiceTest, MatchPublishesDataRecordAndMatchKeyLevelMetrics) {
   EXPECT_EQ(record_unset_count, 1);
   EXPECT_EQ(match_key_coordinator_count, 1);
   EXPECT_EQ(match_key_wrapped_count, 1);
+}
+
+TEST_F(MatchServiceTest, MatchPublishesFieldLevelErrorMetrics) {
+  MatchServiceOptions options;
+  options.allow_all_callers = true;
+  StartServer(options);
+
+  MatchRequest request;
+  request.set_application(api::v1::APPLICATION_ECL);
+  request.set_match_key_format(api::v1::MATCH_KEY_FORMAT_HASHED_ENCRYPTED);
+
+  auto* record1 = request.add_data_records();
+  record1->mutable_encryption_key()->mutable_coordinator_key();
+  record1->add_match_keys();  // Key 0: coordinator key, country zip error
+  record1->add_match_keys();  // Key 1: coordinator key, country zip error
+
+  auto* record2 = request.add_data_records();
+  record2->mutable_encryption_key()->mutable_wrapped_key();
+  record2->add_match_keys();  // Key 0: wrapped key, decryption error
+  record2->add_match_keys();  // Key 1: wrapped key, success
+
+  auto* record3 = request.add_data_records();
+  record3->add_match_keys();  // Key 0: unset key, failed without error_reason
+
+  MatchResponse response;
+
+  int country_zip_metric_count = 0;
+  int decryption_error_metric_count = 0;
+  int unknown_error_metric_count = 0;
+
+  EXPECT_CALL(mock_metric_client_, PutMetrics).WillRepeatedly([&](auto& ctx) {
+    EXPECT_EQ(ctx.request->metric_namespace(), "test_namespace");
+    for (const auto& metric : ctx.request->metrics()) {
+      if (metric.name() == "MatchRequestFieldLevelErrorCount") {
+        std::string error_reason = metric.labels().at("BackendErrorReason");
+        if (error_reason ==
+            "ERROR_REASON_INTERNAL_ERROR_PROCESSING_COUNTRY_ZIP_CODE") {
+          Metric expected_metric = ParseTextProtoOrDie(
+              R"pb(
+                name: "MatchRequestFieldLevelErrorCount"
+                type: METRIC_TYPE_COUNTER
+                unit: METRIC_UNIT_COUNT
+                value: "2"
+                labels { key: "EncryptionType" value: "COORDINATOR_KEY" }
+                labels { key: "Application" value: "APPLICATION_ECL" }
+                labels {
+                  key: "MatchKeyFormat"
+                  value: "MATCH_KEY_FORMAT_HASHED_ENCRYPTED"
+                }
+                labels {
+                  key: "BackendErrorReason"
+                  value: "ERROR_REASON_INTERNAL_ERROR_PROCESSING_COUNTRY_ZIP_CODE"
+                }
+              )pb");
+          EXPECT_THAT(metric, EqualsProto(expected_metric));
+          country_zip_metric_count++;
+        } else if (error_reason == "ERROR_REASON_DECRYPTION_ERROR") {
+          Metric expected_metric = ParseTextProtoOrDie(
+              R"pb(
+                name: "MatchRequestFieldLevelErrorCount"
+                type: METRIC_TYPE_COUNTER
+                unit: METRIC_UNIT_COUNT
+                value: "1"
+                labels { key: "EncryptionType" value: "WRAPPED_KEY" }
+                labels { key: "Application" value: "APPLICATION_ECL" }
+                labels {
+                  key: "MatchKeyFormat"
+                  value: "MATCH_KEY_FORMAT_HASHED_ENCRYPTED"
+                }
+                labels {
+                  key: "BackendErrorReason"
+                  value: "ERROR_REASON_DECRYPTION_ERROR"
+                }
+              )pb");
+          EXPECT_THAT(metric, EqualsProto(expected_metric));
+          decryption_error_metric_count++;
+        } else if (error_reason == "ERROR_REASON_UNKNOWN") {
+          Metric expected_metric = ParseTextProtoOrDie(
+              R"pb(
+                name: "MatchRequestFieldLevelErrorCount"
+                type: METRIC_TYPE_COUNTER
+                unit: METRIC_UNIT_COUNT
+                value: "1"
+                labels { key: "EncryptionType" value: "UNENCRYPTED" }
+                labels { key: "Application" value: "APPLICATION_ECL" }
+                labels {
+                  key: "MatchKeyFormat"
+                  value: "MATCH_KEY_FORMAT_HASHED_ENCRYPTED"
+                }
+                labels {
+                  key: "BackendErrorReason"
+                  value: "ERROR_REASON_UNKNOWN"
+                }
+              )pb");
+          EXPECT_THAT(metric, EqualsProto(expected_metric));
+          unknown_error_metric_count++;
+        }
+      }
+    }
+    ctx.result = SuccessExecutionResult();
+    ctx.Finish();
+  });
+
+  EXPECT_CALL(mock_match_task_, Match).WillOnce([](auto ctx) {
+    auto backend_response = std::make_shared<backend::MatchResponse>();
+    auto* rec1 = backend_response->add_matched_data_records();
+    auto* key1_0 = rec1->add_matched_keys();
+    key1_0->mutable_composite_field()->set_status(backend::STATUS_FAILED);
+    key1_0->mutable_composite_field()->set_error_reason(
+        backend::ERROR_REASON_INTERNAL_ERROR_PROCESSING_COUNTRY_ZIP_CODE);
+
+    auto* key1_1 = rec1->add_matched_keys();
+    key1_1->mutable_composite_field()->set_status(backend::STATUS_FAILED);
+    key1_1->mutable_composite_field()->set_error_reason(
+        backend::ERROR_REASON_INTERNAL_ERROR_PROCESSING_COUNTRY_ZIP_CODE);
+
+    auto* rec2 = backend_response->add_matched_data_records();
+    auto* key2_0 = rec2->add_matched_keys();
+    key2_0->mutable_field()->set_status(backend::STATUS_FAILED);
+    key2_0->mutable_field()->set_error_reason(
+        backend::ERROR_REASON_DECRYPTION_ERROR);
+
+    auto* key2_1 = rec2->add_matched_keys();
+    key2_1->mutable_field()->set_status(backend::STATUS_SUCCESS_MATCHED);
+
+    auto* rec3 = backend_response->add_matched_data_records();
+    auto* key3_0 = rec3->add_matched_keys();
+    // Failed status with no error_reason set defaults to ERROR_REASON_UNKNOWN.
+    key3_0->mutable_field()->set_status(backend::STATUS_FAILED);
+
+    ctx.response = backend_response;
+    ctx.status = absl::OkStatus();
+    ctx.Finish();
+  });
+
+  grpc::ClientContext context;
+  grpc::Status status = stub_->Match(&context, request, &response);
+  EXPECT_TRUE(status.ok()) << status.error_message();
+  EXPECT_EQ(country_zip_metric_count, 1);
+  EXPECT_EQ(decryption_error_metric_count, 1);
+  EXPECT_EQ(unknown_error_metric_count, 1);
 }
 
 }  // namespace

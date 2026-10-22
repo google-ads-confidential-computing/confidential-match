@@ -45,6 +45,7 @@ using ::google::scp::core::ExecutionResultOr;
 using ::google::scp::core::FailureExecutionResult;
 using ::google::scp::core::SuccessExecutionResult;
 using ::google::scp::core::common::kZeroUuid;
+using ::google::scp::core::errors::GetErrorHttpStatusCode;
 using ::google::scp::core::errors::GetErrorMessage;
 using ::google::scp::cpio::BlobStorageClientInterface;
 using ::std::placeholders::_1;
@@ -142,8 +143,10 @@ void BlobStorageDataProvider::RecordGetRequestErrorCountMetric(
     return;
   }
   absl::flat_hash_map<std::string, std::string> labels;
-  labels[std::string(kBackendErrorReasonLabel)] =
-      GetErrorMessage(result.status_code);
+  auto http_status = GetErrorHttpStatusCode(result.status_code);
+  std::string numeric_status_str =
+      std::to_string(static_cast<int>(http_status));
+  labels[std::string(kBackendErrorReasonLabel)] = numeric_status_str;
   metric_client_->RecordMetric(kDataProviderGetRequestErrorCountMetricName, "1",
                                MetricUnit::METRIC_UNIT_COUNT,
                                MetricType::METRIC_TYPE_COUNTER, labels);

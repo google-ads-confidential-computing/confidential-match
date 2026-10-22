@@ -34,4 +34,6 @@ enum ConfigurationKeys {
   CONFIGURATION_KEYS_ENABLE_BACKGROUND_AUTH_TOKEN_REFRESH = 6;
   // A boolean to enable support for encrypted country code and zip code.
   CONFIGURATION_KEYS_ENABLE_ENCRYPTED_COUNTRY_ZIP_CODE = 7;
+  // A boolean to enable gRPC OpenTelemetry metrics.
+  CONFIGURATION_KEYS_ENABLE_GRPC_OTEL_METRICS = 8;
 }

@@ -26,6 +26,8 @@
 #include "absl/time/time.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "cc/public/cpio/mock/metric_client/mock_metric_client.h"
+#include "opentelemetry/metrics/provider.h"
+#include "opentelemetry/sdk/metrics/meter_provider.h"
 
 namespace google::confidential_match::match_service::metrics {
 namespace {
@@ -85,6 +87,26 @@ TEST_F(MetricsUtilTest, CreateServerStartupErrorCountMetricHasCorrectValues) {
   EXPECT_EQ(
       metric.type(),
       google::cmrt::sdk::metric_service::v1::MetricType::METRIC_TYPE_COUNTER);
+}
+
+TEST_F(MetricsUtilTest,
+       RegisterGrpcOpenTelemetryPluginFailsWithoutSdkMeterProvider) {
+  opentelemetry::metrics::Provider::SetMeterProvider(
+      opentelemetry::nostd::shared_ptr<opentelemetry::metrics::MeterProvider>(
+          new opentelemetry::metrics::NoopMeterProvider()));
+
+  EXPECT_EQ(RegisterGrpcOpenTelemetryPlugin().code(),
+            absl::StatusCode::kFailedPrecondition);
+}
+
+TEST_F(MetricsUtilTest, RegisterGrpcOpenTelemetryPluginSucceedsIdempotently) {
+  auto provider =
+      std::make_shared<opentelemetry::sdk::metrics::MeterProvider>();
+  opentelemetry::metrics::Provider::SetMeterProvider(provider);
+
+  EXPECT_TRUE(RegisterGrpcOpenTelemetryPlugin().ok());
+  // Calling a second time should be a safe no-op.
+  EXPECT_TRUE(RegisterGrpcOpenTelemetryPlugin().ok());
 }
 
 }  // namespace

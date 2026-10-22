@@ -318,8 +318,6 @@ absl::Status StopScpService(ServiceInterface& service,
     options.auto_refresh_time_duration =
         std::chrono::seconds(proto.auto_refresh_time_duration().seconds());
   }
-  options.enable_on_demand_fetching_lock_for_encryption_key =
-      proto.enable_on_demand_fetching_lock_for_encryption_key();
 
   if (proto.has_on_demand_fetching_waiting_timeout()) {
     options.on_demand_fetching_waiting_timeout = std::chrono::milliseconds(
@@ -329,8 +327,6 @@ absl::Status StopScpService(ServiceInterface& service,
   options.use_read_lock_for_cache_read = proto.use_read_lock_for_cache_read();
   options.auto_refresh_key_cache_valid_in_days =
       proto.auto_refresh_key_cache_valid_in_days();
-  options.enable_key_selection_timestamp_validation =
-      proto.enable_key_selection_timestamp_validation();
 
   for (const auto& config :
        proto.encryption_key_prefetch_config().keyset_prefetch_configs()) {
@@ -515,22 +511,36 @@ absl::Status MatchServer::SetConfigFromParameters() noexcept {
                                                              : "false");
 
   DLOG(INFO) << "Fetching EnableEncryptedCountryZipCode";
-  const auto enable_encrypted_cz_config_key = ConfigurationKeys::
-      CONFIGURATION_KEYS_ENABLE_ENCRYPTED_COUNTRY_ZIP_CODE;
+  const auto enable_encrypted_cz_config_key =
+      ConfigurationKeys::CONFIGURATION_KEYS_ENABLE_ENCRYPTED_COUNTRY_ZIP_CODE;
   auto enable_encrypted_cz_or = config_fetcher_->GetBoolByNameSync(
       ConfigurationKeys_Name(enable_encrypted_cz_config_key));
   if (enable_encrypted_cz_or.Successful()) {
-    config_.enable_encrypted_country_zip_code =
-        enable_encrypted_cz_or.value();
+    config_.enable_encrypted_country_zip_code = enable_encrypted_cz_or.value();
   } else {
     LOG(INFO) << "CONFIGURATION_KEYS_ENABLE_ENCRYPTED_COUNTRY_ZIP_CODE "
               << "not found, using default: "
-              << (config_.enable_encrypted_country_zip_code ? "true"
-                                                             : "false");
+              << (config_.enable_encrypted_country_zip_code ? "true" : "false");
   }
 
   LOG(INFO) << "EnableEncryptedCountryZipCode: "
             << (config_.enable_encrypted_country_zip_code ? "true" : "false");
+
+  DLOG(INFO) << "Fetching EnableGrpcOtelMetrics";
+  const auto enable_grpc_otel_metrics_config_key =
+      ConfigurationKeys::CONFIGURATION_KEYS_ENABLE_GRPC_OTEL_METRICS;
+  auto enable_grpc_otel_metrics_or = config_fetcher_->GetBoolByNameSync(
+      ConfigurationKeys_Name(enable_grpc_otel_metrics_config_key));
+  if (enable_grpc_otel_metrics_or.Successful()) {
+    config_.enable_grpc_otel_metrics = enable_grpc_otel_metrics_or.value();
+  } else {
+    LOG(INFO) << "CONFIGURATION_KEYS_ENABLE_GRPC_OTEL_METRICS "
+              << "not found, using default: "
+              << (config_.enable_grpc_otel_metrics ? "true" : "false");
+  }
+
+  LOG(INFO) << "EnableGrpcOtelMetrics: "
+            << (config_.enable_grpc_otel_metrics ? "true" : "false");
 
   return absl::OkStatus();
 }
@@ -673,6 +683,13 @@ void MatchServer::RunGrpcServer() noexcept {
       absl::StrFormat("%s:%s", config_.host_address, config_.host_port);
   const std::string healthcheck_address = "[::]:50052";
   grpc::ServerBuilder builder;
+  if (config_.enable_metric_client && config_.enable_grpc_otel_metrics) {
+    if (absl::Status status = metrics::RegisterGrpcOpenTelemetryPlugin();
+        !status.ok()) {
+      LOG(ERROR) << "Failed to register gRPC OpenTelemetry plugin: "
+                 << status.message();
+    }
+  }
   builder.RegisterService(match_service_.get());
   builder.AddListeningPort(
       server_address, AltsServerCredentials(AltsServerCredentialsOptions()));

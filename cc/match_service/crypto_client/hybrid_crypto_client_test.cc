@@ -28,6 +28,7 @@
 #include "cc/match_service/crypto_client/crypto_key_interface.h"
 #include "cc/match_service/error/error.h"
 #include "cc/public/cpio/interface/error_codes.h"
+#include "cc/public/cpio/utils/key_fetching/src/error_codes.h"
 #include "cc/public/cpio/proto/private_key_service/v1/private_key_service.pb.h"
 #include "cc/public/cpio/utils/key_fetching/interface/key_fetcher_with_cache_interface.h"
 #include "gmock/gmock.h"
@@ -267,6 +268,52 @@ TEST_F(HybridCryptoClientTest, GetCryptoKeyFetcherEntityNotFound) {
         EXPECT_FALSE(ctx.status.ok());
         EXPECT_EQ(GetBackendErrorReason(ctx.status),
                   Error::INVALID_COORDINATOR_KEY);
+        is_complete = true;
+      },
+      logger_);
+
+  crypto_client_->GetCryptoKey(context);
+
+  WaitUntil([&]() { return is_complete.load(); });
+}
+
+TEST_F(HybridCryptoClientTest, GetCryptoKeyFetcherKeyNotFound) {
+  auto request = std::make_shared<EncryptionKeyInfo>(GetEncryptionKeyInfo());
+  EXPECT_CALL(mock_key_fetcher_, GetKey(std::string(kKeyId)))
+      .WillOnce([](const std::string& key_id) {
+        return ExecutionResultOr<Key>(FailureExecutionResult(
+            scp::core::errors::SC_CPIO_KEY_NOT_FOUND));
+      });
+  std::atomic<bool> is_complete = false;
+  AsyncContext<EncryptionKeyInfo, CryptoKeyInterface> context(
+      request,
+      [&is_complete](AsyncContext<EncryptionKeyInfo, CryptoKeyInterface>& ctx) {
+        EXPECT_FALSE(ctx.status.ok());
+        EXPECT_EQ(GetBackendErrorReason(ctx.status),
+                  Error::INVALID_COORDINATOR_KEY);
+        is_complete = true;
+      },
+      logger_);
+
+  crypto_client_->GetCryptoKey(context);
+
+  WaitUntil([&]() { return is_complete.load(); });
+}
+
+TEST_F(HybridCryptoClientTest, GetCryptoKeyFetcherKeyCountMismatch) {
+  auto request = std::make_shared<EncryptionKeyInfo>(GetEncryptionKeyInfo());
+  EXPECT_CALL(mock_key_fetcher_, GetKey(std::string(kKeyId)))
+      .WillOnce([](const std::string& key_id) {
+        return ExecutionResultOr<Key>(FailureExecutionResult(
+            scp::core::errors::SC_CPIO_KEY_COUNT_MISMATCH));
+      });
+  std::atomic<bool> is_complete = false;
+  AsyncContext<EncryptionKeyInfo, CryptoKeyInterface> context(
+      request,
+      [&is_complete](AsyncContext<EncryptionKeyInfo, CryptoKeyInterface>& ctx) {
+        EXPECT_FALSE(ctx.status.ok());
+        EXPECT_EQ(GetBackendErrorReason(ctx.status),
+                  Error::WRONG_NUMBER_OF_KEYS);
         is_complete = true;
       },
       logger_);

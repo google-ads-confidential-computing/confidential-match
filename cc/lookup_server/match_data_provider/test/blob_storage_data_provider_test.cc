@@ -188,8 +188,7 @@ TEST_F(BlobStorageDataProviderTest, GetWithContextError) {
   EXPECT_EQ(metrics[2].unit, MetricUnit::METRIC_UNIT_COUNT);
   EXPECT_EQ(metrics[2].type, MetricType::METRIC_TYPE_COUNTER);
   ASSERT_EQ(metrics[2].labels.size(), 1);
-  EXPECT_EQ(metrics[2].labels.at(kBackendErrorReasonLabel),
-            GetErrorMessage(MATCH_DATA_PROVIDER_FETCH_ERROR));
+  EXPECT_EQ(metrics[2].labels.at(kBackendErrorReasonLabel), "500");
 }
 
 TEST_F(BlobStorageDataProviderTest, GetWithResponseProtoError) {
@@ -232,8 +231,7 @@ TEST_F(BlobStorageDataProviderTest, GetWithResponseProtoError) {
   EXPECT_EQ(metrics[2].unit, MetricUnit::METRIC_UNIT_COUNT);
   EXPECT_EQ(metrics[2].type, MetricType::METRIC_TYPE_COUNTER);
   ASSERT_EQ(metrics[2].labels.size(), 1);
-  EXPECT_EQ(metrics[2].labels.at(kBackendErrorReasonLabel),
-            GetErrorMessage(MATCH_DATA_PROVIDER_FETCH_ERROR));
+  EXPECT_EQ(metrics[2].labels.at(kBackendErrorReasonLabel), "500");
 }
 
 }  // namespace

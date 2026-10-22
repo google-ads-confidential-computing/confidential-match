@@ -447,8 +447,7 @@ TEST_F(MatchDataLoaderTest, GetDataExportInfoFailure) {
   EXPECT_EQ(err_metric.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(err_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
   EXPECT_EQ(err_metric.value, "1");
-  EXPECT_EQ(err_metric.labels.at("BackendErrorReason"),
-            "Failed to parse response from the Orchestrator.");
+  EXPECT_EQ(err_metric.labels.at("BackendErrorReason"), "500");
   EXPECT_EQ(err_metric.labels.at("cluster_id"), kClusterId);
   EXPECT_EQ(err_metric.labels.at("cluster_group_id"), kClusterGroupId);
 }
@@ -491,8 +490,7 @@ TEST_F(MatchDataLoaderTest, GetExportMetadataFetchScheduleError) {
   EXPECT_EQ(metric_err.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(metric_err.unit, MetricUnit::METRIC_UNIT_COUNT);
   EXPECT_EQ(metric_err.value, "1");
-  EXPECT_EQ(metric_err.labels.at("BackendErrorReason"),
-            "Failed to fetch requested data.");
+  EXPECT_EQ(metric_err.labels.at("BackendErrorReason"), "500");
   VerifyMetricLabels(metric_err);
 
   const auto& metric_dur_2 = mock_otel_metric_client_->GetRecordedMetrics()[2];
@@ -551,8 +549,7 @@ TEST_F(MatchDataLoaderTest, GetExportMetadataFetchAsyncError) {
   EXPECT_EQ(metadata_fetch_error.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(metadata_fetch_error.unit, MetricUnit::METRIC_UNIT_COUNT);
   EXPECT_EQ(metadata_fetch_error.value, "1");
-  EXPECT_EQ(metadata_fetch_error.labels.at("BackendErrorReason"),
-            "Failed to fetch requested data.");
+  EXPECT_EQ(metadata_fetch_error.labels.at("BackendErrorReason"), "500");
   VerifyMetricLabels(metadata_fetch_error);
 }
 
@@ -586,8 +583,7 @@ TEST_F(MatchDataLoaderTest, GetExportMetadataParseError) {
   EXPECT_EQ(err_metric.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(err_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
   EXPECT_EQ(err_metric.value, "1");
-  EXPECT_EQ(err_metric.labels.at("BackendErrorReason"),
-            "Unable to parse raw export metadata.");
+  EXPECT_EQ(err_metric.labels.at("BackendErrorReason"), "500");
   VerifyMetricLabels(err_metric);
 }
 
@@ -620,8 +616,7 @@ TEST_F(MatchDataLoaderTest, LoadWithErrorStartingJobReturnsError) {
   EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
   EXPECT_EQ(error_metric.value, "1");
-  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"),
-            "Failed to fetch requested data.");
+  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"), "500");
   VerifyMetricLabels(error_metric);
 }
 
@@ -644,8 +639,7 @@ TEST_F(MatchDataLoaderTest, LoadWithInvalidEncryptedDekReturnsError) {
   EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
   EXPECT_EQ(error_metric.value, "1");
-  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"),
-            "Unable to parse encrypted DEK into keyset.");
+  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"), "500");
   VerifyMetricLabels(error_metric);
 }
 
@@ -670,8 +664,7 @@ TEST_F(MatchDataLoaderTest, LoadGetCryptoKeyErrorYieldsEmptyList) {
   EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
   EXPECT_EQ(error_metric.value, "1");
-  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"),
-            "Crypto client failed to get Aead from Keyset.");
+  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"), "500");
   VerifyMetricLabels(error_metric);
 }
 
@@ -1003,8 +996,7 @@ TEST_F(MatchDataLoaderTest, LoadWithImmediateFetchFailureCancelsUpdate) {
   EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
   EXPECT_EQ(error_metric.value, "1");
-  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"),
-            "Failed to fetch requested data.");
+  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"), "500");
   VerifyMetricLabels(error_metric);
 
   // Validate legacy metrics.
@@ -1082,8 +1074,7 @@ TEST_F(MatchDataLoaderTest, LoadWithSuccessThenFetchFailureCancelsUpdate) {
   EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
   EXPECT_EQ(error_metric.value, "1");
-  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"),
-            "Failed to fetch requested data.");
+  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"), "500");
   VerifyMetricLabels(error_metric);
 
   // Validate legacy metrics.
@@ -1171,8 +1162,7 @@ TEST_F(MatchDataLoaderTest, LoadWithRetriedFailureIsSuccessful) {
   EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
   EXPECT_EQ(error_metric.value, "1");
-  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"),
-            "Failed to fetch requested data.");
+  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"), "500");
   VerifyMetricLabels(error_metric);
 
   VerifyOperationCountMetric(mock_otel_metric_client_->GetRecordedMetrics()[8]);
@@ -1259,8 +1249,7 @@ TEST_F(MatchDataLoaderTest, LoadStartUpdateFailure) {
   EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
   EXPECT_EQ(error_metric.value, "1");
-  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"),
-            "Failed to insert the match data.");
+  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"), "500");
   VerifyMetricLabels(error_metric);
 }
 
@@ -1289,8 +1278,7 @@ TEST_F(MatchDataLoaderTest, LoadReplaceFailure) {
   EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
   EXPECT_EQ(error_metric.value, "1");
-  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"),
-            "Match data rows must match the provided key during replacement.");
+  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"), "400");
   VerifyMetricLabels(error_metric);
 }
 
@@ -1334,8 +1322,7 @@ TEST_F(MatchDataLoaderTest, LoadFinalizeUpdateFailure) {
   EXPECT_EQ(error_metric.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(error_metric.unit, MetricUnit::METRIC_UNIT_COUNT);
   EXPECT_EQ(error_metric.value, "1");
-  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"),
-            "Failed to replace the match data.");
+  EXPECT_EQ(error_metric.labels.at("BackendErrorReason"), "500");
   VerifyMetricLabels(error_metric);
 
   VerifyTableFinalizeUpdateLatencyMetric(

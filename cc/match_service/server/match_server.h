@@ -99,6 +99,8 @@ struct ConfigOptions {
   bool enable_background_auth_token_refresh = false;
   // A boolean to enable support for encrypted country code and zip code.
   bool enable_encrypted_country_zip_code = false;
+  // A boolean to enable gRPC OpenTelemetry metrics.
+  bool enable_grpc_otel_metrics = false;
 };
 
 // The main server responsible for running Match Service.

@@ -27,6 +27,7 @@
 #include "cc/match_service/crypto_client/tink_utils.h"
 #include "cc/match_service/error/error.h"
 #include "cc/public/cpio/interface/error_codes.h"
+#include "cc/public/cpio/utils/key_fetching/src/error_codes.h"
 #include "protos/match_service/backend/error.pb.h"
 #include "tink/hybrid/hpke_config.h"
 #include "tink/hybrid_config.h"
@@ -139,8 +140,12 @@ void HybridCryptoClient::GetCryptoKey(
 Error::Reason HybridCryptoClient::MapCoordinatorKeyFetchingError(
     uint64_t cpio_error_code) {
   if (cpio_error_code == scp::core::errors::SC_CPIO_INVALID_ARGUMENT ||
-      cpio_error_code == scp::core::errors::SC_CPIO_ENTITY_NOT_FOUND) {
+      cpio_error_code == scp::core::errors::SC_CPIO_ENTITY_NOT_FOUND ||
+      cpio_error_code == scp::core::errors::SC_CPIO_KEY_NOT_FOUND) {
     return Error::INVALID_COORDINATOR_KEY;
+  }
+  if (cpio_error_code == scp::core::errors::SC_CPIO_KEY_COUNT_MISMATCH) {
+    return Error::WRONG_NUMBER_OF_KEYS;
   }
   return Error::COORDINATOR_KEY_FETCHING_ERROR;
 }

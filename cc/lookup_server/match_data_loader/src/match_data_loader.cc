@@ -74,6 +74,7 @@ using ::google::scp::core::FailureExecutionResult;
 using ::google::scp::core::SuccessExecutionResult;
 using ::google::scp::core::common::ConcurrentQueue;
 using ::google::scp::core::common::kZeroUuid;
+using ::google::scp::core::errors::GetErrorHttpStatusCode;
 using ::google::scp::core::errors::GetErrorMessage;
 using ::std::placeholders::_1;
 using ::std::placeholders::_2;
@@ -699,7 +700,10 @@ void MatchDataLoader::RecordLoadErrorCountMetric(
     return;
   }
   absl::flat_hash_map<std::string, std::string> error_labels = labels;
-  error_labels[kBackendErrorReasonLabel] = GetErrorMessage(result.status_code);
+  auto http_status = GetErrorHttpStatusCode(result.status_code);
+  std::string numeric_status_str =
+      std::to_string(static_cast<int>(http_status));
+  error_labels[std::string(kBackendErrorReasonLabel)] = numeric_status_str;
   error_labels[kClusterIdLabel] = cluster_id_;
   error_labels[kClusterGroupIdLabel] = cluster_group_id_;
 
