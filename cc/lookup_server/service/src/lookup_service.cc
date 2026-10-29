@@ -69,6 +69,7 @@ using ::google::confidential_match::lookup_server::proto_backend::
 using ::google::confidential_match::lookup_server::proto_backend::
     ShardingScheme;
 using ::google::confidential_match::shared::api_errors::Code;
+using ::google::confidential_match::shared::api_errors::Code_Name;
 using ::google::confidential_match::shared::api_errors::Details;
 using ::google::confidential_match::shared::api_errors::ErrorResponse;
 using ::google::protobuf::Message;
@@ -298,9 +299,12 @@ void RecordLookupServerRequestErrorCount(
     return;
   }
   absl::flat_hash_map<std::string, std::string> labels;
+  auto http_status =
+      GetErrorHttpStatusCode(GetPublicErrorCode(result.status_code));
+  std::string numeric_status_str =
+      std::to_string(static_cast<int>(http_status));
+  labels[std::string(kBackendErrorReasonLabel)] = numeric_status_str;
   labels[std::string(kKeyFormatLabel)] = key_format;
-  labels[std::string(kBackendErrorReasonLabel)] =
-      GetErrorMessage(result.status_code);
   labels[std::string(kCallerIdLabel)] =
       caller_id.empty() ? kCallerIdUnspecifiedMetricLabel : caller_id;
   otel_metric_client->RecordMetric(kLookupServerRequestErrorCountMetricName,
@@ -322,6 +326,34 @@ void RecordLookupServerRecordNumberPerRequest(
   otel_metric_client->RecordMetric(
       kLookupServerDataRecordPerRequestMetricName, absl::StrCat(record_count),
       MetricUnit::METRIC_UNIT_COUNT, MetricType::METRIC_TYPE_HISTOGRAM, labels);
+}
+
+void RecordLookupServerRecordErrorCount(
+    lookup_server::MetricClientInterface* otel_metric_client,
+    const std::string& key_format, const std::string& caller_id,
+    const LookupResponse& lookup_response) {
+  if (otel_metric_client == nullptr) {
+    return;
+  }
+  absl::flat_hash_map<std::string, int64_t> error_counts_by_reason;
+  for (const auto& lookup_result : lookup_response.lookup_results()) {
+    if (lookup_result.status() == LookupResult::STATUS_FAILED &&
+        lookup_result.has_error_response()) {
+      std::string error_reason =
+          Code_Name(static_cast<Code>(lookup_result.error_response().code()));
+      error_counts_by_reason[error_reason]++;
+    }
+  }
+  for (const auto& [error_reason, count] : error_counts_by_reason) {
+    absl::flat_hash_map<std::string, std::string> labels;
+    labels[std::string(kBackendErrorReasonLabel)] = error_reason;
+    labels[std::string(kKeyFormatLabel)] = key_format;
+    labels[std::string(kCallerIdLabel)] =
+        caller_id.empty() ? kCallerIdUnspecifiedMetricLabel : caller_id;
+    otel_metric_client->RecordMetric(
+        kLookupServerRecordErrorCountMetricName, absl::StrCat(count),
+        MetricUnit::METRIC_UNIT_COUNT, MetricType::METRIC_TYPE_COUNTER, labels);
+  }
 }
 
 }  // namespace
@@ -621,6 +653,8 @@ void LookupService::OnPostLookupHandlerCallback(
 
   http_context.result = SuccessExecutionResult();
   http_context.Finish();
+  RecordLookupServerRecordErrorCount(otel_metric_client_.get(), key_format,
+                                     caller_id, *lookup_context.response);
   PutLatencyMetrics(request_start_time);
   RecordLookupServerRequestLatency(otel_metric_client_.get(), key_format,
                                    caller_id, absl::Now() - request_start_time,

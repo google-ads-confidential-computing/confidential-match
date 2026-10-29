@@ -37,11 +37,13 @@
 #include "cc/match_service/orchestrator_client/orchestrator_client_interface.h"
 #include "cc/match_service/service/match_service.h"
 #include "cc/match_service/tasks/match_task_interface.h"
+#include "cc/public/cpio/interface/kms_client/kms_client_interface.h"
 #include "cc/public/cpio/interface/metric_client/metric_client_interface.h"
 #include "cc/public/cpio/interface/private_key_client/private_key_client_interface.h"
 #include "cc/public/cpio/utils/configuration_fetcher/interface/configuration_fetcher_interface.h"
 #include "cc/public/cpio/utils/dual_writing_metric_client/interface/dual_writing_metric_client_interface.h"
 #include "cc/public/cpio/utils/key_fetching/interface/key_fetcher_with_cache_interface.h"
+#include "cc/public/cpio/utils/key_fetching/src/wrapped_key_handler_with_cache_interface.h"
 #include "protos/match_service/backend/key_fetcher_options.pb.h"
 #include "protos/match_service/backend/private_key_endpoints.pb.h"
 
@@ -101,6 +103,8 @@ struct ConfigOptions {
   bool enable_encrypted_country_zip_code = false;
   // A boolean to enable gRPC OpenTelemetry metrics.
   bool enable_grpc_otel_metrics = false;
+  // A boolean to enable CpioAeadCryptoClient instead of AeadCryptoClient.
+  bool enable_cpio_aead_crypto_client = false;
 };
 
 // The main server responsible for running Match Service.
@@ -166,6 +170,14 @@ class MatchServer {
   std::unique_ptr<scp::core::HttpClientInterface> http2_client_;
   // Required to initialize and shutdown the AWS SDK
   scp::cpio::client_providers::AwsInitializer aws_cloud_init_;
+  // CPIO KMS clients for GCP and AWS.
+  std::shared_ptr<scp::cpio::KmsClientInterface> cpio_gcp_kms_client_;
+  std::shared_ptr<scp::cpio::KmsClientInterface> cpio_aws_kms_client_;
+  // Wrapped key handlers with cache for AWS and GCP.
+  std::unique_ptr<scp::cpio::WrappedKeyHandlerWithCacheInterface>
+      aws_wrapped_key_handler_;
+  std::unique_ptr<scp::cpio::WrappedKeyHandlerWithCacheInterface>
+      gcp_wrapped_key_handler_;
   // Client used to make requests to GCP KMS
   std::unique_ptr<KmsClientInterface> gcp_kms_client_;
   // Client with caching used to make requests to GCP KMS

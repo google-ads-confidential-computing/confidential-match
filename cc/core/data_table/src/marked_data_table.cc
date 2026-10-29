@@ -75,8 +75,9 @@ MarkedDataTable::MarkedDataTable() : data_table_() {
       boost::bimap<uint32_t, std::string>::value_type(0, ""));
 }
 
-MarkedDataTable::MarkedDataTable(uint64_t bucket_count)
-    : data_table_(bucket_count) {
+MarkedDataTable::MarkedDataTable(uint64_t bucket_count,
+                                 bool enable_packed_storage)
+    : data_table_(bucket_count, enable_packed_storage) {
   version_id_to_dataset_id_.insert(
       boost::bimap<uint32_t, std::string>::value_type(0, ""));
 }
@@ -242,14 +243,7 @@ ExecutionResult MarkedDataTable::Replace(
   }
 
   uint32_t version_id = version_id_to_dataset_id_.right.at(pending_dataset_id_);
-
-  std::vector<DataValueInternal> internal_data_values;
-  internal_data_values.reserve(data_values.size());
-  for (const auto& data_value : data_values) {
-    internal_data_values.push_back(
-        BuildDataValueInternal(data_value, version_id));
-  }
-  return data_table_.Replace(key, internal_data_values);
+  return data_table_.Replace(key, data_values, version_id);
 }
 
 ExecutionResult MarkedDataTable::Erase(absl::string_view key) noexcept {
@@ -312,17 +306,34 @@ uint64_t MarkedDataTable::RemoveUnmatchedDataEntries(
   // data removal pass. Required because making updates while iterating is not
   // concurrent-safe
   uint64_t num_keys_searched = 0;
-  for (auto it = data_table_.Begin(); it != data_table_.End(); ++it) {
-    if (!CheckAllDataMatchesVersion(it->second, version_id_to_keep)) {
-      keys_to_remove.push_back(it->first);
-    }
-    ++num_keys_searched;
+  if (data_table_.IsPackedStorageEnabled()) {
+    for (auto it = data_table_.Begin(); it != data_table_.End(); ++it) {
+      if (it->second.version_id != version_id_to_keep) {
+        keys_to_remove.push_back(it->first);
+      }
+      ++num_keys_searched;
 
-    if (num_keys_searched % kLogTableCleaningProgressEveryN == 0) {
-      SCP_INFO(kComponentName, kZeroUuid,
-               absl::StrFormat("Searching for outdated entries... "
-                               "(checked: %d, outdated: %d)",
-                               num_keys_searched, keys_to_remove.size()));
+      if (num_keys_searched % kLogTableCleaningProgressEveryN == 0) {
+        SCP_INFO(kComponentName, kZeroUuid,
+                 absl::StrFormat("Searching for outdated entries... "
+                                 "(checked: %d, outdated: %d)",
+                                 num_keys_searched, keys_to_remove.size()));
+      }
+    }
+  } else {
+    for (auto it = data_table_.LegacyBegin(); it != data_table_.LegacyEnd();
+         ++it) {
+      if (!CheckAllDataMatchesVersion(it->second, version_id_to_keep)) {
+        keys_to_remove.push_back(it->first);
+      }
+      ++num_keys_searched;
+
+      if (num_keys_searched % kLogTableCleaningProgressEveryN == 0) {
+        SCP_INFO(kComponentName, kZeroUuid,
+                 absl::StrFormat("Searching for outdated entries... "
+                                 "(checked: %d, outdated: %d)",
+                                 num_keys_searched, keys_to_remove.size()));
+      }
     }
   }
   SCP_INFO(kComponentName, kZeroUuid,

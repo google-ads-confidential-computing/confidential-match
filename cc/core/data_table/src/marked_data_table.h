@@ -24,6 +24,7 @@
 
 #include <boost/bimap.hpp>
 
+#include "absl/base/attributes.h"
 #include "absl/base/thread_annotations.h"
 #include "absl/strings/string_view.h"
 #include "absl/synchronization/mutex.h"
@@ -59,7 +60,8 @@ class MarkedDataTable {
   MarkedDataTable();
 
   /** @brief Constructs a table with the provided number of hash buckets. */
-  explicit MarkedDataTable(uint64_t bucket_count);
+  explicit MarkedDataTable(uint64_t bucket_count,
+                           bool enable_packed_storage = true);
 
   /**
    * @brief Finds all data values for the provided key.
@@ -117,10 +119,12 @@ class MarkedDataTable {
    *
    * The caller must call `StartUpdate()` before inserting elements.
    *
+   * @deprecated Use Replace(key, data_values) instead.
    * @param key the key associated with the data value (eg. SHA-256 hash)
    * @param data_value the data value to insert
    * @return ExecutionResult the result of the operation
    */
+  ABSL_DEPRECATED("Use Replace(key, data_values) instead.")
   scp::core::ExecutionResult Insert(absl::string_view key,
                                     const DataValue& data_value) noexcept;
 
@@ -158,10 +162,12 @@ class MarkedDataTable {
    *
    * The caller must call `StartUpdate()` before erasing elements.
    *
+   * @deprecated Use Erase(key) instead.
    * @param key the key associated with the data value (eg. SHA-256 hash)
    * @param data_value_to_erase the data value to erase
    * @return ExecutionResult the result of the operation
    */
+  ABSL_DEPRECATED("Use Erase(key) instead.")
   scp::core::ExecutionResult Erase(
       absl::string_view key, const DataValue& data_value_to_erase) noexcept;
 

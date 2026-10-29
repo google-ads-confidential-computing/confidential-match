@@ -96,6 +96,8 @@ inline constexpr char kDataRefreshIntervalMins[] = "data_refresh_interval_mins";
 // This determines the initial size of the OneTBB hash map, and is
 // recommended to be set at map construction time for optimal performance.
 inline constexpr char kStorageHashBucketCount[] = "storage_hash_bucket_count";
+// Configuration key for whether to enable packed storage in the data table.
+inline constexpr char kEnablePackedStorage[] = "enable_packed_storage";
 // The maximum number of files to stream concurrently when loading match data.
 inline constexpr char kMaxConcurrentStreamedFileReads[] =
     "max_concurrent_streamed_file_reads";

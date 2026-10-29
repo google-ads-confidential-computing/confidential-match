@@ -109,6 +109,8 @@ struct LookupServerParameters {
   uint64_t data_refresh_interval_mins_;
   // Configures the size for internal hash map initialization, or 0 for default.
   uint64_t storage_hash_bucket_count_ = 0;
+  // Whether to enable packed storage in the in-memory data table.
+  bool enable_packed_storage = false;
   // Configures the maximum number of match data files to read concurrently.
   uint64_t max_concurrent_streamed_file_reads = 100;
 

@@ -17,7 +17,7 @@ edition = "2023";
 package google.confidential_match.match_service.backend;
 
 // Configuration keys for providing flags to the server.
-// Next ID: 4
+// Next ID: 10
 enum ConfigurationKeys {
   CONFIGURATION_KEYS_UNSPECIFIED = 0;
   // A textproto of PrivateKeyEndpoints.
@@ -36,4 +36,6 @@ enum ConfigurationKeys {
   CONFIGURATION_KEYS_ENABLE_ENCRYPTED_COUNTRY_ZIP_CODE = 7;
   // A boolean to enable gRPC OpenTelemetry metrics.
   CONFIGURATION_KEYS_ENABLE_GRPC_OTEL_METRICS = 8;
+  // A boolean to enable CpioAeadCryptoClient instead of AeadCryptoClient.
+  CONFIGURATION_KEYS_ENABLE_CPIO_AEAD_CRYPTO_CLIENT = 9;
 }

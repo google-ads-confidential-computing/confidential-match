@@ -15,15 +15,17 @@
 #include "cc/core/data_table/src/internal/marked_data_table_storage.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "absl/strings/string_view.h"
+#include "absl/types/span.h"
 #include "cc/core/data_table/src/error_codes.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "google/protobuf/util/message_differencer.h"
-
 #include "protos/core/data_value.pb.h"
 #include "protos/core/data_value_internal.pb.h"
 
@@ -32,6 +34,7 @@ namespace {
 
 using ::google::confidential_match::DataValue;
 using ::google::confidential_match::DataValueInternal;
+using ::google::confidential_match::PackedDataValueGroup;
 using ::google::protobuf::util::MessageDifferencer;
 using ::google::scp::core::ExecutionResult;
 using ::google::scp::core::FailureExecutionResult;
@@ -71,6 +74,79 @@ bool UpdateVersionIdForMatchedRecord(
   return false;
 }
 
+// Serializes a PackedDataValueGroup into a contiguous PackedValueBuffer.
+PackedValueBuffer SerializeGroupToBuffer(const PackedDataValueGroup& group,
+                                         uint32_t version_id) {
+  PackedValueBuffer buffer;
+  const size_t byte_size = group.ByteSizeLong();
+  buffer.size = static_cast<uint32_t>(byte_size);
+  buffer.version_id = version_id;
+  if (byte_size > 0) {
+    buffer.data = std::make_unique<char[]>(byte_size);
+    group.SerializeWithCachedSizesToArray(
+        reinterpret_cast<uint8_t*>(buffer.data.get()));
+  }
+  return buffer;
+}
+
+// Parses a PackedDataValueGroup from a PackedValueBuffer.
+void ParseGroupFromBuffer(const PackedValueBuffer& buffer,
+                          PackedDataValueGroup& group) {
+  if (buffer.size == 0 || buffer.data == nullptr) {
+    group.Clear();
+    return;
+  }
+  if (!group.ParseFromArray(buffer.data.get(), static_cast<int>(buffer.size))) {
+    group.Clear();
+  }
+}
+
+// Extracts per-record version IDs for a parsed PackedDataValueGroup.
+std::vector<uint32_t> ExtractRecordVersions(const PackedDataValueGroup& group,
+                                            uint32_t buffer_version_id) {
+  std::vector<uint32_t> versions;
+  versions.reserve(group.data_values_size());
+  for (int i = 0; i < group.data_values_size(); ++i) {
+    const uint32_t record_version = (i < group.record_version_ids_size())
+                                        ? group.record_version_ids(i)
+                                        : buffer_version_id;
+    versions.push_back(record_version);
+  }
+  return versions;
+}
+
+// Packs a group and its per-record version IDs into a PackedValueBuffer.
+// When all records share the same version ID, record_version_ids is left empty
+// (0 wire bytes) and the version is stored in PackedValueBuffer::version_id.
+PackedValueBuffer PackWithRecordVersions(PackedDataValueGroup& group,
+                                         absl::Span<const uint32_t> versions) {
+  if (versions.empty()) {
+    group.clear_record_version_ids();
+    return SerializeGroupToBuffer(group, 0);
+  }
+
+  const uint32_t first_version = versions[0];
+  bool all_same_version = true;
+  for (uint32_t v : versions) {
+    if (v != first_version) {
+      all_same_version = false;
+      break;
+    }
+  }
+
+  if (all_same_version) {
+    group.clear_record_version_ids();
+    return SerializeGroupToBuffer(group, first_version);
+  }
+
+  group.clear_record_version_ids();
+  group.mutable_record_version_ids()->Reserve(versions.size());
+  for (uint32_t v : versions) {
+    group.add_record_version_ids(v);
+  }
+  return SerializeGroupToBuffer(group, kMixedVersionId);
+}
+
 }  // namespace
 
 ExecutionResult MarkedDataTableStorage::Insert(
@@ -80,29 +156,104 @@ ExecutionResult MarkedDataTableStorage::Insert(
     return FailureExecutionResult(DATA_TABLE_INVALID_KEY_SIZE);
   }
 
-  MarkedDataTableImpl::accessor write_accessor;
-
   std::array<char, kMarkedDataTableKeyLength> key_array;
   std::copy(key.begin(), key.end(), key_array.data());
-  bool is_new = concurrent_map_.insert(write_accessor, key_array);
 
-  if (is_new) {
+  if (!enable_packed_storage_) {
+    LegacyMarkedDataTableImpl::accessor write_accessor;
+    bool is_new = legacy_concurrent_map_.insert(write_accessor, key_array);
+    if (is_new) {
+      write_accessor->second.push_back(data_value_internal.SerializeAsString());
+      write_accessor.release();
+      return SuccessExecutionResult();
+    }
+    bool found_existing_data_value = UpdateVersionIdForMatchedRecord(
+        write_accessor->second, data_value_internal.data_value(),
+        data_value_internal.version_id());
+    if (found_existing_data_value) {
+      write_accessor.release();
+      return SuccessExecutionResult();
+    }
     write_accessor->second.push_back(data_value_internal.SerializeAsString());
     write_accessor.release();
     return SuccessExecutionResult();
   }
 
-  // If an matching data value is present in the table, update the version ID
-  bool found_existing_data_value = UpdateVersionIdForMatchedRecord(
-      write_accessor->second, data_value_internal.data_value(),
-      data_value_internal.version_id());
-  if (found_existing_data_value) {
+  MarkedDataTableImpl::accessor write_accessor;
+  bool is_new = concurrent_map_.insert(write_accessor, key_array);
+
+  if (is_new) {
+    PackedDataValueGroup group;
+    *group.add_data_values() = data_value_internal.data_value();
+    write_accessor->second =
+        SerializeGroupToBuffer(group, data_value_internal.version_id());
     write_accessor.release();
     return SuccessExecutionResult();
   }
 
-  // Data entry wasn't found, add it
-  write_accessor->second.push_back(data_value_internal.SerializeAsString());
+  PackedDataValueGroup group;
+  ParseGroupFromBuffer(write_accessor->second, group);
+  std::vector<uint32_t> versions =
+      ExtractRecordVersions(group, write_accessor->second.version_id);
+
+  // If a matching data value is present in the table, update its version ID.
+  for (int i = 0; i < group.data_values_size(); ++i) {
+    if (MessageDifferencer::Equals(group.data_values(i),
+                                   data_value_internal.data_value())) {
+      if (versions[i] != data_value_internal.version_id()) {
+        versions[i] = data_value_internal.version_id();
+        write_accessor->second = PackWithRecordVersions(group, versions);
+      }
+      write_accessor.release();
+      return SuccessExecutionResult();
+    }
+  }
+
+  // Data entry wasn't found, append it.
+  *group.add_data_values() = data_value_internal.data_value();
+  versions.push_back(data_value_internal.version_id());
+  write_accessor->second = PackWithRecordVersions(group, versions);
+  write_accessor.release();
+  return SuccessExecutionResult();
+}
+
+ExecutionResult MarkedDataTableStorage::Replace(
+    absl::string_view key, absl::Span<const DataValue> data_values,
+    uint32_t version_id) noexcept {
+  if (key.size() != kMarkedDataTableKeyLength) {
+    return FailureExecutionResult(DATA_TABLE_INVALID_KEY_SIZE);
+  }
+
+  std::array<char, kMarkedDataTableKeyLength> key_array;
+  std::copy(key.begin(), key.end(), key_array.data());
+
+  if (!enable_packed_storage_) {
+    std::vector<std::string> new_data_values;
+    new_data_values.reserve(data_values.size());
+    for (const DataValue& data_value : data_values) {
+      DataValueInternal data_value_internal;
+      *data_value_internal.mutable_data_value() = data_value;
+      data_value_internal.set_version_id(version_id);
+      new_data_values.push_back(data_value_internal.SerializeAsString());
+    }
+    LegacyMarkedDataTableImpl::accessor write_accessor;
+    legacy_concurrent_map_.insert(write_accessor, key_array);
+    write_accessor->second = std::move(new_data_values);
+    write_accessor.release();
+    return SuccessExecutionResult();
+  }
+
+  PackedDataValueGroup group;
+  group.mutable_data_values()->Reserve(data_values.size());
+  for (const DataValue& data_value : data_values) {
+    *group.add_data_values() = data_value;
+  }
+  PackedValueBuffer new_buffer = SerializeGroupToBuffer(group, version_id);
+
+  MarkedDataTableImpl::accessor write_accessor;
+  concurrent_map_.insert(write_accessor, key_array);
+
+  write_accessor->second = std::move(new_buffer);
   write_accessor.release();
   return SuccessExecutionResult();
 }
@@ -114,19 +265,36 @@ ExecutionResult MarkedDataTableStorage::Replace(
     return FailureExecutionResult(DATA_TABLE_INVALID_KEY_SIZE);
   }
 
-  std::vector<std::string> new_data_values;
-  new_data_values.reserve(data_values.size());
-  for (const auto& data_value_internal : data_values) {
-    new_data_values.push_back(data_value_internal.SerializeAsString());
-  }
-
-  MarkedDataTableImpl::accessor write_accessor;
-
   std::array<char, kMarkedDataTableKeyLength> key_array;
   std::copy(key.begin(), key.end(), key_array.data());
+
+  if (!enable_packed_storage_) {
+    std::vector<std::string> new_data_values;
+    new_data_values.reserve(data_values.size());
+    for (const auto& data_value_internal : data_values) {
+      new_data_values.push_back(data_value_internal.SerializeAsString());
+    }
+    LegacyMarkedDataTableImpl::accessor write_accessor;
+    legacy_concurrent_map_.insert(write_accessor, key_array);
+    write_accessor->second = std::move(new_data_values);
+    write_accessor.release();
+    return SuccessExecutionResult();
+  }
+
+  PackedDataValueGroup group;
+  group.mutable_data_values()->Reserve(data_values.size());
+  std::vector<uint32_t> versions;
+  versions.reserve(data_values.size());
+  for (const auto& data_value_internal : data_values) {
+    *group.add_data_values() = data_value_internal.data_value();
+    versions.push_back(data_value_internal.version_id());
+  }
+  PackedValueBuffer new_buffer = PackWithRecordVersions(group, versions);
+
+  MarkedDataTableImpl::accessor write_accessor;
   concurrent_map_.insert(write_accessor, key_array);
 
-  write_accessor->second = std::move(new_data_values);
+  write_accessor->second = std::move(new_buffer);
   write_accessor.release();
   return SuccessExecutionResult();
 }
@@ -137,23 +305,40 @@ ExecutionResult MarkedDataTableStorage::Find(
     return FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST);
   }
 
-  MarkedDataTableImpl::const_accessor read_accessor;
-
   std::array<char, kMarkedDataTableKeyLength> key_array;
   std::copy(key.begin(), key.end(), key_array.data());
+
+  if (!enable_packed_storage_) {
+    LegacyMarkedDataTableImpl::const_accessor read_accessor;
+    if (!legacy_concurrent_map_.find(read_accessor, key_array)) {
+      read_accessor.release();
+      return FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST);
+    }
+    out.reserve(read_accessor->second.size());
+    for (const std::string& data_value_str : read_accessor->second) {
+      DataValueInternal data_value_internal;
+      data_value_internal.ParseFromString(data_value_str);
+      out.push_back(data_value_internal.data_value());
+    }
+    read_accessor.release();
+    return SuccessExecutionResult();
+  }
+
+  MarkedDataTableImpl::const_accessor read_accessor;
   if (!concurrent_map_.find(read_accessor, key_array)) {
     read_accessor.release();
     return FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST);
   }
 
-  out.reserve(read_accessor->second.size());
-  for (const std::string& data_value_str : read_accessor->second) {
-    DataValueInternal data_value_internal;
-    data_value_internal.ParseFromString(data_value_str);
-    out.push_back(data_value_internal.data_value());
+  PackedDataValueGroup group;
+  ParseGroupFromBuffer(read_accessor->second, group);
+  read_accessor.release();
+
+  out.reserve(out.size() + group.data_values_size());
+  for (DataValue& data_value : *group.mutable_data_values()) {
+    out.push_back(std::move(data_value));
   }
 
-  read_accessor.release();
   return SuccessExecutionResult();
 }
 
@@ -163,59 +348,118 @@ ExecutionResult MarkedDataTableStorage::Find(
     return FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST);
   }
 
-  MarkedDataTableImpl::const_accessor read_accessor;
-
   std::array<char, kMarkedDataTableKeyLength> key_array;
   std::copy(key.begin(), key.end(), key_array.data());
+
+  if (!enable_packed_storage_) {
+    LegacyMarkedDataTableImpl::const_accessor read_accessor;
+    if (!legacy_concurrent_map_.find(read_accessor, key_array)) {
+      read_accessor.release();
+      return FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST);
+    }
+    out.reserve(read_accessor->second.size());
+    for (const std::string& data_value_str : read_accessor->second) {
+      DataValueInternal data_value_internal;
+      data_value_internal.ParseFromString(data_value_str);
+      out.push_back(std::move(data_value_internal));
+    }
+    read_accessor.release();
+    return SuccessExecutionResult();
+  }
+
+  MarkedDataTableImpl::const_accessor read_accessor;
   if (!concurrent_map_.find(read_accessor, key_array)) {
     read_accessor.release();
     return FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST);
   }
 
-  out.reserve(read_accessor->second.size());
-  for (const std::string& data_value_str : read_accessor->second) {
+  PackedDataValueGroup group;
+  ParseGroupFromBuffer(read_accessor->second, group);
+  const uint32_t buffer_version_id = read_accessor->second.version_id;
+  read_accessor.release();
+
+  out.reserve(out.size() + group.data_values_size());
+  for (int i = 0; i < group.data_values_size(); ++i) {
     DataValueInternal data_value_internal;
-    data_value_internal.ParseFromString(data_value_str);
+    *data_value_internal.mutable_data_value() =
+        std::move(*group.mutable_data_values(i));
+    const uint32_t record_version = (i < group.record_version_ids_size())
+                                        ? group.record_version_ids(i)
+                                        : buffer_version_id;
+    data_value_internal.set_version_id(record_version);
     out.push_back(std::move(data_value_internal));
   }
 
-  read_accessor.release();
   return SuccessExecutionResult();
 }
 
 ExecutionResult MarkedDataTableStorage::EraseUnmatchedVersions(
     absl::string_view key, uint32_t version_id_to_keep) noexcept {
-  DataValue data_value_to_erase;
   if (key.size() != kMarkedDataTableKeyLength) {
     return FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST);
   }
 
-  MarkedDataTableImpl::accessor write_accessor;
-
   std::array<char, kMarkedDataTableKeyLength> key_array;
   std::copy(key.begin(), key.end(), key_array.data());
+
+  if (!enable_packed_storage_) {
+    LegacyMarkedDataTableImpl::accessor write_accessor;
+    if (!legacy_concurrent_map_.find(write_accessor, key_array)) {
+      write_accessor.release();
+      return FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST);
+    }
+    std::vector<std::string> filtered_data_values;
+    filtered_data_values.reserve(write_accessor->second.size());
+    for (const std::string& serialized : write_accessor->second) {
+      DataValueInternal data_value_internal;
+      data_value_internal.ParseFromString(serialized);
+      if (data_value_internal.version_id() == version_id_to_keep) {
+        filtered_data_values.push_back(serialized);
+      }
+    }
+    if (!filtered_data_values.empty()) {
+      filtered_data_values.shrink_to_fit();
+      write_accessor->second = std::move(filtered_data_values);
+    } else {
+      legacy_concurrent_map_.erase(write_accessor);
+    }
+    write_accessor.release();
+    return SuccessExecutionResult();
+  }
+
+  MarkedDataTableImpl::accessor write_accessor;
   if (!concurrent_map_.find(write_accessor, key_array)) {
     write_accessor.release();
     return FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST);
   }
 
-  std::vector<std::string> filtered_data_values;
-  filtered_data_values.reserve(write_accessor->second.size());
-
-  std::vector<std::string>::iterator iter = write_accessor->second.begin();
-  while (iter != write_accessor->second.end()) {
-    DataValueInternal data_value_internal;
-    data_value_internal.ParseFromString(*iter);
-    if (data_value_internal.version_id() == version_id_to_keep) {
-      filtered_data_values.push_back(*iter);
-    }
-
-    ++iter;
+  if (write_accessor->second.version_id == version_id_to_keep) {
+    write_accessor.release();
+    return SuccessExecutionResult();
   }
 
-  if (filtered_data_values.size() != 0) {
-    filtered_data_values.shrink_to_fit();
-    write_accessor->second = std::move(filtered_data_values);
+  if (write_accessor->second.version_id != kMixedVersionId) {
+    concurrent_map_.erase(write_accessor);
+    write_accessor.release();
+    return SuccessExecutionResult();
+  }
+
+  PackedDataValueGroup group;
+  ParseGroupFromBuffer(write_accessor->second, group);
+  PackedDataValueGroup filtered_group;
+  for (int i = 0; i < group.data_values_size(); ++i) {
+    const uint32_t record_version = (i < group.record_version_ids_size())
+                                        ? group.record_version_ids(i)
+                                        : write_accessor->second.version_id;
+    if (record_version == version_id_to_keep) {
+      *filtered_group.add_data_values() =
+          std::move(*group.mutable_data_values(i));
+    }
+  }
+
+  if (filtered_group.data_values_size() != 0) {
+    write_accessor->second =
+        SerializeGroupToBuffer(filtered_group, version_id_to_keep);
   } else {
     concurrent_map_.erase(write_accessor);
   }
@@ -231,6 +475,12 @@ ExecutionResult MarkedDataTableStorage::Erase(absl::string_view key) noexcept {
 
   std::array<char, kMarkedDataTableKeyLength> key_array;
   std::copy(key.begin(), key.end(), key_array.data());
+  if (!enable_packed_storage_) {
+    if (!legacy_concurrent_map_.erase(key_array)) {
+      return FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST);
+    }
+    return SuccessExecutionResult();
+  }
   if (!concurrent_map_.erase(key_array)) {
     return FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST);
   }
@@ -243,28 +493,64 @@ ExecutionResult MarkedDataTableStorage::Erase(
     return FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST);
   }
 
-  MarkedDataTableImpl::accessor write_accessor;
-
   std::array<char, kMarkedDataTableKeyLength> key_array;
   std::copy(key.begin(), key.end(), key_array.data());
+
+  if (!enable_packed_storage_) {
+    LegacyMarkedDataTableImpl::accessor write_accessor;
+    if (!legacy_concurrent_map_.find(write_accessor, key_array)) {
+      write_accessor.release();
+      return FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST);
+    }
+    bool found = false;
+    auto iter = write_accessor->second.begin();
+    while (iter != write_accessor->second.end()) {
+      DataValueInternal data_value;
+      data_value.ParseFromString(*iter);
+      if (MessageDifferencer::Equals(data_value.data_value(),
+                                     data_value_to_erase)) {
+        found = true;
+        write_accessor->second.erase(iter);
+        break;
+      }
+      ++iter;
+    }
+    if (!found) {
+      write_accessor.release();
+      return FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST);
+    }
+    if (write_accessor->second.empty()) {
+      legacy_concurrent_map_.erase(write_accessor);
+    } else if (write_accessor->second.size() * kVectorDownscalingFactor <
+               write_accessor->second.capacity()) {
+      write_accessor->second.shrink_to_fit();
+    }
+    write_accessor.release();
+    return SuccessExecutionResult();
+  }
+
+  MarkedDataTableImpl::accessor write_accessor;
   if (!concurrent_map_.find(write_accessor, key_array)) {
     write_accessor.release();
     return FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST);
   }
 
+  PackedDataValueGroup group;
+  ParseGroupFromBuffer(write_accessor->second, group);
+  std::vector<uint32_t> versions =
+      ExtractRecordVersions(group, write_accessor->second.version_id);
+
   bool found = false;
-  std::vector<std::string>::iterator iter = write_accessor->second.begin();
-  while (iter != write_accessor->second.end()) {
-    DataValueInternal data_value;
-    data_value.ParseFromString(*iter);
-    if (MessageDifferencer::Equals(data_value.data_value(),
-                                   data_value_to_erase)) {
+  PackedDataValueGroup updated_group;
+  std::vector<uint32_t> updated_versions;
+  for (int i = 0; i < group.data_values_size(); ++i) {
+    if (!found &&
+        MessageDifferencer::Equals(group.data_values(i), data_value_to_erase)) {
       found = true;
-      write_accessor->second.erase(iter);
-      // Since data values are unique (at most one exists), terminate once found
-      break;
+      continue;
     }
-    ++iter;
+    *updated_group.add_data_values() = std::move(*group.mutable_data_values(i));
+    updated_versions.push_back(versions[i]);
   }
 
   if (!found) {
@@ -272,14 +558,11 @@ ExecutionResult MarkedDataTableStorage::Erase(
     return FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST);
   }
 
-  if (write_accessor->second.size() == 0) {
-    // Remove the entry from the map if no elements remain
+  if (updated_group.data_values_size() == 0) {
     concurrent_map_.erase(write_accessor);
-  } else if (write_accessor->second.size() * kVectorDownscalingFactor <
-             write_accessor->second.capacity()) {
-    // Periodically resize the vector downwards as needed since we are running
-    // within a memory-constrained environment
-    write_accessor->second.shrink_to_fit();
+  } else {
+    write_accessor->second =
+        PackWithRecordVersions(updated_group, updated_versions);
   }
 
   write_accessor.release();
@@ -294,6 +577,16 @@ MarkedDataTableStorage::Begin() noexcept {
 MarkedDataTableStorage::MarkedDataTableImpl::iterator
 MarkedDataTableStorage::End() noexcept {
   return concurrent_map_.end();
+}
+
+MarkedDataTableStorage::LegacyMarkedDataTableImpl::iterator
+MarkedDataTableStorage::LegacyBegin() noexcept {
+  return legacy_concurrent_map_.begin();
+}
+
+MarkedDataTableStorage::LegacyMarkedDataTableImpl::iterator
+MarkedDataTableStorage::LegacyEnd() noexcept {
+  return legacy_concurrent_map_.end();
 }
 
 }  // namespace google::confidential_match

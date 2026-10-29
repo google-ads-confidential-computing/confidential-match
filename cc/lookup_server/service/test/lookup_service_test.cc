@@ -706,8 +706,7 @@ TEST_F(LookupServiceTest, PostLookupWithInvalidRequest) {
   EXPECT_EQ(req_error.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_error.value, "1");
   EXPECT_EQ(req_error.labels.at("KeyFormat"), kKeyFormatUnspecified);
-  EXPECT_EQ(req_error.labels.at("BackendErrorReason"),
-            "The request is invalid.");
+  EXPECT_EQ(req_error.labels.at("BackendErrorReason"), "400");
   EXPECT_EQ(req_error.labels.at(std::string(kCallerIdLabel)),
             kCallerIdUnspecifiedMetricLabel);
 
@@ -809,8 +808,7 @@ TEST_F(LookupServiceTest, PostLookupValidRequestWithOutdatedShardingScheme) {
   EXPECT_EQ(req_error.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_error.value, "1");
   EXPECT_EQ(req_error.labels.at("KeyFormat"), kKeyFormatHashed);
-  EXPECT_EQ(req_error.labels.at("BackendErrorReason"),
-            "The request scheme is not valid (likely out of date).");
+  EXPECT_EQ(req_error.labels.at("BackendErrorReason"), "400");
 
   const auto& req_latency =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[3];
@@ -899,8 +897,7 @@ TEST_F(LookupServiceTest, PostLookupWithInvalidKeyFormat) {
   EXPECT_EQ(req_error.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_error.value, "1");
   EXPECT_EQ(req_error.labels.at("KeyFormat"), kKeyFormatUnspecified);
-  EXPECT_EQ(req_error.labels.at("BackendErrorReason"),
-            "The key format is not valid (likely unspecified).");
+  EXPECT_EQ(req_error.labels.at("BackendErrorReason"), "400");
 
   const auto& req_latency =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[3];
@@ -984,8 +981,7 @@ TEST_F(LookupServiceTest, PostLookupWithMissingHashTypeReturnsError) {
   EXPECT_EQ(req_error.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_error.value, "1");
   EXPECT_EQ(req_error.labels.at("KeyFormat"), kKeyFormatHashed);
-  EXPECT_EQ(req_error.labels.at("BackendErrorReason"),
-            "The request is invalid.");
+  EXPECT_EQ(req_error.labels.at("BackendErrorReason"), "400");
 
   const auto& req_latency =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[3];
@@ -1139,8 +1135,7 @@ TEST_F(LookupServiceTest,
   EXPECT_EQ(req_error.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_error.value, "1");
   EXPECT_EQ(req_error.labels.at("KeyFormat"), kKeyFormatUnspecified);
-  EXPECT_EQ(req_error.labels.at("BackendErrorReason"),
-            "The request is invalid.");
+  EXPECT_EQ(req_error.labels.at("BackendErrorReason"), "400");
 
   const auto& req_latency =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
@@ -1220,8 +1215,7 @@ TEST_F(LookupServiceTest,
   EXPECT_EQ(req_error.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_error.value, "1");
   EXPECT_EQ(req_error.labels.at("KeyFormat"), kKeyFormatUnspecified);
-  EXPECT_EQ(req_error.labels.at("BackendErrorReason"),
-            "The request is invalid.");
+  EXPECT_EQ(req_error.labels.at("BackendErrorReason"), "400");
 
   const auto& req_latency =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
@@ -1512,7 +1506,7 @@ TEST_F(LookupServiceTest, PostLookupEncryptedWithPartialKeyDecryptionError) {
   WaitUntil([&]() { return finished.load(); });
 
   // Now, validate the recorded Open Telemetry metrics!
-  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 3);
+  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 4);
   const auto& req_count =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[0];
   EXPECT_EQ(req_count.name, "lookup_server_request_count");
@@ -1528,8 +1522,17 @@ TEST_F(LookupServiceTest, PostLookupEncryptedWithPartialKeyDecryptionError) {
   EXPECT_EQ(req_record_number.labels.at("KeyFormat"),
             kKeyFormatHashedEncrypted);
 
-  const auto& req_latency =
+  const auto& record_error =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
+  EXPECT_EQ(record_error.name, "lookup_server_record_error_count");
+  EXPECT_EQ(record_error.type, MetricType::METRIC_TYPE_COUNTER);
+  EXPECT_EQ(record_error.value, "1");
+  EXPECT_EQ(record_error.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(record_error.labels.at("KeyFormat"), kKeyFormatHashedEncrypted);
+  EXPECT_EQ(record_error.labels.at("BackendErrorReason"), "INVALID_ARGUMENT");
+
+  const auto& req_latency =
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[3];
   EXPECT_EQ(req_latency.name, "lookup_server_request_latency");
   EXPECT_EQ(req_latency.type, MetricType::METRIC_TYPE_HISTOGRAM);
   EXPECT_FALSE(req_latency.value.empty());
@@ -1618,8 +1621,7 @@ TEST_F(LookupServiceTest, PostLookupEncryptedWithMissingKeyInfoReturnsError) {
   EXPECT_EQ(req_error.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_error.value, "1");
   EXPECT_EQ(req_error.labels.at("KeyFormat"), kKeyFormatHashedEncrypted);
-  EXPECT_EQ(req_error.labels.at("BackendErrorReason"),
-            "The request is invalid.");
+  EXPECT_EQ(req_error.labels.at("BackendErrorReason"), "400");
 
   const auto& req_latency =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[3];
@@ -1728,8 +1730,7 @@ TEST_F(LookupServiceTest, PostLookupEncryptedWithInvalidKmsReturnsError) {
   EXPECT_EQ(req_error.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_error.value, "1");
   EXPECT_EQ(req_error.labels.at("KeyFormat"), kKeyFormatHashedEncrypted);
-  EXPECT_EQ(req_error.labels.at("BackendErrorReason"),
-            "Crypto client failed to get Aead from Keyset.");
+  EXPECT_EQ(req_error.labels.at("BackendErrorReason"), "400");
 
   const auto& req_latency =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[3];
@@ -1838,8 +1839,7 @@ TEST_F(LookupServiceTest, PostLookupEncryptedWithInvalidDekReturnsError) {
   EXPECT_EQ(req_error.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_error.value, "1");
   EXPECT_EQ(req_error.labels.at("KeyFormat"), kKeyFormatHashedEncrypted);
-  EXPECT_EQ(req_error.labels.at("BackendErrorReason"),
-            "Crypto client failed to read keyset.");
+  EXPECT_EQ(req_error.labels.at("BackendErrorReason"), "400");
 
   const auto& req_latency =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[3];
@@ -1940,8 +1940,7 @@ TEST_F(LookupServiceTest, PostLookupEncryptedWithInvalidKeyTypeReturnsError) {
   EXPECT_EQ(req_error.type, MetricType::METRIC_TYPE_COUNTER);
   EXPECT_EQ(req_error.value, "1");
   EXPECT_EQ(req_error.labels.at("KeyFormat"), kKeyFormatHashedEncrypted);
-  EXPECT_EQ(req_error.labels.at("BackendErrorReason"),
-            "The request is invalid.");
+  EXPECT_EQ(req_error.labels.at("BackendErrorReason"), "400");
 
   const auto& req_latency =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[3];
@@ -2266,8 +2265,7 @@ TEST_F(LookupServiceTest,
   EXPECT_EQ(req_error.labels.size(), 3);
   EXPECT_EQ(req_error.labels.at("KeyFormat"),
             kKeyFormatHashedEncryptedCoordinator);
-  EXPECT_EQ(req_error.labels.at("BackendErrorReason"),
-            "Timed out waiting for the test condition.");
+  EXPECT_EQ(req_error.labels.at("BackendErrorReason"), "400");
   EXPECT_EQ(req_error.labels.at(std::string(kCallerIdLabel)),
             kCallerIdUnspecifiedMetricLabel);
 
@@ -2373,7 +2371,7 @@ TEST_F(LookupServiceTest,
   WaitUntil([&]() { return finished.load(); });
 
   // Now, validate the recorded Open Telemetry metrics!
-  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 3);
+  ASSERT_EQ(mock_fake_otel_metric_client_->GetRecordedMetrics().size(), 4);
 
   const auto& req_count =
       mock_fake_otel_metric_client_->GetRecordedMetrics()[0];
@@ -2399,9 +2397,22 @@ TEST_F(LookupServiceTest,
   EXPECT_EQ(req_record_number.labels.at(std::string(kCallerIdLabel)),
             kCallerIdUnspecifiedMetricLabel);
 
+  const auto& record_error =
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
+  EXPECT_EQ(record_error.name, "lookup_server_record_error_count");
+  EXPECT_EQ(record_error.type, MetricType::METRIC_TYPE_COUNTER);
+  EXPECT_EQ(record_error.value, "1");
+  EXPECT_EQ(record_error.unit, MetricUnit::METRIC_UNIT_COUNT);
+  EXPECT_EQ(record_error.labels.size(), 3);
+  EXPECT_EQ(record_error.labels.at("KeyFormat"),
+            kKeyFormatHashedEncryptedCoordinator);
+  EXPECT_EQ(record_error.labels.at("BackendErrorReason"), "INVALID_ARGUMENT");
+  EXPECT_EQ(record_error.labels.at(std::string(kCallerIdLabel)),
+            kCallerIdUnspecifiedMetricLabel);
+
   // No error metric is recorded at the lookup request level.
   const auto& req_latency =
-      mock_fake_otel_metric_client_->GetRecordedMetrics()[2];
+      mock_fake_otel_metric_client_->GetRecordedMetrics()[3];
   EXPECT_EQ(req_latency.name, "lookup_server_request_latency");
   EXPECT_EQ(req_latency.type, MetricType::METRIC_TYPE_HISTOGRAM);
   EXPECT_FALSE(req_latency.value.empty());

@@ -36,6 +36,8 @@ inline constexpr absl::string_view kLookupServerRequestLatencyMetricName =
     "lookup_server_request_latency";
 inline constexpr absl::string_view kLookupServerRequestErrorCountMetricName =
     "lookup_server_request_error_count";
+inline constexpr absl::string_view kLookupServerRecordErrorCountMetricName =
+    "lookup_server_record_error_count";
 inline constexpr absl::string_view kLookupServerDataRecordPerRequestMetricName =
     "lookup_server_data_record_per_request";
 

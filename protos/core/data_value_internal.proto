@@ -30,3 +30,36 @@ message DataValueInternal {
   // during a data refresh operation.
   uint32 version_id = 2;
 }
+
+// Type of personally identifiable information (PII) associated with a record.
+enum PiiType {
+  PII_TYPE_UNSPECIFIED = 0;
+  PII_TYPE_PHONE_NUMBER = 1;
+  PII_TYPE_EMAIL = 2;
+  PII_TYPE_ADDRESS = 3;
+}
+
+// Compact representation of associated data for a single DataValue record.
+message CompactAssociatedData {
+  // Maps "pii_type" -> PHONE_NUMBER, EMAIL, ADDRESS.
+  PiiType pii_type = 1;
+
+  // Maps "encrypted_gaia_id" -> raw bytes.
+  repeated bytes encrypted_gaia_id = 2;
+}
+
+// Stores all DataValue records associated with a single key in a contiguous
+// serialized buffer.
+message PackedDataValueGroup {
+  // Deprecated. Use records instead.
+  repeated DataValue data_values = 1 [deprecated = true];
+
+  // To be deprecated after migration is complete.
+  // Optional per-record version identifiers, populated only by deprecated
+  // single-row Insert() when records from multiple dataset versions coexist
+  // under the same key. Left empty (0 wire bytes) during full-key Replace().
+  repeated uint32 record_version_ids = 2;
+
+  // The compact associated data records stored under the key.
+  repeated CompactAssociatedData records = 3;
+}

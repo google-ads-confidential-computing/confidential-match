@@ -17,12 +17,12 @@ module(
     version = "0.0.0",
 )
 
-SCP_VERSION = "1.25.0"  # latest as of September 11, 2026
+SCP_VERSION = "1.38.0"  # latest as of October 22, 2026
 
 bazel_dep(name = "google_ads_confidential_computing_scp", version = SCP_VERSION, repo_name = "com_google_adm_cloud_scp")
 archive_override(
     module_name = "google_ads_confidential_computing_scp",
-    integrity = "sha256-j+pPnuojHjn2hMW10ezPPZx74l3GYhNLXQqr89lPKrU=",
+    integrity = "sha256-vC9SEVdzJUv4dDCmogu+7ls8HQV1YoyVlYDdcE5u95w=",
     strip_prefix = "conf-data-processing-architecture-reference-" + SCP_VERSION,
     urls = [
         "https://github.com/google-ads-confidential-computing/conf-data-processing-architecture-reference/archive/v" + SCP_VERSION + ".tar.gz",

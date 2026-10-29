@@ -19,15 +19,18 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdint>
+#include <limits>
+#include <memory>
 #include <string>
 #include <vector>
 
+#include "absl/base/attributes.h"
 #include "absl/hash/hash.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "oneapi/tbb/concurrent_hash_map.h"
-
 #include "protos/core/data_value.pb.h"
 #include "protos/core/data_value_internal.pb.h"
 
@@ -35,6 +38,22 @@ namespace google::confidential_match {
 
 // The required string size of the key (after base-64 decoding).
 inline constexpr size_t kMarkedDataTableKeyLength = 32;
+
+// Sentinel version ID indicating that a key's PackedDataValueGroup contains
+// records from multiple dataset versions (only populated by deprecated
+// single-row Insert()).
+inline constexpr uint32_t kMixedVersionId =
+    std::numeric_limits<uint32_t>::max();
+
+// Compact 16-byte buffer storing serialized PackedDataValueGroup bytes and
+// the snapshot version ID for a single key.
+struct PackedValueBuffer {
+  std::unique_ptr<char[]> data;  // serialized PackedDataValueGroup
+  uint32_t size = 0;
+  uint32_t version_id = 0;
+};
+
+static_assert(sizeof(PackedValueBuffer) == 16);
 
 /**
  * @brief A concurrent-safe multimap used to store and retrieve match data.
@@ -65,17 +84,36 @@ class MarkedDataTableStorage {
   };
 
   // The underlying concurrent hash map used to store match data.
-  // Uses a fixed size character array as the key to reduce memory usage.
+  // Uses a fixed size character array as the key and a 16-byte
+  // PackedValueBuffer as the value to reduce memory usage.
   using MarkedDataTableImpl = oneapi::tbb::concurrent_hash_map<
+      std::array<char, kMarkedDataTableKeyLength>, PackedValueBuffer,
+      CharArrayHashCompare>;
+  using LegacyMarkedDataTableImpl = oneapi::tbb::concurrent_hash_map<
       std::array<char, kMarkedDataTableKeyLength>, std::vector<std::string>,
       CharArrayHashCompare>;
 
  public:
-  MarkedDataTableStorage() : concurrent_map_() {}
+  MarkedDataTableStorage()
+      : enable_packed_storage_(true),
+        concurrent_map_(),
+        legacy_concurrent_map_() {}
 
   /** @brief Constructs a table with the provided number of hash buckets. */
-  explicit MarkedDataTableStorage(uint64_t bucket_count)
-      : concurrent_map_(bucket_count) {}
+  explicit MarkedDataTableStorage(uint64_t bucket_count,
+                                  bool enable_packed_storage = true)
+      : enable_packed_storage_(enable_packed_storage),
+        concurrent_map_(enable_packed_storage && bucket_count > 0
+                            ? MarkedDataTableImpl(bucket_count)
+                            : MarkedDataTableImpl()),
+        legacy_concurrent_map_(!enable_packed_storage && bucket_count > 0
+                                   ? LegacyMarkedDataTableImpl(bucket_count)
+                                   : LegacyMarkedDataTableImpl()) {}
+
+  /** @brief Returns true if PackedValueBuffer storage is enabled. */
+  bool IsPackedStorageEnabled() const noexcept {
+    return enable_packed_storage_;
+  }
 
   /**
    * @brief Inserts a data value into the data table.
@@ -84,12 +122,27 @@ class MarkedDataTableStorage {
    * that entry is updated to the version of the provided data value and
    * success is returned.
    *
+   * @deprecated Use Replace(key, data_values, version_id) instead.
    * @param key the key associated with the data value (eg. SHA-256 hash)
    * @param data_value the internal data value to insert
    * @return ExecutionResult the result of the operation
    */
+  ABSL_DEPRECATED("Use Replace(key, data_values, version_id) instead.")
   scp::core::ExecutionResult Insert(
       absl::string_view key, const DataValueInternal& data_value) noexcept;
+
+  /**
+   * @brief Replaces all data values for a key with the provided values and
+   * version ID, or creates a new entry if the key doesn't currently exist.
+   *
+   * @param key the key associated with the data value (eg. SHA-256 hash)
+   * @param data_values the data values to replace with
+   * @param version_id the version identifier for the dataset update
+   * @return ExecutionResult the result of the operation
+   */
+  scp::core::ExecutionResult Replace(absl::string_view key,
+                                     absl::Span<const DataValue> data_values,
+                                     uint32_t version_id) noexcept;
 
   /**
    * @brief Replaces all data values for a key with the provided values, or
@@ -158,10 +211,12 @@ class MarkedDataTableStorage {
    * Returns a failure result if the data value does not exist in the table
    * under the provided key.
    *
+   * @deprecated Use Erase(key) instead.
    * @param key the key associated with the data value (eg. SHA-256 hash)
    * @param data_value_to_erase the data value to erase
    * @return ExecutionResult the result of the operation
    */
+  ABSL_DEPRECATED("Use Erase(key) instead.")
   scp::core::ExecutionResult Erase(
       absl::string_view key, const DataValue& data_value_to_erase) noexcept;
 
@@ -183,9 +238,15 @@ class MarkedDataTableStorage {
    */
   MarkedDataTableImpl::iterator End() noexcept;
 
+  LegacyMarkedDataTableImpl::iterator LegacyBegin() noexcept;
+  LegacyMarkedDataTableImpl::iterator LegacyEnd() noexcept;
+
  private:
-  // Table used to store match data.
+  bool enable_packed_storage_ = true;
+  // Table used to store match data when enable_packed_storage_ is true.
   MarkedDataTableImpl concurrent_map_;
+  // Table used to store match data when enable_packed_storage_ is false.
+  LegacyMarkedDataTableImpl legacy_concurrent_map_;
 };
 
 }  // namespace google::confidential_match

@@ -780,6 +780,30 @@ ExecutionResult LookupServer::LoadParameters() noexcept {
     parameters_.storage_hash_bucket_count_ = storage_hash_bucket_count;
   }
 
+  bool enable_packed_storage;
+  if (!parameter_client_->GetBool(kEnablePackedStorage, enable_packed_storage)
+           .Successful()) {
+    SCP_WARNING(kComponentName, kZeroUuid,
+                absl::StrFormat(
+                    "Failed to fetch %s from parameter client. Trying env vars",
+                    kEnablePackedStorage));
+    ExecutionResult result = config_provider_->Get(
+        std::string(kEnablePackedStorage), enable_packed_storage);
+    if (!result.Successful()) {
+      SCP_WARNING(kComponentName, kZeroUuid,
+                  absl::StrFormat(
+                      "Failed to read whether to enable packed storage, using "
+                      "default of %s.",
+                      parameters_.enable_packed_storage ? "true" : "false"));
+    } else {
+      parameters_.enable_packed_storage = enable_packed_storage;
+    }
+  } else {
+    parameters_.enable_packed_storage = enable_packed_storage;
+  }
+  SCP_INFO(kComponentName, kZeroUuid, "Using enable_packed_storage value: %s",
+           parameters_.enable_packed_storage ? "true" : "false");
+
   uint64_t max_concurrent_streamed_file_reads;
   if (!parameter_client_
            ->GetSizeT(kMaxConcurrentStreamedFileReads,
@@ -1166,12 +1190,9 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
       std::make_shared<BlobStorageMatchDataProvider>(
           blob_storage_client_, data_provider_,
           parameters_.max_concurrent_streamed_file_reads, otel_metric_client_);
-  if (parameters_.storage_hash_bucket_count_ == 0) {
-    match_data_storage_ = std::make_shared<InMemoryMatchDataStorage>();
-  } else {
-    match_data_storage_ = std::make_shared<InMemoryMatchDataStorage>(
-        parameters_.storage_hash_bucket_count_);
-  }
+  match_data_storage_ = std::make_shared<InMemoryMatchDataStorage>(
+      parameters_.storage_hash_bucket_count_,
+      parameters_.enable_packed_storage);
   match_data_loader_ = std::make_shared<MatchDataLoader>(
       data_provider_, streamed_match_data_provider_, match_data_storage_,
       metric_client_, otel_metric_client_, orchestrator_client_,
@@ -1187,8 +1208,7 @@ ExecutionResult LookupServer::CreateComponents() noexcept {
       *parameters_.host_address, *parameters_.host_port,
       parameters_.http2server_thread_pool_size, async_executor_,
       authorization_proxy_, metric_instance_factory_,
-      parameters_.cpio_otel_metric_client,
-      config_provider_,
+      parameters_.cpio_otel_metric_client, config_provider_,
       Http2ServerOptions(
           parameters_.http2_server_use_tls,
           parameters_.http2_server_private_key_file_path,

@@ -17,20 +17,20 @@
 #include <string>
 #include <vector>
 
+#include "cc/core/data_table/src/error_codes.h"
 #include "cc/core/test/utils/proto_test_utils.h"
 #include "cc/public/core/test/interface/execution_result_matchers.h"
 #include "gmock/gmock.h"
 #include "include/gtest/gtest.h"
-#include "public/core/interface/execution_result.h"
-
-#include "cc/core/data_table/src/error_codes.h"
 #include "protos/core/data_value.pb.h"
 #include "protos/core/data_value_internal.pb.h"
+#include "public/core/interface/execution_result.h"
 
 namespace google::confidential_match {
 
 using ::google::confidential_match::DataValue;
 using ::google::confidential_match::DataValueInternal;
+using ::google::confidential_match::PackedDataValueGroup;
 using ::google::scp::core::ExecutionResult;
 using ::google::scp::core::ExecutionResultOr;
 using ::google::scp::core::FailureExecutionResult;
@@ -50,12 +50,20 @@ constexpr absl::string_view kHash2 = "another-hash-string-of-length-32";
 // Sample hash key with invalid length.
 constexpr absl::string_view kHashKeyInvalidLength = "short-hash-string";
 
-class MarkedDataTableStorageTest : public testing::Test {
+class MarkedDataTableStorageTest : public testing::Test,
+                                   public testing::WithParamInterface<bool> {
  protected:
+  MarkedDataTableStorageTest()
+      : data_table_(/*bucket_count=*/0, /*enable_packed_storage=*/GetParam()) {}
+
   MarkedDataTableStorage data_table_;
 };
 
-TEST_F(MarkedDataTableStorageTest, InsertSingleReturnsSuccess) {
+INSTANTIATE_TEST_SUITE_P(MarkedDataTableStorageTests,
+                         MarkedDataTableStorageTest, testing::Bool());
+
+TEST_P(MarkedDataTableStorageTest, InsertSingleReturnsSuccess) {
+  EXPECT_EQ(data_table_.IsPackedStorageEnabled(), GetParam());
   DataValue data_value;
   data_value.add_associated_data()->set_key("user_id");
   data_value.mutable_associated_data(0)->set_int_value(1);
@@ -68,7 +76,7 @@ TEST_F(MarkedDataTableStorageTest, InsertSingleReturnsSuccess) {
   EXPECT_SUCCESS(result);
 }
 
-TEST_F(MarkedDataTableStorageTest, InsertMultipleReturnsSuccess) {
+TEST_P(MarkedDataTableStorageTest, InsertMultipleReturnsSuccess) {
   DataValue data_value;
   data_value.add_associated_data()->set_key("user_id");
   data_value.mutable_associated_data(0)->set_int_value(1);
@@ -92,7 +100,7 @@ TEST_F(MarkedDataTableStorageTest, InsertMultipleReturnsSuccess) {
   EXPECT_SUCCESS(data_value2_result);
 }
 
-TEST_F(MarkedDataTableStorageTest, InsertDuplicateReturnsSuccess) {
+TEST_P(MarkedDataTableStorageTest, InsertDuplicateReturnsSuccess) {
   DataValue data_value;
   data_value.add_associated_data()->set_key("user_id");
   data_value.mutable_associated_data(0)->set_int_value(1);
@@ -110,7 +118,7 @@ TEST_F(MarkedDataTableStorageTest, InsertDuplicateReturnsSuccess) {
   EXPECT_SUCCESS(duplicate_result);
 }
 
-TEST_F(MarkedDataTableStorageTest,
+TEST_P(MarkedDataTableStorageTest,
        InsertDuplicateWithDifferentVersionReturnsSuccess) {
   DataValue data_value;
   data_value.add_associated_data()->set_key("user_id");
@@ -130,7 +138,7 @@ TEST_F(MarkedDataTableStorageTest,
   EXPECT_SUCCESS(duplicate_result);
 }
 
-TEST_F(MarkedDataTableStorageTest, InsertHashKeyInvalidLengthReturnsError) {
+TEST_P(MarkedDataTableStorageTest, InsertHashKeyInvalidLengthReturnsError) {
   DataValue data_value;
   *data_value.add_associated_data()->mutable_key() = "user_id";
   data_value.mutable_associated_data(0)->set_int_value(1);
@@ -145,7 +153,7 @@ TEST_F(MarkedDataTableStorageTest, InsertHashKeyInvalidLengthReturnsError) {
               ResultIs(FailureExecutionResult(DATA_TABLE_INVALID_KEY_SIZE)));
 }
 
-TEST_F(MarkedDataTableStorageTest, ReplaceNonexistentReturnsSuccess) {
+TEST_P(MarkedDataTableStorageTest, ReplaceNonexistentReturnsSuccess) {
   DataValue data_value;
   data_value.add_associated_data()->set_key("user_id");
   data_value.mutable_associated_data(0)->set_int_value(1);
@@ -172,7 +180,7 @@ TEST_F(MarkedDataTableStorageTest, ReplaceNonexistentReturnsSuccess) {
                                         EqualsProto(data_value_internal2)));
 }
 
-TEST_F(MarkedDataTableStorageTest, ReplaceExistingReturnsSuccess) {
+TEST_P(MarkedDataTableStorageTest, ReplaceExistingReturnsSuccess) {
   DataValue data_value;
   data_value.add_associated_data()->set_key("user_id");
   data_value.mutable_associated_data(0)->set_int_value(1);
@@ -197,7 +205,7 @@ TEST_F(MarkedDataTableStorageTest, ReplaceExistingReturnsSuccess) {
   EXPECT_THAT(out, ElementsAre(EqualsProto(data_value_internal2)));
 }
 
-TEST_F(MarkedDataTableStorageTest, ReplaceHashKeyInvalidLengthReturnsError) {
+TEST_P(MarkedDataTableStorageTest, ReplaceHashKeyInvalidLengthReturnsError) {
   DataValue data_value;
   *data_value.add_associated_data()->mutable_key() = "user_id";
   data_value.mutable_associated_data(0)->set_int_value(1);
@@ -213,7 +221,7 @@ TEST_F(MarkedDataTableStorageTest, ReplaceHashKeyInvalidLengthReturnsError) {
               ResultIs(FailureExecutionResult(DATA_TABLE_INVALID_KEY_SIZE)));
 }
 
-TEST_F(MarkedDataTableStorageTest, FindExistingRecordReturnsSuccess) {
+TEST_P(MarkedDataTableStorageTest, FindExistingRecordReturnsSuccess) {
   DataValue data_value;
   *data_value.add_associated_data()->mutable_key() = "user_id";
   data_value.mutable_associated_data(0)->set_int_value(1);
@@ -229,7 +237,7 @@ TEST_F(MarkedDataTableStorageTest, FindExistingRecordReturnsSuccess) {
   EXPECT_THAT(out, ElementsAre(EqualsProto(data_value)));
 }
 
-TEST_F(MarkedDataTableStorageTest, FindNonexistentRecordReturnsError) {
+TEST_P(MarkedDataTableStorageTest, FindNonexistentRecordReturnsError) {
   DataValue data_value;
   *data_value.add_associated_data()->mutable_key() = "user_id";
   data_value.mutable_associated_data(0)->set_int_value(1);
@@ -246,7 +254,7 @@ TEST_F(MarkedDataTableStorageTest, FindNonexistentRecordReturnsError) {
       ResultIs(FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST)));
 }
 
-TEST_F(MarkedDataTableStorageTest,
+TEST_P(MarkedDataTableStorageTest,
        FindNonexistentHashKeyInvalidLengthReturnsError) {
   std::vector<DataValue> out;
   ExecutionResult read_result = data_table_.Find(kHashKeyInvalidLength, out);
@@ -255,7 +263,7 @@ TEST_F(MarkedDataTableStorageTest,
       ResultIs(FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST)));
 }
 
-TEST_F(MarkedDataTableStorageTest,
+TEST_P(MarkedDataTableStorageTest,
        FindSingleRecordMultipleVersionsReturnsSuccess) {
   DataValue data_value;
   *data_value.add_associated_data()->mutable_key() = "user_id";
@@ -279,7 +287,7 @@ TEST_F(MarkedDataTableStorageTest,
   EXPECT_THAT(out, ElementsAre(EqualsProto(data_value)));
 }
 
-TEST_F(MarkedDataTableStorageTest, FindMultipleRecordsSameHashReturnsSuccess) {
+TEST_P(MarkedDataTableStorageTest, FindMultipleRecordsSameHashReturnsSuccess) {
   DataValue data_value;
   *data_value.add_associated_data()->mutable_key() = "user_id";
   data_value.mutable_associated_data(0)->set_int_value(1);
@@ -303,7 +311,7 @@ TEST_F(MarkedDataTableStorageTest, FindMultipleRecordsSameHashReturnsSuccess) {
                                         EqualsProto(data_value2)));
 }
 
-TEST_F(MarkedDataTableStorageTest,
+TEST_P(MarkedDataTableStorageTest,
        FindMultipleRecordsDifferentVersionsReturnsSuccess) {
   DataValue data_value;
   *data_value.add_associated_data()->mutable_key() = "user_id";
@@ -328,7 +336,7 @@ TEST_F(MarkedDataTableStorageTest,
                                         EqualsProto(data_value2)));
 }
 
-TEST_F(MarkedDataTableStorageTest,
+TEST_P(MarkedDataTableStorageTest,
        FindMultipleRecordsDifferentHashReturnsSuccess) {
   DataValue data_value;
   *data_value.add_associated_data()->mutable_key() = "user_id";
@@ -356,7 +364,7 @@ TEST_F(MarkedDataTableStorageTest,
   EXPECT_THAT(out2, ElementsAre(EqualsProto(data_value2)));
 }
 
-TEST_F(MarkedDataTableStorageTest, FindInternalMultipleRecordsReturnsSuccess) {
+TEST_P(MarkedDataTableStorageTest, FindInternalMultipleRecordsReturnsSuccess) {
   DataValue data_value;
   *data_value.add_associated_data()->mutable_key() = "user_id";
   data_value.mutable_associated_data(0)->set_int_value(1);
@@ -387,7 +395,7 @@ TEST_F(MarkedDataTableStorageTest, FindInternalMultipleRecordsReturnsSuccess) {
                                         EqualsProto(data_value_internal2)));
 }
 
-TEST_F(MarkedDataTableStorageTest, EraseUnmatchedVersionsReturnsSuccess) {
+TEST_P(MarkedDataTableStorageTest, EraseUnmatchedVersionsReturnsSuccess) {
   DataValue data_value;
   *data_value.add_associated_data()->mutable_key() = "user_id";
   data_value.mutable_associated_data(0)->set_int_value(1);
@@ -419,7 +427,7 @@ TEST_F(MarkedDataTableStorageTest, EraseUnmatchedVersionsReturnsSuccess) {
                                         EqualsProto(data_value3)));
 }
 
-TEST_F(MarkedDataTableStorageTest,
+TEST_P(MarkedDataTableStorageTest,
        EraseUnmatchedVersionsMultipleKeysReturnsSuccess) {
   DataValue data_value;
   *data_value.add_associated_data()->mutable_key() = "user_id";
@@ -454,7 +462,7 @@ TEST_F(MarkedDataTableStorageTest,
   EXPECT_THAT(out2, ElementsAre(EqualsProto(data_value3)));
 }
 
-TEST_F(MarkedDataTableStorageTest,
+TEST_P(MarkedDataTableStorageTest,
        EraseUnmatchedVersionsAllEntriesRemovedReturnsSuccess) {
   DataValue data_value;
   *data_value.add_associated_data()->mutable_key() = "user_id";
@@ -481,7 +489,7 @@ TEST_F(MarkedDataTableStorageTest,
   EXPECT_THAT(out, IsEmpty());
 }
 
-TEST_F(MarkedDataTableStorageTest,
+TEST_P(MarkedDataTableStorageTest,
        EraseUnmatchedVersionsNonexistentKeyReturnsError) {
   DataValue data_value;
   *data_value.add_associated_data()->mutable_key() = "user_id";
@@ -498,7 +506,7 @@ TEST_F(MarkedDataTableStorageTest,
       ResultIs(FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST)));
 }
 
-TEST_F(MarkedDataTableStorageTest, EraseAllReturnsSuccess) {
+TEST_P(MarkedDataTableStorageTest, EraseAllReturnsSuccess) {
   DataValue data_value;
   *data_value.add_associated_data()->mutable_key() = "user_id";
   data_value.mutable_associated_data(0)->set_int_value(1);
@@ -532,7 +540,7 @@ TEST_F(MarkedDataTableStorageTest, EraseAllReturnsSuccess) {
   EXPECT_THAT(out, ElementsAre(EqualsProto(data_value2)));
 }
 
-TEST_F(MarkedDataTableStorageTest, EraseNonexistentReturnsError) {
+TEST_P(MarkedDataTableStorageTest, EraseNonexistentReturnsError) {
   DataValue data_value;
   *data_value.add_associated_data()->mutable_key() = "user_id";
   data_value.mutable_associated_data(0)->set_int_value(1);
@@ -548,7 +556,7 @@ TEST_F(MarkedDataTableStorageTest, EraseNonexistentReturnsError) {
       ResultIs(FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST)));
 }
 
-TEST_F(MarkedDataTableStorageTest,
+TEST_P(MarkedDataTableStorageTest,
        EraseNonexistentHashKeyInvalidLengthReturnsError) {
   ExecutionResult erase_result = data_table_.Erase(kHashKeyInvalidLength);
   EXPECT_THAT(
@@ -556,7 +564,7 @@ TEST_F(MarkedDataTableStorageTest,
       ResultIs(FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST)));
 }
 
-TEST_F(MarkedDataTableStorageTest, EraseRecordReturnsSuccess) {
+TEST_P(MarkedDataTableStorageTest, EraseRecordReturnsSuccess) {
   DataValue data_value;
   *data_value.add_associated_data()->mutable_key() = "user_id";
   data_value.mutable_associated_data(0)->set_int_value(1);
@@ -580,7 +588,7 @@ TEST_F(MarkedDataTableStorageTest, EraseRecordReturnsSuccess) {
   EXPECT_THAT(out, ElementsAre(EqualsProto(data_value)));
 }
 
-TEST_F(MarkedDataTableStorageTest, EraseRecordUnmatchedContentsReturnsError) {
+TEST_P(MarkedDataTableStorageTest, EraseRecordUnmatchedContentsReturnsError) {
   DataValue data_value;
   *data_value.add_associated_data()->mutable_key() = "user_id";
   data_value.mutable_associated_data(0)->set_int_value(1);
@@ -599,7 +607,7 @@ TEST_F(MarkedDataTableStorageTest, EraseRecordUnmatchedContentsReturnsError) {
       ResultIs(FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST)));
 }
 
-TEST_F(MarkedDataTableStorageTest, EraseRecordUnmatchedKeyReturnsError) {
+TEST_P(MarkedDataTableStorageTest, EraseRecordUnmatchedKeyReturnsError) {
   DataValue data_value;
   *data_value.add_associated_data()->mutable_key() = "user_id";
   data_value.mutable_associated_data(0)->set_int_value(1);
@@ -615,7 +623,7 @@ TEST_F(MarkedDataTableStorageTest, EraseRecordUnmatchedKeyReturnsError) {
       ResultIs(FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST)));
 }
 
-TEST_F(MarkedDataTableStorageTest, BeginEndIterationSuccess) {
+TEST_P(MarkedDataTableStorageTest, BeginEndIterationSuccess) {
   DataValue data_value;
   *data_value.add_associated_data()->mutable_key() = "user_id";
   data_value.mutable_associated_data(0)->set_int_value(1);
@@ -639,12 +647,81 @@ TEST_F(MarkedDataTableStorageTest, BeginEndIterationSuccess) {
   EXPECT_SUCCESS(data_table_.Insert(kHash2, data_value_internal3));
 
   std::vector<std::string> keys;
-  for (auto it = data_table_.Begin(); it != data_table_.End(); ++it) {
-    keys.push_back(std::string(std::begin(it->first), std::end(it->first)));
+  if (data_table_.IsPackedStorageEnabled()) {
+    for (auto it = data_table_.Begin(); it != data_table_.End(); ++it) {
+      keys.push_back(std::string(std::begin(it->first), std::end(it->first)));
+    }
+  } else {
+    for (auto it = data_table_.LegacyBegin(); it != data_table_.LegacyEnd();
+         ++it) {
+      keys.push_back(std::string(std::begin(it->first), std::end(it->first)));
+    }
   }
 
   EXPECT_EQ(keys.size(), 2);
   EXPECT_THAT(keys, AllOf(Contains(kHash), Contains(kHash2)));
+}
+
+TEST_P(MarkedDataTableStorageTest, PackedValueBufferSizeIs16Bytes) {
+  EXPECT_EQ(sizeof(PackedValueBuffer), 16);
+}
+
+TEST_P(MarkedDataTableStorageTest,
+       ReplaceWithVersionIdStoresSingleVersionInPackedValueBuffer) {
+  DataValue data_value;
+  data_value.add_associated_data()->set_key("user_id");
+  data_value.mutable_associated_data(0)->set_int_value(1);
+  DataValue data_value2;
+  data_value2.add_associated_data()->set_key("user_id");
+  data_value2.mutable_associated_data(0)->set_int_value(2);
+  std::vector<DataValue> data_values = {data_value, data_value2};
+
+  EXPECT_SUCCESS(data_table_.Replace(kHash, data_values, /*version_id=*/7));
+
+  if (data_table_.IsPackedStorageEnabled()) {
+    auto it = data_table_.Begin();
+    ASSERT_NE(it, data_table_.End());
+    EXPECT_EQ(it->second.version_id, 7u);
+    EXPECT_GT(it->second.size, 0u);
+
+    PackedDataValueGroup group;
+    ASSERT_TRUE(group.ParseFromArray(it->second.data.get(),
+                                     static_cast<int>(it->second.size)));
+    EXPECT_EQ(group.record_version_ids_size(), 0);
+    EXPECT_THAT(group.data_values(),
+                UnorderedElementsAre(EqualsProto(data_value),
+                                     EqualsProto(data_value2)));
+  }
+
+  std::vector<DataValue> out;
+  EXPECT_SUCCESS(data_table_.Find(kHash, out));
+  EXPECT_THAT(out, UnorderedElementsAre(EqualsProto(data_value),
+                                        EqualsProto(data_value2)));
+}
+
+TEST_P(MarkedDataTableStorageTest,
+       EraseUnmatchedVersionsOnReplacedEntriesUsesDirectVersionIdCheck) {
+  DataValue data_value;
+  data_value.add_associated_data()->set_key("user_id");
+  data_value.mutable_associated_data(0)->set_int_value(1);
+  DataValue data_value2;
+  data_value2.add_associated_data()->set_key("user_id");
+  data_value2.mutable_associated_data(0)->set_int_value(2);
+
+  EXPECT_SUCCESS(data_table_.Replace(kHash, {data_value}, /*version_id=*/1));
+  EXPECT_SUCCESS(data_table_.Replace(kHash2, {data_value2}, /*version_id=*/2));
+
+  EXPECT_SUCCESS(
+      data_table_.EraseUnmatchedVersions(kHash, /*version_id_to_keep=*/2));
+  EXPECT_SUCCESS(
+      data_table_.EraseUnmatchedVersions(kHash2, /*version_id_to_keep=*/2));
+
+  std::vector<DataValue> out;
+  EXPECT_THAT(
+      data_table_.Find(kHash, out),
+      ResultIs(FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST)));
+  EXPECT_SUCCESS(data_table_.Find(kHash2, out));
+  EXPECT_THAT(out, ElementsAre(EqualsProto(data_value2)));
 }
 
 }  // namespace google::confidential_match

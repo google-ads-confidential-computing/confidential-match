@@ -44,10 +44,12 @@ class InMemoryMatchDataStorage : public MatchDataStorageInterface {
   InMemoryMatchDataStorage() : data_table_() {}
 
   /**
-   * @brief Constructs storage using the provided number of hash buckets.
+   * @brief Constructs storage using the provided number of hash buckets and
+   * storage mode configuration.
    */
-  explicit InMemoryMatchDataStorage(uint64_t bucket_count)
-      : data_table_(bucket_count) {}
+  explicit InMemoryMatchDataStorage(uint64_t bucket_count,
+                                    bool enable_packed_storage = true)
+      : data_table_(bucket_count, enable_packed_storage) {}
 
   scp::core::ExecutionResult Init() noexcept override;
   scp::core::ExecutionResult Run() noexcept override;

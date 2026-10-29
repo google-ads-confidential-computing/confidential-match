@@ -44,6 +44,7 @@
 #include "cc/match_service/auth_token_client/auth_token_client.h"
 #include "cc/match_service/auth_token_client/cached_auth_token_client.h"
 #include "cc/match_service/crypto_client/aead_crypto_client.h"
+#include "cc/match_service/crypto_client/cpio_aead_crypto_client.h"
 #include "cc/match_service/crypto_client/hybrid_crypto_client.h"
 #include "cc/match_service/kms_client/cached_kms_client.h"
 #include "cc/match_service/kms_client/kms_client.h"
@@ -65,7 +66,10 @@
 #include "cc/public/cpio/utils/configuration_fetcher/src/configuration_fetcher.h"
 #include "cc/public/cpio/utils/dual_writing_metric_client/noop/noop_dual_writing_metric_client.h"
 #include "cc/public/cpio/utils/dual_writing_metric_client/src/dual_writing_metric_client.h"
+#include "cc/public/cpio/utils/key_fetching/src/aws_wrapped_key_handler_with_cache.h"
+#include "cc/public/cpio/utils/key_fetching/src/gcp_wrapped_key_handler_with_cache.h"
 #include "cc/public/cpio/utils/key_fetching/src/ondemand_key_fetcher_with_cache.h"
+#include "cc/public/cpio/utils/key_fetching/src/wrapped_key_handler_with_cache_interface.h"
 #include "google/protobuf/text_format.h"
 #include "google/protobuf/util/time_util.h"
 #include "grpcpp/ext/proto_server_reflection_plugin.h"
@@ -92,11 +96,13 @@ using ::google::scp::core::ServiceInterface;
 using ::google::scp::core::errors::GetErrorMessage;
 using ::google::scp::cpio::AwsKmsClientFactory;
 using ::google::scp::cpio::AwsKmsClientOptions;
+using ::google::scp::cpio::AwsWrappedKeyHandlerWithCache;
 using ::google::scp::cpio::ConfigurationFetcher;
 using ::google::scp::cpio::ConfigurationFetcherInterface;
 using ::google::scp::cpio::Cpio;
 using ::google::scp::cpio::CpioOptions;
 using ::google::scp::cpio::DualWritingMetricClient;
+using ::google::scp::cpio::GcpWrappedKeyHandlerWithCache;
 using ::google::scp::cpio::KmsClientFactory;
 using ::google::scp::cpio::KmsClientOptions;
 using ::google::scp::cpio::LogOption;
@@ -106,6 +112,7 @@ using ::google::scp::cpio::NoopDualWritingMetricClient;
 using ::google::scp::cpio::OndemandKeyFetcherWithCache;
 using ::google::scp::cpio::PrivateKeyClientFactory;
 using ::google::scp::cpio::PrivateKeyClientOptions;
+using ::google::scp::cpio::WrappedKeyHandlerOptions;
 using ::google::scp::cpio::client_providers::AwsInitializer;
 using ::grpc::experimental::AltsServerCredentials;
 using ::grpc::experimental::AltsServerCredentialsOptions;
@@ -180,6 +187,12 @@ constexpr absl::string_view kMatchServiceAsyncExecutorName =
 constexpr absl::string_view kPrivateKeyClientServiceName = "PrivateKeyClient";
 constexpr absl::string_view kOndemandKeyFetcherServiceName =
     "OndemandKeyFetcher";
+constexpr absl::string_view kGcpKmsClientServiceName = "GcpKmsClient";
+constexpr absl::string_view kAwsKmsClientServiceName = "AwsKmsClient";
+constexpr absl::string_view kGcpWrappedKeyHandlerServiceName =
+    "GcpWrappedKeyHandler";
+constexpr absl::string_view kAwsWrappedKeyHandlerServiceName =
+    "AwsWrappedKeyHandler";
 
 // Read an environment variable as a std::string.
 absl::StatusOr<std::string> GetEnvString(const char* name) noexcept {
@@ -542,6 +555,23 @@ absl::Status MatchServer::SetConfigFromParameters() noexcept {
   LOG(INFO) << "EnableGrpcOtelMetrics: "
             << (config_.enable_grpc_otel_metrics ? "true" : "false");
 
+  DLOG(INFO) << "Fetching EnableCpioAeadCryptoClient";
+  const auto enable_cpio_aead_crypto_client_config_key =
+      ConfigurationKeys::CONFIGURATION_KEYS_ENABLE_CPIO_AEAD_CRYPTO_CLIENT;
+  auto enable_cpio_aead_crypto_client_or = config_fetcher_->GetBoolByNameSync(
+      ConfigurationKeys_Name(enable_cpio_aead_crypto_client_config_key));
+  if (enable_cpio_aead_crypto_client_or.Successful()) {
+    config_.enable_cpio_aead_crypto_client =
+        enable_cpio_aead_crypto_client_or.value();
+  } else {
+    LOG(INFO) << "CONFIGURATION_KEYS_ENABLE_CPIO_AEAD_CRYPTO_CLIENT "
+              << "not found, using default: "
+              << (config_.enable_cpio_aead_crypto_client ? "true" : "false");
+  }
+
+  LOG(INFO) << "EnableCpioAeadCryptoClient: "
+            << (config_.enable_cpio_aead_crypto_client ? "true" : "false");
+
   return absl::OkStatus();
 }
 
@@ -615,19 +645,36 @@ absl::Status MatchServer::CreateComponents() noexcept {
   gcp_kms_client_options.gcp_kms_client_retry_total_retries =
       kGcpKmsClientRetryTotalRetries;
   gcp_kms_client_options.enable_new_gcp_error_code_converter = true;
-  gcp_kms_client_ = std::make_unique<KmsClient>(
-      KmsClientFactory::Create(gcp_kms_client_options));
-  cached_gcp_kms_client_ = std::make_unique<CachedKmsClient>(
-      cpu_async_executor_, gcp_kms_client_.get());
+  cpio_gcp_kms_client_ = KmsClientFactory::Create(gcp_kms_client_options);
   AwsKmsClientOptions aws_kms_client_options;
   aws_kms_client_options.region = kAwsDefaultRegion;
-  aws_kms_client_ = std::make_unique<KmsClient>(
-      AwsKmsClientFactory::Create(std::move(aws_kms_client_options)));
-  cached_aws_kms_client_ = std::make_unique<CachedKmsClient>(
-      cpu_async_executor_, aws_kms_client_.get());
-  aead_crypto_client_ = std::make_unique<AeadCryptoClient>(
-      cached_aws_kms_client_.get(), cached_gcp_kms_client_.get(),
-      config_.aws_kms_default_signatures, config_.aws_kms_default_audience);
+  cpio_aws_kms_client_ =
+      AwsKmsClientFactory::Create(std::move(aws_kms_client_options));
+  if (config_.enable_cpio_aead_crypto_client) {
+    WrappedKeyHandlerOptions wrapped_key_handler_options;
+    wrapped_key_handler_options.image_signature_key_ids =
+        config_.aws_kms_default_signatures;
+    wrapped_key_handler_options.aws_target_audience_for_web_identity =
+        config_.aws_kms_default_audience;
+    aws_wrapped_key_handler_ = std::make_unique<AwsWrappedKeyHandlerWithCache>(
+        cpu_async_executor_, *cpio_aws_kms_client_, wrapped_key_handler_options,
+        *dual_writing_metric_client_);
+    gcp_wrapped_key_handler_ = std::make_unique<GcpWrappedKeyHandlerWithCache>(
+        cpu_async_executor_, *cpio_gcp_kms_client_, wrapped_key_handler_options,
+        *dual_writing_metric_client_);
+    aead_crypto_client_ = std::make_unique<CpioAeadCryptoClient>(
+        aws_wrapped_key_handler_.get(), gcp_wrapped_key_handler_.get());
+  } else {
+    gcp_kms_client_ = std::make_unique<KmsClient>(cpio_gcp_kms_client_);
+    cached_gcp_kms_client_ = std::make_unique<CachedKmsClient>(
+        cpu_async_executor_, gcp_kms_client_.get());
+    aws_kms_client_ = std::make_unique<KmsClient>(cpio_aws_kms_client_);
+    cached_aws_kms_client_ = std::make_unique<CachedKmsClient>(
+        cpu_async_executor_, aws_kms_client_.get());
+    aead_crypto_client_ = std::make_unique<AeadCryptoClient>(
+        cached_aws_kms_client_.get(), cached_gcp_kms_client_.get(),
+        config_.aws_kms_default_signatures, config_.aws_kms_default_audience);
+  }
   lookup_service_shard_client_ = std::make_unique<LookupServiceShardClient>(
       cached_auth_token_client_.get(), http2_client_.get(),
       config_.lookup_service_auth_audience,
@@ -731,10 +778,21 @@ absl::Status MatchServer::Init() noexcept {
       InitScpService(*private_key_client_, kPrivateKeyClientServiceName));
   RETURN_IF_ERROR(
       InitScpService(*key_fetcher_, kOndemandKeyFetcherServiceName));
-  RETURN_IF_ERROR(gcp_kms_client_->Init());
-  RETURN_IF_ERROR(cached_gcp_kms_client_->Init());
-  RETURN_IF_ERROR(aws_kms_client_->Init());
-  RETURN_IF_ERROR(cached_aws_kms_client_->Init());
+  if (config_.enable_cpio_aead_crypto_client) {
+    RETURN_IF_ERROR(
+        InitScpService(*cpio_gcp_kms_client_, kGcpKmsClientServiceName));
+    RETURN_IF_ERROR(
+        InitScpService(*cpio_aws_kms_client_, kAwsKmsClientServiceName));
+    RETURN_IF_ERROR(InitScpService(*gcp_wrapped_key_handler_,
+                                   kGcpWrappedKeyHandlerServiceName));
+    RETURN_IF_ERROR(InitScpService(*aws_wrapped_key_handler_,
+                                   kAwsWrappedKeyHandlerServiceName));
+  } else {
+    RETURN_IF_ERROR(gcp_kms_client_->Init());
+    RETURN_IF_ERROR(cached_gcp_kms_client_->Init());
+    RETURN_IF_ERROR(aws_kms_client_->Init());
+    RETURN_IF_ERROR(cached_aws_kms_client_->Init());
+  }
   RETURN_IF_ERROR(aead_crypto_client_->Init());
   RETURN_IF_ERROR(hybrid_crypto_client_->Init());
   RETURN_IF_ERROR(auth_token_client_->Init());
@@ -768,10 +826,21 @@ absl::Status MatchServer::Run() noexcept {
         RunScpService(*private_key_client_, kPrivateKeyClientServiceName));
     RETURN_IF_ERROR(
         RunScpService(*key_fetcher_, kOndemandKeyFetcherServiceName));
-    RETURN_IF_ERROR(gcp_kms_client_->Run());
-    RETURN_IF_ERROR(cached_gcp_kms_client_->Run());
-    RETURN_IF_ERROR(aws_kms_client_->Run());
-    RETURN_IF_ERROR(cached_aws_kms_client_->Run());
+    if (config_.enable_cpio_aead_crypto_client) {
+      RETURN_IF_ERROR(
+          RunScpService(*cpio_gcp_kms_client_, kGcpKmsClientServiceName));
+      RETURN_IF_ERROR(
+          RunScpService(*cpio_aws_kms_client_, kAwsKmsClientServiceName));
+      RETURN_IF_ERROR(RunScpService(*gcp_wrapped_key_handler_,
+                                    kGcpWrappedKeyHandlerServiceName));
+      RETURN_IF_ERROR(RunScpService(*aws_wrapped_key_handler_,
+                                    kAwsWrappedKeyHandlerServiceName));
+    } else {
+      RETURN_IF_ERROR(gcp_kms_client_->Run());
+      RETURN_IF_ERROR(cached_gcp_kms_client_->Run());
+      RETURN_IF_ERROR(aws_kms_client_->Run());
+      RETURN_IF_ERROR(cached_aws_kms_client_->Run());
+    }
     RETURN_IF_ERROR(aead_crypto_client_->Run());
     RETURN_IF_ERROR(hybrid_crypto_client_->Run());
     RETURN_IF_ERROR(auth_token_client_->Run());
@@ -824,10 +893,21 @@ absl::Status MatchServer::Stop() noexcept {
   RETURN_IF_ERROR(auth_token_client_->Stop());
   RETURN_IF_ERROR(aead_crypto_client_->Stop());
   RETURN_IF_ERROR(hybrid_crypto_client_->Stop());
-  RETURN_IF_ERROR(cached_aws_kms_client_->Stop());
-  RETURN_IF_ERROR(aws_kms_client_->Stop());
-  RETURN_IF_ERROR(cached_gcp_kms_client_->Stop());
-  RETURN_IF_ERROR(gcp_kms_client_->Stop());
+  if (config_.enable_cpio_aead_crypto_client) {
+    RETURN_IF_ERROR(StopScpService(*aws_wrapped_key_handler_,
+                                   kAwsWrappedKeyHandlerServiceName));
+    RETURN_IF_ERROR(StopScpService(*gcp_wrapped_key_handler_,
+                                   kGcpWrappedKeyHandlerServiceName));
+    RETURN_IF_ERROR(
+        StopScpService(*cpio_aws_kms_client_, kAwsKmsClientServiceName));
+    RETURN_IF_ERROR(
+        StopScpService(*cpio_gcp_kms_client_, kGcpKmsClientServiceName));
+  } else {
+    RETURN_IF_ERROR(cached_aws_kms_client_->Stop());
+    RETURN_IF_ERROR(aws_kms_client_->Stop());
+    RETURN_IF_ERROR(cached_gcp_kms_client_->Stop());
+    RETURN_IF_ERROR(gcp_kms_client_->Stop());
+  }
   RETURN_IF_ERROR(
       StopScpService(*key_fetcher_, kOndemandKeyFetcherServiceName));
   RETURN_IF_ERROR(
