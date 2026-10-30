@@ -28,9 +28,11 @@
 
 namespace google::confidential_match {
 
+using ::google::confidential_match::CompactAssociatedData;
 using ::google::confidential_match::DataValue;
 using ::google::confidential_match::DataValueInternal;
 using ::google::confidential_match::PackedDataValueGroup;
+using ::google::confidential_match::PiiType;
 using ::google::scp::core::ExecutionResult;
 using ::google::scp::core::ExecutionResultOr;
 using ::google::scp::core::FailureExecutionResult;
@@ -49,6 +51,8 @@ constexpr absl::string_view kHash = "example-hash-string-of-length-32";
 constexpr absl::string_view kHash2 = "another-hash-string-of-length-32";
 // Sample hash key with invalid length.
 constexpr absl::string_view kHashKeyInvalidLength = "short-hash-string";
+constexpr absl::string_view kEncryptedGaiaIdKey = "encrypted_gaia_id";
+constexpr absl::string_view kPiiTypeKey = "pii_type";
 
 class MarkedDataTableStorageTest : public testing::Test,
                                    public testing::WithParamInterface<bool> {
@@ -65,8 +69,8 @@ INSTANTIATE_TEST_SUITE_P(MarkedDataTableStorageTests,
 TEST_P(MarkedDataTableStorageTest, InsertSingleReturnsSuccess) {
   EXPECT_EQ(data_table_.IsPackedStorageEnabled(), GetParam());
   DataValue data_value;
-  data_value.add_associated_data()->set_key("user_id");
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  data_value.add_associated_data()->set_key(std::string(kEncryptedGaiaIdKey));
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
@@ -78,15 +82,15 @@ TEST_P(MarkedDataTableStorageTest, InsertSingleReturnsSuccess) {
 
 TEST_P(MarkedDataTableStorageTest, InsertMultipleReturnsSuccess) {
   DataValue data_value;
-  data_value.add_associated_data()->set_key("user_id");
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  data_value.add_associated_data()->set_key(std::string(kEncryptedGaiaIdKey));
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
 
   DataValue data_value2;
-  data_value2.add_associated_data()->set_key("user_id");
-  data_value2.mutable_associated_data(0)->set_int_value(2);
+  data_value2.add_associated_data()->set_key(std::string(kEncryptedGaiaIdKey));
+  data_value2.mutable_associated_data(0)->set_bytes_value("2");
   DataValueInternal data_value_internal2;
   *data_value_internal2.mutable_data_value() = data_value;
   data_value_internal2.set_version_id(2);
@@ -102,8 +106,8 @@ TEST_P(MarkedDataTableStorageTest, InsertMultipleReturnsSuccess) {
 
 TEST_P(MarkedDataTableStorageTest, InsertDuplicateReturnsSuccess) {
   DataValue data_value;
-  data_value.add_associated_data()->set_key("user_id");
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  data_value.add_associated_data()->set_key(std::string(kEncryptedGaiaIdKey));
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
@@ -121,8 +125,8 @@ TEST_P(MarkedDataTableStorageTest, InsertDuplicateReturnsSuccess) {
 TEST_P(MarkedDataTableStorageTest,
        InsertDuplicateWithDifferentVersionReturnsSuccess) {
   DataValue data_value;
-  data_value.add_associated_data()->set_key("user_id");
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  data_value.add_associated_data()->set_key(std::string(kEncryptedGaiaIdKey));
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
@@ -140,8 +144,9 @@ TEST_P(MarkedDataTableStorageTest,
 
 TEST_P(MarkedDataTableStorageTest, InsertHashKeyInvalidLengthReturnsError) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = "user_id";
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  *data_value.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
@@ -155,15 +160,15 @@ TEST_P(MarkedDataTableStorageTest, InsertHashKeyInvalidLengthReturnsError) {
 
 TEST_P(MarkedDataTableStorageTest, ReplaceNonexistentReturnsSuccess) {
   DataValue data_value;
-  data_value.add_associated_data()->set_key("user_id");
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  data_value.add_associated_data()->set_key(std::string(kEncryptedGaiaIdKey));
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
 
   DataValue data_value2;
-  data_value2.add_associated_data()->set_key("user_id");
-  data_value2.mutable_associated_data(0)->set_int_value(2);
+  data_value2.add_associated_data()->set_key(std::string(kEncryptedGaiaIdKey));
+  data_value2.mutable_associated_data(0)->set_bytes_value("2");
   DataValueInternal data_value_internal2;
   *data_value_internal2.mutable_data_value() = data_value;
   data_value_internal2.set_version_id(2);
@@ -182,16 +187,16 @@ TEST_P(MarkedDataTableStorageTest, ReplaceNonexistentReturnsSuccess) {
 
 TEST_P(MarkedDataTableStorageTest, ReplaceExistingReturnsSuccess) {
   DataValue data_value;
-  data_value.add_associated_data()->set_key("user_id");
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  data_value.add_associated_data()->set_key(std::string(kEncryptedGaiaIdKey));
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value_internal));
 
   DataValue data_value2;
-  data_value2.add_associated_data()->set_key("user_id");
-  data_value2.mutable_associated_data(0)->set_int_value(2);
+  data_value2.add_associated_data()->set_key(std::string(kEncryptedGaiaIdKey));
+  data_value2.mutable_associated_data(0)->set_bytes_value("2");
   DataValueInternal data_value_internal2;
   *data_value_internal2.mutable_data_value() = data_value;
   data_value_internal2.set_version_id(2);
@@ -207,8 +212,9 @@ TEST_P(MarkedDataTableStorageTest, ReplaceExistingReturnsSuccess) {
 
 TEST_P(MarkedDataTableStorageTest, ReplaceHashKeyInvalidLengthReturnsError) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = "user_id";
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  *data_value.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
@@ -223,8 +229,9 @@ TEST_P(MarkedDataTableStorageTest, ReplaceHashKeyInvalidLengthReturnsError) {
 
 TEST_P(MarkedDataTableStorageTest, FindExistingRecordReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = "user_id";
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  *data_value.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
@@ -239,8 +246,9 @@ TEST_P(MarkedDataTableStorageTest, FindExistingRecordReturnsSuccess) {
 
 TEST_P(MarkedDataTableStorageTest, FindNonexistentRecordReturnsError) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = "user_id";
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  *data_value.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
@@ -266,8 +274,9 @@ TEST_P(MarkedDataTableStorageTest,
 TEST_P(MarkedDataTableStorageTest,
        FindSingleRecordMultipleVersionsReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = "user_id";
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  *data_value.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
@@ -282,22 +291,24 @@ TEST_P(MarkedDataTableStorageTest,
 
   EXPECT_SUCCESS(read_result);
   EXPECT_EQ(out.size(), 1);
-  EXPECT_EQ(out[0].associated_data(0).key(), "user_id");
-  EXPECT_EQ(out[0].associated_data(0).int_value(), 1);
+  EXPECT_EQ(out[0].associated_data(0).key(), kEncryptedGaiaIdKey);
+  EXPECT_EQ(out[0].associated_data(0).bytes_value(), "1");
   EXPECT_THAT(out, ElementsAre(EqualsProto(data_value)));
 }
 
 TEST_P(MarkedDataTableStorageTest, FindMultipleRecordsSameHashReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = "user_id";
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  *data_value.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value_internal));
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = "user_id";
-  data_value2.mutable_associated_data(0)->set_int_value(2);
+  *data_value2.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value2.mutable_associated_data(0)->set_bytes_value("2");
   DataValueInternal data_value_internal2;
   *data_value_internal2.mutable_data_value() = data_value2;
   data_value_internal2.set_version_id(1);
@@ -314,15 +325,17 @@ TEST_P(MarkedDataTableStorageTest, FindMultipleRecordsSameHashReturnsSuccess) {
 TEST_P(MarkedDataTableStorageTest,
        FindMultipleRecordsDifferentVersionsReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = "user_id";
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  *data_value.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value_internal));
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = "user_id";
-  data_value2.mutable_associated_data(0)->set_int_value(2);
+  *data_value2.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value2.mutable_associated_data(0)->set_bytes_value("2");
   DataValueInternal data_value_internal2;
   *data_value_internal2.mutable_data_value() = data_value2;
   data_value_internal2.set_version_id(2);
@@ -339,15 +352,17 @@ TEST_P(MarkedDataTableStorageTest,
 TEST_P(MarkedDataTableStorageTest,
        FindMultipleRecordsDifferentHashReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = "user_id";
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  *data_value.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value_internal));
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = "user_id";
-  data_value2.mutable_associated_data(0)->set_int_value(2);
+  *data_value2.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value2.mutable_associated_data(0)->set_bytes_value("2");
   DataValueInternal data_value_internal2;
   *data_value_internal2.mutable_data_value() = data_value2;
   data_value_internal2.set_version_id(2);
@@ -366,22 +381,25 @@ TEST_P(MarkedDataTableStorageTest,
 
 TEST_P(MarkedDataTableStorageTest, FindInternalMultipleRecordsReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = "user_id";
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  *data_value.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value_internal));
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = "user_id";
-  data_value2.mutable_associated_data(0)->set_int_value(2);
+  *data_value2.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value2.mutable_associated_data(0)->set_bytes_value("2");
   DataValueInternal data_value_internal2;
   *data_value_internal2.mutable_data_value() = data_value2;
   data_value_internal2.set_version_id(2);
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value_internal2));
   DataValue data_value3;
-  *data_value3.add_associated_data()->mutable_key() = "user_id";
-  data_value3.mutable_associated_data(0)->set_int_value(3);
+  *data_value3.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value3.mutable_associated_data(0)->set_bytes_value("3");
   DataValueInternal data_value_internal3;
   *data_value_internal3.mutable_data_value() = data_value3;
   data_value_internal3.set_version_id(3);
@@ -397,22 +415,25 @@ TEST_P(MarkedDataTableStorageTest, FindInternalMultipleRecordsReturnsSuccess) {
 
 TEST_P(MarkedDataTableStorageTest, EraseUnmatchedVersionsReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = "user_id";
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  *data_value.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value_internal));
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = "user_id";
-  data_value2.mutable_associated_data(0)->set_int_value(2);
+  *data_value2.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value2.mutable_associated_data(0)->set_bytes_value("2");
   DataValueInternal data_value_internal2;
   *data_value_internal2.mutable_data_value() = data_value2;
   data_value_internal2.set_version_id(2);
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value_internal2));
   DataValue data_value3;
-  *data_value3.add_associated_data()->mutable_key() = "user_id";
-  data_value3.mutable_associated_data(0)->set_int_value(3);
+  *data_value3.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value3.mutable_associated_data(0)->set_bytes_value("3");
   DataValueInternal data_value_internal3;
   *data_value_internal3.mutable_data_value() = data_value3;
   data_value_internal3.set_version_id(1);
@@ -430,22 +451,25 @@ TEST_P(MarkedDataTableStorageTest, EraseUnmatchedVersionsReturnsSuccess) {
 TEST_P(MarkedDataTableStorageTest,
        EraseUnmatchedVersionsMultipleKeysReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = "user_id";
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  *data_value.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value_internal));
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = "user_id";
-  data_value2.mutable_associated_data(0)->set_int_value(2);
+  *data_value2.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value2.mutable_associated_data(0)->set_bytes_value("2");
   DataValueInternal data_value_internal2;
   *data_value_internal2.mutable_data_value() = data_value2;
   data_value_internal2.set_version_id(2);
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value_internal2));
   DataValue data_value3;
-  *data_value3.add_associated_data()->mutable_key() = "user_id";
-  data_value3.mutable_associated_data(0)->set_int_value(3);
+  *data_value3.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value3.mutable_associated_data(0)->set_bytes_value("3");
   DataValueInternal data_value_internal3;
   *data_value_internal3.mutable_data_value() = data_value3;
   data_value_internal3.set_version_id(1);
@@ -465,15 +489,17 @@ TEST_P(MarkedDataTableStorageTest,
 TEST_P(MarkedDataTableStorageTest,
        EraseUnmatchedVersionsAllEntriesRemovedReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = "user_id";
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  *data_value.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value_internal));
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = "user_id";
-  data_value2.mutable_associated_data(0)->set_int_value(2);
+  *data_value2.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value2.mutable_associated_data(0)->set_bytes_value("2");
   DataValueInternal data_value_internal2;
   *data_value_internal2.mutable_data_value() = data_value2;
   data_value_internal2.set_version_id(1);
@@ -492,8 +518,9 @@ TEST_P(MarkedDataTableStorageTest,
 TEST_P(MarkedDataTableStorageTest,
        EraseUnmatchedVersionsNonexistentKeyReturnsError) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = "user_id";
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  *data_value.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
@@ -508,22 +535,25 @@ TEST_P(MarkedDataTableStorageTest,
 
 TEST_P(MarkedDataTableStorageTest, EraseAllReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = "user_id";
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  *data_value.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value_internal));
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = "user_id";
-  data_value2.mutable_associated_data(0)->set_int_value(2);
+  *data_value2.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value2.mutable_associated_data(0)->set_bytes_value("2");
   DataValueInternal data_value_internal2;
   *data_value_internal2.mutable_data_value() = data_value2;
   data_value_internal2.set_version_id(1);
   EXPECT_SUCCESS(data_table_.Insert(kHash2, data_value_internal2));
   DataValue data_value3;
-  *data_value3.add_associated_data()->mutable_key() = "user_id";
-  data_value3.mutable_associated_data(0)->set_int_value(3);
+  *data_value3.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value3.mutable_associated_data(0)->set_bytes_value("3");
   DataValueInternal data_value_internal3;
   *data_value_internal3.mutable_data_value() = data_value3;
   data_value_internal3.set_version_id(1);
@@ -542,8 +572,9 @@ TEST_P(MarkedDataTableStorageTest, EraseAllReturnsSuccess) {
 
 TEST_P(MarkedDataTableStorageTest, EraseNonexistentReturnsError) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = "user_id";
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  *data_value.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
@@ -566,15 +597,17 @@ TEST_P(MarkedDataTableStorageTest,
 
 TEST_P(MarkedDataTableStorageTest, EraseRecordReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = "user_id";
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  *data_value.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value_internal));
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = "user_id";
-  data_value2.mutable_associated_data(0)->set_int_value(2);
+  *data_value2.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value2.mutable_associated_data(0)->set_bytes_value("2");
   DataValueInternal data_value_internal2;
   *data_value_internal2.mutable_data_value() = data_value2;
   data_value_internal2.set_version_id(1);
@@ -590,15 +623,17 @@ TEST_P(MarkedDataTableStorageTest, EraseRecordReturnsSuccess) {
 
 TEST_P(MarkedDataTableStorageTest, EraseRecordUnmatchedContentsReturnsError) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = "user_id";
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  *data_value.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value_internal));
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = "user_id";
-  data_value2.mutable_associated_data(0)->set_int_value(2);
+  *data_value2.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value2.mutable_associated_data(0)->set_bytes_value("2");
 
   ExecutionResult erase_result = data_table_.Erase(kHash, data_value2);
 
@@ -609,8 +644,9 @@ TEST_P(MarkedDataTableStorageTest, EraseRecordUnmatchedContentsReturnsError) {
 
 TEST_P(MarkedDataTableStorageTest, EraseRecordUnmatchedKeyReturnsError) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = "user_id";
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  *data_value.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
@@ -625,22 +661,25 @@ TEST_P(MarkedDataTableStorageTest, EraseRecordUnmatchedKeyReturnsError) {
 
 TEST_P(MarkedDataTableStorageTest, BeginEndIterationSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = "user_id";
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  *data_value.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValueInternal data_value_internal;
   *data_value_internal.mutable_data_value() = data_value;
   data_value_internal.set_version_id(1);
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value_internal));
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = "user_id";
-  data_value2.mutable_associated_data(0)->set_int_value(2);
+  *data_value2.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value2.mutable_associated_data(0)->set_bytes_value("2");
   DataValueInternal data_value_internal2;
   *data_value_internal2.mutable_data_value() = data_value2;
   data_value_internal2.set_version_id(2);
   EXPECT_SUCCESS(data_table_.Insert(kHash2, data_value_internal2));
   DataValue data_value3;
-  *data_value3.add_associated_data()->mutable_key() = "user_id";
-  data_value3.mutable_associated_data(0)->set_int_value(3);
+  *data_value3.add_associated_data()->mutable_key() =
+      std::string(kEncryptedGaiaIdKey);
+  data_value3.mutable_associated_data(0)->set_bytes_value("3");
   DataValueInternal data_value_internal3;
   *data_value_internal3.mutable_data_value() = data_value3;
   data_value_internal3.set_version_id(3);
@@ -669,11 +708,11 @@ TEST_P(MarkedDataTableStorageTest, PackedValueBufferSizeIs16Bytes) {
 TEST_P(MarkedDataTableStorageTest,
        ReplaceWithVersionIdStoresSingleVersionInPackedValueBuffer) {
   DataValue data_value;
-  data_value.add_associated_data()->set_key("user_id");
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  data_value.add_associated_data()->set_key(std::string(kEncryptedGaiaIdKey));
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValue data_value2;
-  data_value2.add_associated_data()->set_key("user_id");
-  data_value2.mutable_associated_data(0)->set_int_value(2);
+  data_value2.add_associated_data()->set_key(std::string(kEncryptedGaiaIdKey));
+  data_value2.mutable_associated_data(0)->set_bytes_value("2");
   std::vector<DataValue> data_values = {data_value, data_value2};
 
   EXPECT_SUCCESS(data_table_.Replace(kHash, data_values, /*version_id=*/7));
@@ -688,9 +727,7 @@ TEST_P(MarkedDataTableStorageTest,
     ASSERT_TRUE(group.ParseFromArray(it->second.data.get(),
                                      static_cast<int>(it->second.size)));
     EXPECT_EQ(group.record_version_ids_size(), 0);
-    EXPECT_THAT(group.data_values(),
-                UnorderedElementsAre(EqualsProto(data_value),
-                                     EqualsProto(data_value2)));
+    EXPECT_EQ(group.records_size(), 2);
   }
 
   std::vector<DataValue> out;
@@ -702,11 +739,11 @@ TEST_P(MarkedDataTableStorageTest,
 TEST_P(MarkedDataTableStorageTest,
        EraseUnmatchedVersionsOnReplacedEntriesUsesDirectVersionIdCheck) {
   DataValue data_value;
-  data_value.add_associated_data()->set_key("user_id");
-  data_value.mutable_associated_data(0)->set_int_value(1);
+  data_value.add_associated_data()->set_key(std::string(kEncryptedGaiaIdKey));
+  data_value.mutable_associated_data(0)->set_bytes_value("1");
   DataValue data_value2;
-  data_value2.add_associated_data()->set_key("user_id");
-  data_value2.mutable_associated_data(0)->set_int_value(2);
+  data_value2.add_associated_data()->set_key(std::string(kEncryptedGaiaIdKey));
+  data_value2.mutable_associated_data(0)->set_bytes_value("2");
 
   EXPECT_SUCCESS(data_table_.Replace(kHash, {data_value}, /*version_id=*/1));
   EXPECT_SUCCESS(data_table_.Replace(kHash2, {data_value2}, /*version_id=*/2));
@@ -724,4 +761,111 @@ TEST_P(MarkedDataTableStorageTest,
   EXPECT_THAT(out, ElementsAre(EqualsProto(data_value2)));
 }
 
+TEST_P(MarkedDataTableStorageTest,
+       CompactAssociatedDataTranslatesAllThreePiiTypesAndGaiaIdsRoundTrip) {
+  DataValue phone_val;
+  phone_val.add_associated_data()->set_key(std::string(kPiiTypeKey));
+  phone_val.mutable_associated_data(0)->set_string_value("P");
+  phone_val.add_associated_data()->set_key(std::string(kEncryptedGaiaIdKey));
+  phone_val.mutable_associated_data(1)->set_bytes_value("gaia_phone_1");
+  phone_val.add_associated_data()->set_key(std::string(kEncryptedGaiaIdKey));
+  phone_val.mutable_associated_data(2)->set_bytes_value("gaia_phone_2");
+
+  DataValue email_val;
+  email_val.add_associated_data()->set_key(std::string(kPiiTypeKey));
+  email_val.mutable_associated_data(0)->set_string_value("E");
+  email_val.add_associated_data()->set_key(std::string(kEncryptedGaiaIdKey));
+  email_val.mutable_associated_data(1)->set_bytes_value("gaia_email_1");
+
+  DataValue address_val;
+  address_val.add_associated_data()->set_key(std::string(kPiiTypeKey));
+  address_val.mutable_associated_data(0)->set_string_value("A");
+  address_val.add_associated_data()->set_key(std::string(kEncryptedGaiaIdKey));
+  address_val.mutable_associated_data(1)->set_bytes_value("gaia_address_1");
+
+  EXPECT_SUCCESS(data_table_.Replace(
+      kHash, {phone_val, email_val, address_val}, /*version_id=*/3));
+
+  if (data_table_.IsPackedStorageEnabled()) {
+    auto it = data_table_.Begin();
+    ASSERT_NE(it, data_table_.End());
+    PackedDataValueGroup group;
+    ASSERT_TRUE(group.ParseFromArray(it->second.data.get(),
+                                     static_cast<int>(it->second.size)));
+    ASSERT_EQ(group.records_size(), 3);
+    EXPECT_EQ(group.records(0).pii_type(), PiiType::PII_TYPE_PHONE_NUMBER);
+    EXPECT_THAT(group.records(0).encrypted_gaia_id(),
+                ElementsAre("gaia_phone_1", "gaia_phone_2"));
+    EXPECT_EQ(group.records(1).pii_type(), PiiType::PII_TYPE_EMAIL);
+    EXPECT_THAT(group.records(1).encrypted_gaia_id(),
+                ElementsAre("gaia_email_1"));
+    EXPECT_EQ(group.records(2).pii_type(), PiiType::PII_TYPE_ADDRESS);
+    EXPECT_THAT(group.records(2).encrypted_gaia_id(),
+                ElementsAre("gaia_address_1"));
+  }
+
+  std::vector<DataValue> out;
+  EXPECT_SUCCESS(data_table_.Find(kHash, out));
+  EXPECT_THAT(out, UnorderedElementsAre(EqualsProto(phone_val),
+                                        EqualsProto(email_val),
+                                        EqualsProto(address_val)));
+}
+
+TEST_P(MarkedDataTableStorageTest,
+       CompactAssociatedDataDistinguishesRecordsWithDifferentPiiTypes) {
+  DataValue phone_val;
+  phone_val.add_associated_data()->set_key(std::string(kPiiTypeKey));
+  phone_val.mutable_associated_data(0)->set_string_value("P");
+  phone_val.add_associated_data()->set_key(std::string(kEncryptedGaiaIdKey));
+  phone_val.mutable_associated_data(1)->set_bytes_value("shared_gaia_id");
+  DataValueInternal phone_internal;
+  *phone_internal.mutable_data_value() = phone_val;
+  phone_internal.set_version_id(1);
+
+  DataValue email_val;
+  email_val.add_associated_data()->set_key(std::string(kPiiTypeKey));
+  email_val.mutable_associated_data(0)->set_string_value("E");
+  email_val.add_associated_data()->set_key(std::string(kEncryptedGaiaIdKey));
+  email_val.mutable_associated_data(1)->set_bytes_value("shared_gaia_id");
+  DataValueInternal email_internal;
+  *email_internal.mutable_data_value() = email_val;
+  email_internal.set_version_id(1);
+
+  EXPECT_SUCCESS(data_table_.Insert(kHash, phone_internal));
+  EXPECT_SUCCESS(data_table_.Insert(kHash, email_internal));
+
+  std::vector<DataValue> out;
+  EXPECT_SUCCESS(data_table_.Find(kHash, out));
+  EXPECT_THAT(out,
+              UnorderedElementsAre(EqualsProto(phone_val),
+                                   EqualsProto(email_val)));
+
+  EXPECT_SUCCESS(data_table_.Erase(kHash, phone_val));
+  out.clear();
+  EXPECT_SUCCESS(data_table_.Find(kHash, out));
+  EXPECT_THAT(out, ElementsAre(EqualsProto(email_val)));
+}
+
+TEST_P(MarkedDataTableStorageTest,
+       CompactAssociatedDataReducesSerializedWireSize) {
+  DataValue data_value;
+  data_value.add_associated_data()->set_key(std::string(kPiiTypeKey));
+  data_value.mutable_associated_data(0)->set_string_value("P");
+  data_value.add_associated_data()->set_key(std::string(kEncryptedGaiaIdKey));
+  data_value.mutable_associated_data(1)->set_bytes_value(
+      std::string(44, 'A'));  // 44-byte encrypted GAIA ID
+
+  // Unpacked DataValue wire size is 82 bytes.
+  EXPECT_EQ(data_value.ByteSizeLong(), 82u);
+
+  EXPECT_SUCCESS(data_table_.Replace(kHash, {data_value}, /*version_id=*/1));
+
+  if (data_table_.IsPackedStorageEnabled()) {
+    auto it = data_table_.Begin();
+    ASSERT_NE(it, data_table_.End());
+    // CompactAssociatedData inside PackedDataValueGroup is ~50 bytes (<= 61 B).
+    EXPECT_LE(it->second.size, 61u);
+    EXPECT_LT(it->second.size, data_value.ByteSizeLong());
+  }
+}
 }  // namespace google::confidential_match

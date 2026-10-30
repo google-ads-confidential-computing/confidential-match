@@ -19,9 +19,12 @@
 #include <string>
 
 #include "absl/status/status.h"
+#include "absl/status/status_matchers.h"
 #include "absl/strings/escaping.h"
 #include "absl/strings/string_view.h"
 #include "cc/core/async/async_context.h"
+#include "cc/core/async_executor/mock/mock_async_executor.h"
+#include "cc/core/interface/async_executor_interface.h"
 #include "cc/core/test/utils/conditional_wait.h"
 #include "cc/core/test/utils/proto_test_utils.h"
 #include "cc/match_service/crypto_client/crypto_client_interface.h"
@@ -39,11 +42,15 @@
 namespace google::confidential_match::match_service {
 namespace {
 
+using ::absl_testing::IsOk;
+using ::absl_testing::IsOkAndHolds;
 using ::google::cmrt::sdk::v1::CloudWrappedKey;
 using ::google::confidential_match::EncryptionKeyInfo;
 using ::google::confidential_match::match_service::backend::Error;
+using ::google::scp::core::AsyncOperation;
 using ::google::scp::core::ExecutionResultOr;
 using ::google::scp::core::FailureExecutionResult;
+using ::google::scp::core::async_executor::mock::MockAsyncExecutor;
 using ::google::scp::core::test::EqualsProto;
 using ::google::scp::core::test::SubstituteAndParseTextToProto;
 using ::google::scp::core::test::WaitUntil;
@@ -71,12 +78,14 @@ class CpioAeadCryptoClientTest : public testing::Test {
   CpioAeadCryptoClientTest()
       : logger_(std::make_shared<Logger>(GlobalLogger())),
         crypto_client_(std::make_unique<CpioAeadCryptoClient>(
-            &mock_aws_key_handler_, &mock_gcp_key_handler_)) {
+            &mock_async_executor_, &mock_aws_key_handler_,
+            &mock_gcp_key_handler_)) {
     EXPECT_TRUE(crypto_client_->Init().ok());
     EXPECT_TRUE(crypto_client_->Run().ok());
   }
 
   std::shared_ptr<LoggerInterface> logger_;
+  MockAsyncExecutor mock_async_executor_;
   WrappedKeyHandlerWithCacheMock mock_aws_key_handler_;
   WrappedKeyHandlerWithCacheMock mock_gcp_key_handler_;
   std::unique_ptr<CryptoClientInterface> crypto_client_;
@@ -132,8 +141,12 @@ TEST_F(CpioAeadCryptoClientTest, GetGcpCryptoKeySuccess) {
   AsyncContext<EncryptionKeyInfo, CryptoKeyInterface> context(
       request,
       [&is_complete](AsyncContext<EncryptionKeyInfo, CryptoKeyInterface>& ctx) {
-        EXPECT_TRUE(ctx.status.ok());
-        EXPECT_NE(ctx.response, nullptr);
+        EXPECT_THAT(ctx.status, IsOk());
+        ASSERT_NE(ctx.response, nullptr);
+        auto ciphertext_or = ctx.response->Encrypt("test_plaintext");
+        ASSERT_THAT(ciphertext_or, IsOk());
+        EXPECT_THAT(ctx.response->Decrypt(*ciphertext_or),
+                    IsOkAndHolds("test_plaintext"));
         is_complete = true;
       },
       logger_);
@@ -161,8 +174,12 @@ TEST_F(CpioAeadCryptoClientTest, GetAwsCryptoKeySuccess) {
   AsyncContext<EncryptionKeyInfo, CryptoKeyInterface> context(
       request,
       [&is_complete](AsyncContext<EncryptionKeyInfo, CryptoKeyInterface>& ctx) {
-        EXPECT_TRUE(ctx.status.ok());
-        EXPECT_NE(ctx.response, nullptr);
+        EXPECT_THAT(ctx.status, IsOk());
+        ASSERT_NE(ctx.response, nullptr);
+        auto ciphertext_or = ctx.response->Encrypt("test_plaintext");
+        ASSERT_THAT(ciphertext_or, IsOk());
+        EXPECT_THAT(ctx.response->Decrypt(*ciphertext_or),
+                    IsOkAndHolds("test_plaintext"));
         is_complete = true;
       },
       logger_);
@@ -279,6 +296,52 @@ TEST_F(CpioAeadCryptoClientTest, GetCryptoKeyKeyNotFound) {
   WaitUntil([&]() { return is_complete.load(); });
 }
 
+TEST_F(CpioAeadCryptoClientTest, GetCryptoKeyInternalError) {
+  auto request = std::make_shared<EncryptionKeyInfo>(GetGcpEncryptionKeyInfo());
+  EXPECT_CALL(mock_gcp_key_handler_, GetKey)
+      .WillOnce(Return(ExecutionResultOr<std::string>(
+          FailureExecutionResult(scp::core::errors::SC_CPIO_INTERNAL_ERROR))));
+
+  std::atomic<bool> is_complete = false;
+  AsyncContext<EncryptionKeyInfo, CryptoKeyInterface> context(
+      request,
+      [&is_complete](AsyncContext<EncryptionKeyInfo, CryptoKeyInterface>& ctx) {
+        EXPECT_FALSE(ctx.status.ok());
+        EXPECT_EQ(GetBackendErrorReason(ctx.status), Error::INVALID_DEK);
+        is_complete = true;
+      },
+      logger_);
+
+  crypto_client_->GetCryptoKey(context);
+
+  WaitUntil([&]() { return is_complete.load(); });
+}
+
+TEST_F(CpioAeadCryptoClientTest, GetCryptoKeyMissingCloudWrappedKeyInfo) {
+  auto request = std::make_shared<EncryptionKeyInfo>(
+      SubstituteAndParseTextToProto<EncryptionKeyInfo>(
+          R"pb(
+            wrapped_key_info { encrypted_dek: "$0" kek_kms_resource_id: "$1" }
+          )pb",
+          kTestDek, kGcpKmsResourceName));
+  EXPECT_CALL(mock_aws_key_handler_, GetKey).Times(0);
+  EXPECT_CALL(mock_gcp_key_handler_, GetKey).Times(0);
+
+  std::atomic<bool> is_complete = false;
+  AsyncContext<EncryptionKeyInfo, CryptoKeyInterface> context(
+      request,
+      [&is_complete](AsyncContext<EncryptionKeyInfo, CryptoKeyInterface>& ctx) {
+        EXPECT_FALSE(ctx.status.ok());
+        EXPECT_EQ(GetBackendErrorReason(ctx.status), Error::INVALID_DEK);
+        is_complete = true;
+      },
+      logger_);
+
+  crypto_client_->GetCryptoKey(context);
+
+  WaitUntil([&]() { return is_complete.load(); });
+}
+
 TEST_F(CpioAeadCryptoClientTest, GetCryptoKeyGenericFailure) {
   auto request = std::make_shared<EncryptionKeyInfo>(GetGcpEncryptionKeyInfo());
   EXPECT_CALL(mock_gcp_key_handler_, GetKey)
@@ -312,6 +375,28 @@ TEST_F(CpioAeadCryptoClientTest, GetCryptoKeyKeysetReadFailure) {
       [&is_complete](AsyncContext<EncryptionKeyInfo, CryptoKeyInterface>& ctx) {
         EXPECT_FALSE(ctx.status.ok());
         EXPECT_EQ(GetBackendErrorReason(ctx.status), Error::INVALID_DEK);
+        is_complete = true;
+      },
+      logger_);
+
+  crypto_client_->GetCryptoKey(context);
+
+  WaitUntil([&]() { return is_complete.load(); });
+}
+
+TEST_F(CpioAeadCryptoClientTest, GetCryptoKeyScheduleFailure) {
+  mock_async_executor_.schedule_mock = [](const AsyncOperation& work) {
+    return FailureExecutionResult(SC_UNKNOWN);
+  };
+  auto request = std::make_shared<EncryptionKeyInfo>(GetGcpEncryptionKeyInfo());
+  EXPECT_CALL(mock_gcp_key_handler_, GetKey).Times(0);
+
+  std::atomic<bool> is_complete = false;
+  AsyncContext<EncryptionKeyInfo, CryptoKeyInterface> context(
+      request,
+      [&is_complete](AsyncContext<EncryptionKeyInfo, CryptoKeyInterface>& ctx) {
+        EXPECT_FALSE(ctx.status.ok());
+        EXPECT_EQ(GetBackendErrorReason(ctx.status), Error::INTERNAL_ERROR);
         is_complete = true;
       },
       logger_);

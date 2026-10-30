@@ -21,7 +21,9 @@
 
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "cc/core/interface/async_executor_interface.h"
 #include "cc/core/interface/errors.h"
+#include "cc/public/core/interface/execution_result.h"
 #include "cc/public/cpio/interface/error_codes.h"
 #include "cc/public/cpio/utils/key_fetching/proto/cloud_wrapped_key.pb.h"
 #include "cc/public/cpio/utils/key_fetching/src/error_codes.h"
@@ -45,6 +47,8 @@ using ::crypto::tink::AeadConfig;
 using ::google::cmrt::sdk::v1::CloudWrappedKey;
 using ::google::confidential_match::EncryptionKeyInfo;
 using ::google::confidential_match::match_service::backend::Error;
+using ::google::scp::core::AsyncPriority;
+using ::google::scp::core::ExecutionResult;
 using ::google::scp::core::ExecutionResultOr;
 using ::google::scp::core::errors::GetErrorMessage;
 using TinkStatus = ::crypto::tink::util::Status;
@@ -108,14 +112,37 @@ absl::Status CpioAeadCryptoClient::Stop() noexcept {
 
 void CpioAeadCryptoClient::GetCryptoKey(
     AsyncContext<EncryptionKeyInfo, CryptoKeyInterface> key_context) noexcept {
+  ExecutionResult schedule_result = async_executor_.Schedule(
+      [this, key_context]() noexcept { GetCryptoKeyAsync(key_context); },
+      AsyncPriority::Normal);
+  if (!schedule_result.Successful()) {
+    key_context.status = Status(
+        Error::INTERNAL_ERROR,
+        absl::StrCat("Failed to schedule GetCryptoKey on AsyncExecutor: ",
+                     GetErrorMessage(schedule_result.status_code)));
+    LOG_ERROR(*key_context.logger, "%v", key_context.status);
+    key_context.Finish();
+  }
+}
+
+void CpioAeadCryptoClient::GetCryptoKeyAsync(
+    AsyncContext<EncryptionKeyInfo, CryptoKeyInterface> key_context) noexcept {
   CloudWrappedKey cloud_wrapped_key =
       BuildCloudWrappedKey(*key_context.request);
 
   ExecutionResultOr<std::string> dek_or;
   if (key_context.request->wrapped_key_info().has_aws_wrapped_key_info()) {
     dek_or = aws_wrapped_key_handler_.GetKey(cloud_wrapped_key);
-  } else {
+  } else if (key_context.request->wrapped_key_info()
+                 .has_gcp_wrapped_key_info()) {
     dek_or = gcp_wrapped_key_handler_.GetKey(cloud_wrapped_key);
+  } else {
+    key_context.status =
+        Status(Error::INVALID_DEK,
+               "WrappedKeyInfo must have either AWS or GCP wrapped key info.");
+    LOG_ERROR(*key_context.logger, "%v", key_context.status);
+    key_context.Finish();
+    return;
   }
 
   if (!dek_or.Successful()) {

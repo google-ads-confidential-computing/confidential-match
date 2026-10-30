@@ -19,16 +19,15 @@
 
 #include "cc/core/interface/type_def.h"
 #include "cc/core/test/utils/proto_test_utils.h"
+#include "cc/lookup_server/match_data_storage/mock/fake_match_data_storage.h"
+#include "cc/lookup_server/match_data_storage/mock/mock_match_data_storage.h"
+#include "cc/lookup_server/match_data_storage/src/error_codes.h"
+#include "cc/lookup_server/scheme_validator/src/error_codes.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "cc/public/core/test/interface/execution_result_matchers.h"
 #include "gmock/gmock.h"
 #include "google/protobuf/util/message_differencer.h"
 #include "gtest/gtest.h"
-
-#include "cc/lookup_server/match_data_storage/mock/fake_match_data_storage.h"
-#include "cc/lookup_server/match_data_storage/mock/mock_match_data_storage.h"
-#include "cc/lookup_server/match_data_storage/src/error_codes.h"
-#include "cc/lookup_server/scheme_validator/src/error_codes.h"
 #include "protos/lookup_server/backend/data_export_info.pb.h"
 #include "protos/lookup_server/backend/match_data_row.pb.h"
 
@@ -57,10 +56,12 @@ constexpr absl::string_view kHashKey2 =
 constexpr absl::string_view kHashKeyInvalidLength = "dGVzdA==";
 constexpr absl::string_view kValidShardingSchemeType = "jch";
 
-class InMemoryMatchDataStorageTest : public testing::Test {
+class InMemoryMatchDataStorageTest : public testing::Test,
+                                     public testing::WithParamInterface<bool> {
  protected:
   InMemoryMatchDataStorageTest() {
-    match_data_storage_ = std::make_unique<InMemoryMatchDataStorage>();
+    match_data_storage_ = std::make_unique<InMemoryMatchDataStorage>(
+        /*bucket_count=*/0, /*enable_packed_storage=*/GetParam());
   }
 
   void SetUp() override { EXPECT_SUCCESS(match_data_storage_->Init()); }
@@ -68,20 +69,24 @@ class InMemoryMatchDataStorageTest : public testing::Test {
   std::unique_ptr<MatchDataStorageInterface> match_data_storage_;
 };
 
-TEST_F(InMemoryMatchDataStorageTest, StartStop) {
-  InMemoryMatchDataStorage match_data_storage;
+INSTANTIATE_TEST_SUITE_P(InMemoryMatchDataStorageTests,
+                         InMemoryMatchDataStorageTest, testing::Bool());
+
+TEST_P(InMemoryMatchDataStorageTest, StartStop) {
+  InMemoryMatchDataStorage match_data_storage(
+      /*bucket_count=*/0, /*enable_packed_storage=*/GetParam());
   EXPECT_SUCCESS(match_data_storage.Init());
   EXPECT_SUCCESS(match_data_storage.Run());
   EXPECT_SUCCESS(match_data_storage.Stop());
 }
 
-TEST_F(InMemoryMatchDataStorageTest, InsertSingleReturnsSuccess) {
+TEST_P(InMemoryMatchDataStorageTest, InsertSingleReturnsSuccess) {
   MatchDataRow row;
   *row.mutable_key() = kHashKey;
-  *row.add_associated_data()->mutable_key() = "type";
-  *row.mutable_associated_data(0)->mutable_string_value() = "email";
-  *row.add_associated_data()->mutable_key() = "user_id";
-  row.mutable_associated_data(1)->set_int_value(1);
+  *row.add_associated_data()->mutable_key() = "pii_type";
+  *row.mutable_associated_data(0)->mutable_string_value() = "E";
+  *row.add_associated_data()->mutable_key() = "encrypted_gaia_id";
+  row.mutable_associated_data(1)->set_bytes_value("1");
   DataExportInfo data_export_info;
   data_export_info.set_data_export_id("dataset_id");
   *data_export_info.mutable_sharding_scheme()->mutable_type() =
@@ -94,16 +99,16 @@ TEST_F(InMemoryMatchDataStorageTest, InsertSingleReturnsSuccess) {
   EXPECT_SUCCESS(result);
 }
 
-TEST_F(InMemoryMatchDataStorageTest, InsertMultipleReturnsSuccess) {
+TEST_P(InMemoryMatchDataStorageTest, InsertMultipleReturnsSuccess) {
   MatchDataRow row;
   *row.mutable_key() = kHashKey;
-  *row.add_associated_data()->mutable_key() = "type";
-  *row.mutable_associated_data(0)->mutable_string_value() = "email";
-  *row.add_associated_data()->mutable_key() = "user_id";
-  row.mutable_associated_data(1)->set_int_value(1);
+  *row.add_associated_data()->mutable_key() = "pii_type";
+  *row.mutable_associated_data(0)->mutable_string_value() = "E";
+  *row.add_associated_data()->mutable_key() = "encrypted_gaia_id";
+  row.mutable_associated_data(1)->set_bytes_value("1");
   MatchDataRow row2;
   row2.CopyFrom(row);
-  row2.mutable_associated_data(1)->set_int_value(2);
+  row2.mutable_associated_data(1)->set_bytes_value("2");
   DataExportInfo data_export_info;
   data_export_info.set_data_export_id("dataset_id");
   *data_export_info.mutable_sharding_scheme()->mutable_type() =
@@ -118,13 +123,13 @@ TEST_F(InMemoryMatchDataStorageTest, InsertMultipleReturnsSuccess) {
   EXPECT_SUCCESS(result2);
 }
 
-TEST_F(InMemoryMatchDataStorageTest, InsertDuplicateReturnsSuccess) {
+TEST_P(InMemoryMatchDataStorageTest, InsertDuplicateReturnsSuccess) {
   MatchDataRow row;
   *row.mutable_key() = kHashKey;
-  *row.add_associated_data()->mutable_key() = "type";
-  *row.mutable_associated_data(0)->mutable_string_value() = "email";
-  *row.add_associated_data()->mutable_key() = "user_id";
-  row.mutable_associated_data(1)->set_int_value(1);
+  *row.add_associated_data()->mutable_key() = "pii_type";
+  *row.mutable_associated_data(0)->mutable_string_value() = "E";
+  *row.add_associated_data()->mutable_key() = "encrypted_gaia_id";
+  row.mutable_associated_data(1)->set_bytes_value("1");
   DataExportInfo data_export_info;
   data_export_info.set_data_export_id("dataset_id");
   *data_export_info.mutable_sharding_scheme()->mutable_type() =
@@ -139,13 +144,13 @@ TEST_F(InMemoryMatchDataStorageTest, InsertDuplicateReturnsSuccess) {
   EXPECT_SUCCESS(result2);
 }
 
-TEST_F(InMemoryMatchDataStorageTest, InsertHashKeyInvalidLengthReturnsError) {
+TEST_P(InMemoryMatchDataStorageTest, InsertHashKeyInvalidLengthReturnsError) {
   MatchDataRow row;
   *row.mutable_key() = kHashKeyInvalidLength;
-  *row.add_associated_data()->mutable_key() = "type";
-  *row.mutable_associated_data(0)->mutable_string_value() = "email";
-  *row.add_associated_data()->mutable_key() = "user_id";
-  row.mutable_associated_data(1)->set_int_value(1);
+  *row.add_associated_data()->mutable_key() = "pii_type";
+  *row.mutable_associated_data(0)->mutable_string_value() = "E";
+  *row.add_associated_data()->mutable_key() = "encrypted_gaia_id";
+  row.mutable_associated_data(1)->set_bytes_value("1");
   DataExportInfo data_export_info;
   data_export_info.set_data_export_id("dataset_id");
   *data_export_info.mutable_sharding_scheme()->mutable_type() =
@@ -160,16 +165,16 @@ TEST_F(InMemoryMatchDataStorageTest, InsertHashKeyInvalidLengthReturnsError) {
       ResultIs(FailureExecutionResult(MATCH_DATA_STORAGE_INVALID_KEY_ERROR)));
 }
 
-TEST_F(InMemoryMatchDataStorageTest, ReplaceNonexistentRowReturnsSuccess) {
+TEST_P(InMemoryMatchDataStorageTest, ReplaceNonexistentRowReturnsSuccess) {
   MatchDataRow row;
   *row.mutable_key() = kHashKey;
-  *row.add_associated_data()->mutable_key() = "type";
-  *row.mutable_associated_data(0)->mutable_string_value() = "email";
-  *row.add_associated_data()->mutable_key() = "user_id";
-  row.mutable_associated_data(1)->set_int_value(1);
+  *row.add_associated_data()->mutable_key() = "pii_type";
+  *row.mutable_associated_data(0)->mutable_string_value() = "E";
+  *row.add_associated_data()->mutable_key() = "encrypted_gaia_id";
+  row.mutable_associated_data(1)->set_bytes_value("1");
   MatchDataRow row2;
   row2.CopyFrom(row);
-  row2.mutable_associated_data(1)->set_int_value(2);
+  row2.mutable_associated_data(1)->set_bytes_value("2");
   std::vector<MatchDataRow> rows = {row, row2};
   DataExportInfo data_export_info;
   data_export_info.set_data_export_id("dataset_id");
@@ -188,13 +193,13 @@ TEST_F(InMemoryMatchDataStorageTest, ReplaceNonexistentRowReturnsSuccess) {
               UnorderedElementsAre(EqualsProto(row), EqualsProto(row2)));
 }
 
-TEST_F(InMemoryMatchDataStorageTest, ReplaceExistingRowReturnsSuccess) {
+TEST_P(InMemoryMatchDataStorageTest, ReplaceExistingRowReturnsSuccess) {
   MatchDataRow row;
   *row.mutable_key() = kHashKey;
-  *row.add_associated_data()->mutable_key() = "type";
-  *row.mutable_associated_data(0)->mutable_string_value() = "email";
-  *row.add_associated_data()->mutable_key() = "user_id";
-  row.mutable_associated_data(1)->set_int_value(1);
+  *row.add_associated_data()->mutable_key() = "pii_type";
+  *row.mutable_associated_data(0)->mutable_string_value() = "E";
+  *row.add_associated_data()->mutable_key() = "encrypted_gaia_id";
+  row.mutable_associated_data(1)->set_bytes_value("1");
   DataExportInfo data_export_info;
   data_export_info.set_data_export_id("dataset_id");
   *data_export_info.mutable_sharding_scheme()->mutable_type() =
@@ -204,7 +209,7 @@ TEST_F(InMemoryMatchDataStorageTest, ReplaceExistingRowReturnsSuccess) {
   EXPECT_SUCCESS(match_data_storage_->Insert(row));
   MatchDataRow row2;
   row2.CopyFrom(row);
-  row2.mutable_associated_data(1)->set_int_value(2);
+  row2.mutable_associated_data(1)->set_bytes_value("2");
   std::vector<MatchDataRow> rows = {row2};
 
   ExecutionResult result = match_data_storage_->Replace(kHashKey, rows);
@@ -216,13 +221,13 @@ TEST_F(InMemoryMatchDataStorageTest, ReplaceExistingRowReturnsSuccess) {
   EXPECT_THAT(*get_result_or, ElementsAre(EqualsProto(row2)));
 }
 
-TEST_F(InMemoryMatchDataStorageTest, ReplaceWithoutStartUpdateReturnsError) {
+TEST_P(InMemoryMatchDataStorageTest, ReplaceWithoutStartUpdateReturnsError) {
   MatchDataRow row;
   *row.mutable_key() = kHashKey;
-  *row.add_associated_data()->mutable_key() = "type";
-  *row.mutable_associated_data(0)->mutable_string_value() = "email";
-  *row.add_associated_data()->mutable_key() = "user_id";
-  row.mutable_associated_data(1)->set_int_value(1);
+  *row.add_associated_data()->mutable_key() = "pii_type";
+  *row.mutable_associated_data(0)->mutable_string_value() = "E";
+  *row.add_associated_data()->mutable_key() = "encrypted_gaia_id";
+  row.mutable_associated_data(1)->set_bytes_value("1");
   std::vector<MatchDataRow> rows = {row};
 
   ExecutionResult result = match_data_storage_->Replace(kHashKey, rows);
@@ -232,13 +237,13 @@ TEST_F(InMemoryMatchDataStorageTest, ReplaceWithoutStartUpdateReturnsError) {
       ResultIs(FailureExecutionResult(MATCH_DATA_STORAGE_REPLACE_ERROR)));
 }
 
-TEST_F(InMemoryMatchDataStorageTest, ReplaceWithInvalidKeyReturnsError) {
+TEST_P(InMemoryMatchDataStorageTest, ReplaceWithInvalidKeyReturnsError) {
   MatchDataRow row;
   *row.mutable_key() = kHashKeyInvalidLength;
-  *row.add_associated_data()->mutable_key() = "type";
-  *row.mutable_associated_data(0)->mutable_string_value() = "email";
-  *row.add_associated_data()->mutable_key() = "user_id";
-  row.mutable_associated_data(1)->set_int_value(1);
+  *row.add_associated_data()->mutable_key() = "pii_type";
+  *row.mutable_associated_data(0)->mutable_string_value() = "E";
+  *row.add_associated_data()->mutable_key() = "encrypted_gaia_id";
+  row.mutable_associated_data(1)->set_bytes_value("1");
   DataExportInfo data_export_info;
   data_export_info.set_data_export_id("dataset_id");
   *data_export_info.mutable_sharding_scheme()->mutable_type() =
@@ -255,13 +260,13 @@ TEST_F(InMemoryMatchDataStorageTest, ReplaceWithInvalidKeyReturnsError) {
       ResultIs(FailureExecutionResult(MATCH_DATA_STORAGE_INVALID_KEY_ERROR)));
 }
 
-TEST_F(InMemoryMatchDataStorageTest, ReplaceWithMismatchedKeyReturnsError) {
+TEST_P(InMemoryMatchDataStorageTest, ReplaceWithMismatchedKeyReturnsError) {
   MatchDataRow row;
   *row.mutable_key() = kHashKey;
-  *row.add_associated_data()->mutable_key() = "type";
-  *row.mutable_associated_data(0)->mutable_string_value() = "email";
-  *row.add_associated_data()->mutable_key() = "user_id";
-  row.mutable_associated_data(1)->set_int_value(1);
+  *row.add_associated_data()->mutable_key() = "pii_type";
+  *row.mutable_associated_data(0)->mutable_string_value() = "E";
+  *row.add_associated_data()->mutable_key() = "encrypted_gaia_id";
+  row.mutable_associated_data(1)->set_bytes_value("1");
   DataExportInfo data_export_info;
   data_export_info.set_data_export_id("dataset_id");
   *data_export_info.mutable_sharding_scheme()->mutable_type() =
@@ -276,27 +281,27 @@ TEST_F(InMemoryMatchDataStorageTest, ReplaceWithMismatchedKeyReturnsError) {
                           MATCH_DATA_STORAGE_REPLACE_KEY_MISMATCH)));
 }
 
-TEST_F(InMemoryMatchDataStorageTest, GetNonexistentEntryReturnsNoMatches) {
+TEST_P(InMemoryMatchDataStorageTest, GetNonexistentEntryReturnsNoMatches) {
   ExecutionResultOr<std::vector<MatchDataRow>> result_or =
       match_data_storage_->Get("nonexistent");
   EXPECT_SUCCESS(result_or);
   EXPECT_THAT(*result_or, IsEmpty());
 }
 
-TEST_F(InMemoryMatchDataStorageTest, GetNonBase64EncodedEntryReturnsNoMatches) {
+TEST_P(InMemoryMatchDataStorageTest, GetNonBase64EncodedEntryReturnsNoMatches) {
   ExecutionResultOr<std::vector<MatchDataRow>> result_or =
       match_data_storage_->Get("Not base-64 encoded.");
   EXPECT_SUCCESS(result_or);
   EXPECT_THAT(*result_or, IsEmpty());
 }
 
-TEST_F(InMemoryMatchDataStorageTest, GetSingleEntryReturnsMatch) {
+TEST_P(InMemoryMatchDataStorageTest, GetSingleEntryReturnsMatch) {
   MatchDataRow row;
   *row.mutable_key() = kHashKey;
-  *row.add_associated_data()->mutable_key() = "type";
-  *row.mutable_associated_data(0)->mutable_string_value() = "email";
-  *row.add_associated_data()->mutable_key() = "user_id";
-  row.mutable_associated_data(1)->set_int_value(1);
+  *row.add_associated_data()->mutable_key() = "pii_type";
+  *row.mutable_associated_data(0)->mutable_string_value() = "E";
+  *row.add_associated_data()->mutable_key() = "encrypted_gaia_id";
+  row.mutable_associated_data(1)->set_bytes_value("1");
   DataExportInfo data_export_info;
   data_export_info.set_data_export_id("dataset_id");
   *data_export_info.mutable_sharding_scheme()->mutable_type() =
@@ -313,13 +318,13 @@ TEST_F(InMemoryMatchDataStorageTest, GetSingleEntryReturnsMatch) {
   EXPECT_THAT(*result_or, ElementsAre(EqualsProto(row)));
 }
 
-TEST_F(InMemoryMatchDataStorageTest, GetMultipleEntriesReturnsMatches) {
+TEST_P(InMemoryMatchDataStorageTest, GetMultipleEntriesReturnsMatches) {
   MatchDataRow row;
   *row.mutable_key() = kHashKey;
-  *row.add_associated_data()->mutable_key() = "type";
-  *row.mutable_associated_data(0)->mutable_string_value() = "email";
-  *row.add_associated_data()->mutable_key() = "user_id";
-  row.mutable_associated_data(1)->set_int_value(1);
+  *row.add_associated_data()->mutable_key() = "pii_type";
+  *row.mutable_associated_data(0)->mutable_string_value() = "E";
+  *row.add_associated_data()->mutable_key() = "encrypted_gaia_id";
+  row.mutable_associated_data(1)->set_bytes_value("1");
   DataExportInfo data_export_info;
   data_export_info.set_data_export_id("dataset_id");
   *data_export_info.mutable_sharding_scheme()->mutable_type() =
@@ -330,7 +335,7 @@ TEST_F(InMemoryMatchDataStorageTest, GetMultipleEntriesReturnsMatches) {
   EXPECT_SUCCESS(match_data_storage_->FinalizeUpdate());
   MatchDataRow row2;
   row2.CopyFrom(row);
-  row2.mutable_associated_data(1)->set_int_value(2);
+  row2.mutable_associated_data(1)->set_bytes_value("2");
   DataExportInfo data_export_info2;
   data_export_info2.set_data_export_id("dataset_id2");
   *data_export_info2.mutable_sharding_scheme()->mutable_type() =
@@ -347,13 +352,13 @@ TEST_F(InMemoryMatchDataStorageTest, GetMultipleEntriesReturnsMatches) {
               UnorderedElementsAre(EqualsProto(row), EqualsProto(row2)));
 }
 
-TEST_F(InMemoryMatchDataStorageTest, GetCanceledUpdateReturnsMatch) {
+TEST_P(InMemoryMatchDataStorageTest, GetCanceledUpdateReturnsMatch) {
   MatchDataRow row;
   *row.mutable_key() = kHashKey;
-  *row.add_associated_data()->mutable_key() = "type";
-  *row.mutable_associated_data(0)->mutable_string_value() = "email";
-  *row.add_associated_data()->mutable_key() = "user_id";
-  row.mutable_associated_data(1)->set_int_value(1);
+  *row.add_associated_data()->mutable_key() = "pii_type";
+  *row.mutable_associated_data(0)->mutable_string_value() = "E";
+  *row.add_associated_data()->mutable_key() = "encrypted_gaia_id";
+  row.mutable_associated_data(1)->set_bytes_value("1");
   DataExportInfo data_export_info;
   data_export_info.set_data_export_id("dataset_id");
   *data_export_info.mutable_sharding_scheme()->mutable_type() =
@@ -364,10 +369,10 @@ TEST_F(InMemoryMatchDataStorageTest, GetCanceledUpdateReturnsMatch) {
   EXPECT_SUCCESS(match_data_storage_->FinalizeUpdate());
   MatchDataRow row2;
   *row2.mutable_key() = kHashKey;
-  *row2.add_associated_data()->mutable_key() = "type";
-  *row2.mutable_associated_data(0)->mutable_string_value() = "email";
-  *row2.add_associated_data()->mutable_key() = "user_id";
-  row2.mutable_associated_data(1)->set_int_value(2);
+  *row2.add_associated_data()->mutable_key() = "pii_type";
+  *row2.mutable_associated_data(0)->mutable_string_value() = "E";
+  *row2.add_associated_data()->mutable_key() = "encrypted_gaia_id";
+  row2.mutable_associated_data(1)->set_bytes_value("2");
   DataExportInfo data_export_info2;
   data_export_info2.set_data_export_id("dataset_id2");
   *data_export_info2.mutable_sharding_scheme()->mutable_type() =
@@ -385,7 +390,7 @@ TEST_F(InMemoryMatchDataStorageTest, GetCanceledUpdateReturnsMatch) {
               UnorderedElementsAre(EqualsProto(row), EqualsProto(row2)));
 }
 
-TEST_F(InMemoryMatchDataStorageTest, RemoveNonexistentReturnsSuccess) {
+TEST_P(InMemoryMatchDataStorageTest, RemoveNonexistentReturnsSuccess) {
   MatchDataRow row;
   DataExportInfo data_export_info;
   data_export_info.set_data_export_id("dataset_id");
@@ -399,13 +404,13 @@ TEST_F(InMemoryMatchDataStorageTest, RemoveNonexistentReturnsSuccess) {
   EXPECT_SUCCESS(result);
 }
 
-TEST_F(InMemoryMatchDataStorageTest, RemoveExistingEntryReturnsSuccess) {
+TEST_P(InMemoryMatchDataStorageTest, RemoveExistingEntryReturnsSuccess) {
   MatchDataRow row;
   *row.mutable_key() = kHashKey;
-  *row.add_associated_data()->mutable_key() = "type";
-  *row.mutable_associated_data(0)->mutable_string_value() = "email";
-  *row.add_associated_data()->mutable_key() = "user_id";
-  row.mutable_associated_data(1)->set_int_value(1);
+  *row.add_associated_data()->mutable_key() = "pii_type";
+  *row.mutable_associated_data(0)->mutable_string_value() = "E";
+  *row.add_associated_data()->mutable_key() = "encrypted_gaia_id";
+  row.mutable_associated_data(1)->set_bytes_value("1");
   DataExportInfo data_export_info;
   data_export_info.set_data_export_id("dataset_id");
   *data_export_info.mutable_sharding_scheme()->mutable_type() =
@@ -415,7 +420,7 @@ TEST_F(InMemoryMatchDataStorageTest, RemoveExistingEntryReturnsSuccess) {
   EXPECT_SUCCESS(match_data_storage_->Insert(row));
   MatchDataRow row_to_remove;
   row_to_remove.CopyFrom(row);
-  row_to_remove.mutable_associated_data(1)->set_int_value(2);
+  row_to_remove.mutable_associated_data(1)->set_bytes_value("2");
   EXPECT_SUCCESS(match_data_storage_->Insert(row_to_remove));
 
   ExecutionResult result = match_data_storage_->Remove(row_to_remove);
@@ -427,7 +432,7 @@ TEST_F(InMemoryMatchDataStorageTest, RemoveExistingEntryReturnsSuccess) {
   EXPECT_THAT(*remaining, ElementsAre(EqualsProto(row)));
 }
 
-TEST_F(InMemoryMatchDataStorageTest, StartUpdateReturnsSuccess) {
+TEST_P(InMemoryMatchDataStorageTest, StartUpdateReturnsSuccess) {
   DataExportInfo data_export_info;
   data_export_info.set_data_export_id("dataset_id");
   *data_export_info.mutable_sharding_scheme()->mutable_type() =
@@ -439,7 +444,7 @@ TEST_F(InMemoryMatchDataStorageTest, StartUpdateReturnsSuccess) {
   EXPECT_SUCCESS(result);
 }
 
-TEST_F(InMemoryMatchDataStorageTest, StartUpdateWithInvalidSchemeReturnsError) {
+TEST_P(InMemoryMatchDataStorageTest, StartUpdateWithInvalidSchemeReturnsError) {
   DataExportInfo data_export_info;
   data_export_info.set_data_export_id("dataset_id");
   data_export_info.mutable_sharding_scheme()->set_type("invalid_scheme");
@@ -450,7 +455,7 @@ TEST_F(InMemoryMatchDataStorageTest, StartUpdateWithInvalidSchemeReturnsError) {
                           SCHEME_VALIDATOR_UNSUPPORTED_SCHEME_TYPE)));
 }
 
-TEST_F(InMemoryMatchDataStorageTest,
+TEST_P(InMemoryMatchDataStorageTest,
        FinalizeUpdateWithoutStartingUpdateReturnsError) {
   ExecutionResult result = match_data_storage_->FinalizeUpdate();
   EXPECT_THAT(result, ResultIs(FailureExecutionResult(

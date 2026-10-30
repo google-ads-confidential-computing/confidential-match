@@ -32,9 +32,12 @@
 namespace google::confidential_match {
 namespace {
 
+using ::google::confidential_match::CompactAssociatedData;
 using ::google::confidential_match::DataValue;
 using ::google::confidential_match::DataValueInternal;
+using ::google::confidential_match::KeyValue;
 using ::google::confidential_match::PackedDataValueGroup;
+using ::google::confidential_match::PiiType;
 using ::google::protobuf::util::MessageDifferencer;
 using ::google::scp::core::ExecutionResult;
 using ::google::scp::core::FailureExecutionResult;
@@ -74,6 +77,66 @@ bool UpdateVersionIdForMatchedRecord(
   return false;
 }
 
+constexpr absl::string_view kPiiTypeKey = "pii_type";
+constexpr absl::string_view kEncryptedGaiaIdKey = "encrypted_gaia_id";
+constexpr absl::string_view kPiiTypePhoneNumber = "P";
+constexpr absl::string_view kPiiTypeEmail = "E";
+constexpr absl::string_view kPiiTypeAddress = "A";
+
+// Translates a generic DataValue into a compact schema-specific proto.
+CompactAssociatedData ToCompactAssociatedData(const DataValue& data_value) {
+  CompactAssociatedData compact;
+  for (const KeyValue& kv : data_value.associated_data()) {
+    if (kv.key() == kPiiTypeKey) {
+      if (kv.string_value() == kPiiTypePhoneNumber) {
+        compact.set_pii_type(PII_TYPE_PHONE_NUMBER);
+      } else if (kv.string_value() == kPiiTypeEmail) {
+        compact.set_pii_type(PII_TYPE_EMAIL);
+      } else if (kv.string_value() == kPiiTypeAddress) {
+        compact.set_pii_type(PII_TYPE_ADDRESS);
+      } else {
+        compact.set_pii_type(PII_TYPE_UNSPECIFIED);
+      }
+    } else if (kv.key() == kEncryptedGaiaIdKey) {
+      compact.add_encrypted_gaia_id(kv.bytes_value());
+    }
+  }
+  return compact;
+}
+
+// Reconstructs a generic DataValue from a CompactAssociatedData proto.
+DataValue FromCompactAssociatedData(const CompactAssociatedData& compact) {
+  DataValue data_value;
+  switch (compact.pii_type()) {
+    case PII_TYPE_PHONE_NUMBER: {
+      KeyValue* kv = data_value.add_associated_data();
+      kv->set_key(std::string(kPiiTypeKey));
+      kv->set_string_value(std::string(kPiiTypePhoneNumber));
+      break;
+    }
+    case PII_TYPE_EMAIL: {
+      KeyValue* kv = data_value.add_associated_data();
+      kv->set_key(std::string(kPiiTypeKey));
+      kv->set_string_value(std::string(kPiiTypeEmail));
+      break;
+    }
+    case PII_TYPE_ADDRESS: {
+      KeyValue* kv = data_value.add_associated_data();
+      kv->set_key(std::string(kPiiTypeKey));
+      kv->set_string_value(std::string(kPiiTypeAddress));
+      break;
+    }
+    default:
+      break;
+  }
+  for (const std::string& gaia_id : compact.encrypted_gaia_id()) {
+    KeyValue* kv = data_value.add_associated_data();
+    kv->set_key(std::string(kEncryptedGaiaIdKey));
+    kv->set_bytes_value(gaia_id);
+  }
+  return data_value;
+}
+
 // Serializes a PackedDataValueGroup into a contiguous PackedValueBuffer.
 PackedValueBuffer SerializeGroupToBuffer(const PackedDataValueGroup& group,
                                          uint32_t version_id) {
@@ -105,8 +168,8 @@ void ParseGroupFromBuffer(const PackedValueBuffer& buffer,
 std::vector<uint32_t> ExtractRecordVersions(const PackedDataValueGroup& group,
                                             uint32_t buffer_version_id) {
   std::vector<uint32_t> versions;
-  versions.reserve(group.data_values_size());
-  for (int i = 0; i < group.data_values_size(); ++i) {
+  versions.reserve(group.records_size());
+  for (int i = 0; i < group.records_size(); ++i) {
     const uint32_t record_version = (i < group.record_version_ids_size())
                                         ? group.record_version_ids(i)
                                         : buffer_version_id;
@@ -179,12 +242,15 @@ ExecutionResult MarkedDataTableStorage::Insert(
     return SuccessExecutionResult();
   }
 
+  CompactAssociatedData compact_record =
+      ToCompactAssociatedData(data_value_internal.data_value());
+
   MarkedDataTableImpl::accessor write_accessor;
   bool is_new = concurrent_map_.insert(write_accessor, key_array);
 
   if (is_new) {
     PackedDataValueGroup group;
-    *group.add_data_values() = data_value_internal.data_value();
+    *group.add_records() = std::move(compact_record);
     write_accessor->second =
         SerializeGroupToBuffer(group, data_value_internal.version_id());
     write_accessor.release();
@@ -197,9 +263,8 @@ ExecutionResult MarkedDataTableStorage::Insert(
       ExtractRecordVersions(group, write_accessor->second.version_id);
 
   // If a matching data value is present in the table, update its version ID.
-  for (int i = 0; i < group.data_values_size(); ++i) {
-    if (MessageDifferencer::Equals(group.data_values(i),
-                                   data_value_internal.data_value())) {
+  for (int i = 0; i < group.records_size(); ++i) {
+    if (MessageDifferencer::Equals(group.records(i), compact_record)) {
       if (versions[i] != data_value_internal.version_id()) {
         versions[i] = data_value_internal.version_id();
         write_accessor->second = PackWithRecordVersions(group, versions);
@@ -210,7 +275,7 @@ ExecutionResult MarkedDataTableStorage::Insert(
   }
 
   // Data entry wasn't found, append it.
-  *group.add_data_values() = data_value_internal.data_value();
+  *group.add_records() = std::move(compact_record);
   versions.push_back(data_value_internal.version_id());
   write_accessor->second = PackWithRecordVersions(group, versions);
   write_accessor.release();
@@ -244,9 +309,9 @@ ExecutionResult MarkedDataTableStorage::Replace(
   }
 
   PackedDataValueGroup group;
-  group.mutable_data_values()->Reserve(data_values.size());
+  group.mutable_records()->Reserve(data_values.size());
   for (const DataValue& data_value : data_values) {
-    *group.add_data_values() = data_value;
+    *group.add_records() = ToCompactAssociatedData(data_value);
   }
   PackedValueBuffer new_buffer = SerializeGroupToBuffer(group, version_id);
 
@@ -282,11 +347,12 @@ ExecutionResult MarkedDataTableStorage::Replace(
   }
 
   PackedDataValueGroup group;
-  group.mutable_data_values()->Reserve(data_values.size());
+  group.mutable_records()->Reserve(data_values.size());
   std::vector<uint32_t> versions;
   versions.reserve(data_values.size());
   for (const auto& data_value_internal : data_values) {
-    *group.add_data_values() = data_value_internal.data_value();
+    *group.add_records() =
+        ToCompactAssociatedData(data_value_internal.data_value());
     versions.push_back(data_value_internal.version_id());
   }
   PackedValueBuffer new_buffer = PackWithRecordVersions(group, versions);
@@ -334,9 +400,9 @@ ExecutionResult MarkedDataTableStorage::Find(
   ParseGroupFromBuffer(read_accessor->second, group);
   read_accessor.release();
 
-  out.reserve(out.size() + group.data_values_size());
-  for (DataValue& data_value : *group.mutable_data_values()) {
-    out.push_back(std::move(data_value));
+  out.reserve(out.size() + group.records_size());
+  for (const CompactAssociatedData& record : group.records()) {
+    out.push_back(FromCompactAssociatedData(record));
   }
 
   return SuccessExecutionResult();
@@ -378,11 +444,11 @@ ExecutionResult MarkedDataTableStorage::Find(
   const uint32_t buffer_version_id = read_accessor->second.version_id;
   read_accessor.release();
 
-  out.reserve(out.size() + group.data_values_size());
-  for (int i = 0; i < group.data_values_size(); ++i) {
+  out.reserve(out.size() + group.records_size());
+  for (int i = 0; i < group.records_size(); ++i) {
     DataValueInternal data_value_internal;
     *data_value_internal.mutable_data_value() =
-        std::move(*group.mutable_data_values(i));
+        FromCompactAssociatedData(group.records(i));
     const uint32_t record_version = (i < group.record_version_ids_size())
                                         ? group.record_version_ids(i)
                                         : buffer_version_id;
@@ -447,17 +513,16 @@ ExecutionResult MarkedDataTableStorage::EraseUnmatchedVersions(
   PackedDataValueGroup group;
   ParseGroupFromBuffer(write_accessor->second, group);
   PackedDataValueGroup filtered_group;
-  for (int i = 0; i < group.data_values_size(); ++i) {
+  for (int i = 0; i < group.records_size(); ++i) {
     const uint32_t record_version = (i < group.record_version_ids_size())
                                         ? group.record_version_ids(i)
                                         : write_accessor->second.version_id;
     if (record_version == version_id_to_keep) {
-      *filtered_group.add_data_values() =
-          std::move(*group.mutable_data_values(i));
+      *filtered_group.add_records() = std::move(*group.mutable_records(i));
     }
   }
 
-  if (filtered_group.data_values_size() != 0) {
+  if (filtered_group.records_size() != 0) {
     write_accessor->second =
         SerializeGroupToBuffer(filtered_group, version_id_to_keep);
   } else {
@@ -535,6 +600,9 @@ ExecutionResult MarkedDataTableStorage::Erase(
     return FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST);
   }
 
+  CompactAssociatedData target_record =
+      ToCompactAssociatedData(data_value_to_erase);
+
   PackedDataValueGroup group;
   ParseGroupFromBuffer(write_accessor->second, group);
   std::vector<uint32_t> versions =
@@ -543,13 +611,12 @@ ExecutionResult MarkedDataTableStorage::Erase(
   bool found = false;
   PackedDataValueGroup updated_group;
   std::vector<uint32_t> updated_versions;
-  for (int i = 0; i < group.data_values_size(); ++i) {
-    if (!found &&
-        MessageDifferencer::Equals(group.data_values(i), data_value_to_erase)) {
+  for (int i = 0; i < group.records_size(); ++i) {
+    if (!found && MessageDifferencer::Equals(group.records(i), target_record)) {
       found = true;
       continue;
     }
-    *updated_group.add_data_values() = std::move(*group.mutable_data_values(i));
+    *updated_group.add_records() = std::move(*group.mutable_records(i));
     updated_versions.push_back(versions[i]);
   }
 
@@ -558,7 +625,7 @@ ExecutionResult MarkedDataTableStorage::Erase(
     return FailureExecutionResult(DATA_TABLE_ENTRY_DOES_NOT_EXIST);
   }
 
-  if (updated_group.data_values_size() == 0) {
+  if (updated_group.records_size() == 0) {
     concurrent_map_.erase(write_accessor);
   } else {
     write_accessor->second =

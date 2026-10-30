@@ -46,9 +46,9 @@ constexpr absl::string_view kDatasetId = "dataset-id";
 constexpr absl::string_view kDatasetId2 = "dataset-id-2";
 constexpr absl::string_view kHash = "example-hash-string-of-length-32";
 constexpr absl::string_view kHash2 = "another-hash-string-of-length-32";
-constexpr absl::string_view kUserIdKey = "user_id";
-constexpr int kUserId = 1;
-constexpr int kUserId2 = 2;
+constexpr absl::string_view kEncryptedGaiaIdKey = "encrypted_gaia_id";
+constexpr absl::string_view kEncryptedGaiaId = "1";
+constexpr absl::string_view kEncryptedGaiaId2 = "2";
 
 class MarkedDataTableTest : public testing::Test,
                             public testing::WithParamInterface<bool> {
@@ -64,8 +64,9 @@ INSTANTIATE_TEST_SUITE_P(MarkedDataTableTests, MarkedDataTableTest,
 
 TEST_P(MarkedDataTableTest, InsertSingleReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
 
   ExecutionResult result = data_table_.Insert(kHash, data_value);
@@ -75,11 +76,13 @@ TEST_P(MarkedDataTableTest, InsertSingleReturnsSuccess) {
 
 TEST_P(MarkedDataTableTest, InsertMultipleReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value2.mutable_associated_data(0)->set_int_value(kUserId2);
+  *data_value2.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value2.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId2));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
 
   ExecutionResult result = data_table_.Insert(kHash, data_value);
@@ -91,8 +94,9 @@ TEST_P(MarkedDataTableTest, InsertMultipleReturnsSuccess) {
 
 TEST_P(MarkedDataTableTest, InsertWithoutStartUpdateReturnsFailure) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
 
   ExecutionResult result = data_table_.Insert(kHash, data_value);
 
@@ -102,8 +106,9 @@ TEST_P(MarkedDataTableTest, InsertWithoutStartUpdateReturnsFailure) {
 
 TEST_P(MarkedDataTableTest, InsertDuplicateReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
 
   ExecutionResult result = data_table_.Insert(kHash, data_value);
@@ -115,8 +120,9 @@ TEST_P(MarkedDataTableTest, InsertDuplicateReturnsSuccess) {
 
 TEST_P(MarkedDataTableTest, FindNonexistentReturnsFailure) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
   EXPECT_SUCCESS(data_table_.FinalizeUpdate());
@@ -132,8 +138,9 @@ TEST_P(MarkedDataTableTest, FindNonexistentReturnsFailure) {
 
 TEST_P(MarkedDataTableTest, FindNonexistentPendingUpdateReturnsFailure) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
 
@@ -148,8 +155,9 @@ TEST_P(MarkedDataTableTest, FindNonexistentPendingUpdateReturnsFailure) {
 
 TEST_P(MarkedDataTableTest, FindExistingRecordPendingUpdateReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
 
@@ -162,8 +170,9 @@ TEST_P(MarkedDataTableTest, FindExistingRecordPendingUpdateReturnsSuccess) {
 
 TEST_P(MarkedDataTableTest, FindExistingRecordNoPendingUpdateReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
   EXPECT_SUCCESS(data_table_.FinalizeUpdate());
@@ -177,8 +186,9 @@ TEST_P(MarkedDataTableTest, FindExistingRecordNoPendingUpdateReturnsSuccess) {
 
 TEST_P(MarkedDataTableTest, FindExistingRecordCanceledUpdateReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
   EXPECT_SUCCESS(data_table_.CancelUpdate());
@@ -192,8 +202,9 @@ TEST_P(MarkedDataTableTest, FindExistingRecordCanceledUpdateReturnsSuccess) {
 
 TEST_P(MarkedDataTableTest, FindPendingNewVersionedUpdateReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
   EXPECT_SUCCESS(data_table_.FinalizeUpdate());
@@ -209,14 +220,16 @@ TEST_P(MarkedDataTableTest, FindPendingNewVersionedUpdateReturnsSuccess) {
 
 TEST_P(MarkedDataTableTest, FindPendingOldVersionedRecordReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
   EXPECT_SUCCESS(data_table_.FinalizeUpdate());
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value2.mutable_associated_data(0)->set_int_value(kUserId2);
+  *data_value2.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value2.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId2));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId2));
   EXPECT_SUCCESS(data_table_.Insert(kHash2, data_value2));
 
@@ -230,14 +243,16 @@ TEST_P(MarkedDataTableTest, FindPendingOldVersionedRecordReturnsSuccess) {
 TEST_P(MarkedDataTableTest,
        FindPendingAndFinalizedRecordsSameHashReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
   EXPECT_SUCCESS(data_table_.FinalizeUpdate());
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value2.mutable_associated_data(0)->set_int_value(kUserId2);
+  *data_value2.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value2.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId2));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId2));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value2));
 
@@ -252,14 +267,16 @@ TEST_P(MarkedDataTableTest,
 TEST_P(MarkedDataTableTest,
        FindFinalizedDroppedRecordSameHashReturnsRemainingElement) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
   EXPECT_SUCCESS(data_table_.FinalizeUpdate());
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value2.mutable_associated_data(0)->set_int_value(kUserId2);
+  *data_value2.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value2.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId2));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId2));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value2));
   EXPECT_SUCCESS(data_table_.FinalizeUpdate());
@@ -274,14 +291,16 @@ TEST_P(MarkedDataTableTest,
 TEST_P(MarkedDataTableTest,
        FindFinalizedDroppedRecordDifferentHashReturnsFailure) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
   EXPECT_SUCCESS(data_table_.FinalizeUpdate());
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value2.mutable_associated_data(0)->set_int_value(kUserId2);
+  *data_value2.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value2.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId2));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId2));
   EXPECT_SUCCESS(data_table_.Insert(kHash2, data_value2));
   EXPECT_SUCCESS(data_table_.FinalizeUpdate());
@@ -297,8 +316,9 @@ TEST_P(MarkedDataTableTest,
 
 TEST_P(MarkedDataTableTest, FindCanceledRetriedRecordSameHashReturnsElement) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
   EXPECT_SUCCESS(data_table_.CancelUpdate());
@@ -316,14 +336,16 @@ TEST_P(MarkedDataTableTest, FindCanceledRetriedRecordSameHashReturnsElement) {
 TEST_P(MarkedDataTableTest,
        FindCanceledDroppedRecordSameHashReturnsRemainingElement) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
   EXPECT_SUCCESS(data_table_.CancelUpdate());
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value2.mutable_associated_data(0)->set_int_value(kUserId2);
+  *data_value2.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value2.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId2));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId2));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value2));
   EXPECT_SUCCESS(data_table_.FinalizeUpdate());
@@ -337,11 +359,13 @@ TEST_P(MarkedDataTableTest,
 
 TEST_P(MarkedDataTableTest, ReplaceNonexistentReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value2.mutable_associated_data(0)->set_int_value(kUserId2);
+  *data_value2.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value2.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId2));
   std::vector<DataValue> data_values = {data_value, data_value2};
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
 
@@ -356,13 +380,15 @@ TEST_P(MarkedDataTableTest, ReplaceNonexistentReturnsSuccess) {
 
 TEST_P(MarkedDataTableTest, ReplaceExistingSameUpdateReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value2.mutable_associated_data(0)->set_int_value(kUserId2);
+  *data_value2.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value2.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId2));
   std::vector<DataValue> data_values = {data_value2};
 
   ExecutionResult result = data_table_.Replace(kHash, data_values);
@@ -375,15 +401,17 @@ TEST_P(MarkedDataTableTest, ReplaceExistingSameUpdateReturnsSuccess) {
 
 TEST_P(MarkedDataTableTest, ReplaceExistingNewPendingUpdateReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
   EXPECT_SUCCESS(data_table_.FinalizeUpdate());
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId2));
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value2.mutable_associated_data(0)->set_int_value(kUserId2);
+  *data_value2.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value2.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId2));
   std::vector<DataValue> data_values = {data_value2};
 
   ExecutionResult result = data_table_.Replace(kHash, data_values);
@@ -396,8 +424,9 @@ TEST_P(MarkedDataTableTest, ReplaceExistingNewPendingUpdateReturnsSuccess) {
 
 TEST_P(MarkedDataTableTest, ReplaceWithoutStartUpdateReturnsFailure) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   std::vector<DataValue> data_values = {data_value};
 
   ExecutionResult result = data_table_.Replace(kHash, data_values);
@@ -408,8 +437,9 @@ TEST_P(MarkedDataTableTest, ReplaceWithoutStartUpdateReturnsFailure) {
 
 TEST_P(MarkedDataTableTest, ReplaceExistingSameRecordSameUpdateReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
   std::vector<DataValue> data_values = {data_value};
@@ -425,8 +455,9 @@ TEST_P(MarkedDataTableTest, ReplaceExistingSameRecordSameUpdateReturnsSuccess) {
 TEST_P(MarkedDataTableTest,
        ReplaceExistingSameRecordNewPendingUpdateReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
   EXPECT_SUCCESS(data_table_.FinalizeUpdate());
@@ -443,8 +474,9 @@ TEST_P(MarkedDataTableTest,
 
 TEST_P(MarkedDataTableTest, EraseRecordSameUpdateReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
 
@@ -461,8 +493,9 @@ TEST_P(MarkedDataTableTest, EraseRecordSameUpdateReturnsSuccess) {
 
 TEST_P(MarkedDataTableTest, EraseRecordNewPendingUpdateReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
   EXPECT_SUCCESS(data_table_.FinalizeUpdate());
@@ -481,11 +514,13 @@ TEST_P(MarkedDataTableTest, EraseRecordNewPendingUpdateReturnsSuccess) {
 
 TEST_P(MarkedDataTableTest, EraseRecordSharingHashReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value2.mutable_associated_data(0)->set_int_value(kUserId2);
+  *data_value2.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value2.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId2));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value2));
@@ -501,8 +536,9 @@ TEST_P(MarkedDataTableTest, EraseRecordSharingHashReturnsSuccess) {
 
 TEST_P(MarkedDataTableTest, EraseRecordWithoutStartUpdateReturnsFailure) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
 
   ExecutionResult result = data_table_.Erase(kHash, data_value);
 
@@ -512,11 +548,13 @@ TEST_P(MarkedDataTableTest, EraseRecordWithoutStartUpdateReturnsFailure) {
 
 TEST_P(MarkedDataTableTest, EraseRecordNonexistentReturnsFailure) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value2.mutable_associated_data(0)->set_int_value(kUserId2);
+  *data_value2.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value2.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId2));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
 
@@ -529,8 +567,9 @@ TEST_P(MarkedDataTableTest, EraseRecordNonexistentReturnsFailure) {
 
 TEST_P(MarkedDataTableTest, EraseKeySameUpdateReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
 
@@ -547,8 +586,9 @@ TEST_P(MarkedDataTableTest, EraseKeySameUpdateReturnsSuccess) {
 
 TEST_P(MarkedDataTableTest, EraseKeyNewPendingUpdateReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
   EXPECT_SUCCESS(data_table_.FinalizeUpdate());
@@ -567,11 +607,13 @@ TEST_P(MarkedDataTableTest, EraseKeyNewPendingUpdateReturnsSuccess) {
 
 TEST_P(MarkedDataTableTest, EraseKeySharingHashReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value2.mutable_associated_data(0)->set_int_value(kUserId2);
+  *data_value2.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value2.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId2));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value2));
@@ -596,11 +638,13 @@ TEST_P(MarkedDataTableTest, EraseKeyWithoutStartUpdateReturnsFailure) {
 TEST_P(MarkedDataTableTest,
        StartUpdateWithInProgressUpdateSameDatasetIdReturnsFailure) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value2.mutable_associated_data(0)->set_int_value(kUserId2);
+  *data_value2.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value2.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId2));
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Insert(kHash, data_value));
 
@@ -724,11 +768,13 @@ TEST_P(MarkedDataTableTest, GetPendingDatasetIdWithCanceledWithNewUpdate) {
 TEST_P(MarkedDataTableTest,
        ReplaceAcrossUpdatesAndFinalizeDropsUnmatchedKeysReturnsSuccess) {
   DataValue data_value;
-  *data_value.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value.mutable_associated_data(0)->set_int_value(kUserId);
+  *data_value.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId));
   DataValue data_value2;
-  *data_value2.add_associated_data()->mutable_key() = kUserIdKey;
-  data_value2.mutable_associated_data(0)->set_int_value(kUserId2);
+  *data_value2.add_associated_data()->mutable_key() = kEncryptedGaiaIdKey;
+  data_value2.mutable_associated_data(0)->set_bytes_value(
+      std::string(kEncryptedGaiaId2));
 
   EXPECT_SUCCESS(data_table_.StartUpdate(kDatasetId));
   EXPECT_SUCCESS(data_table_.Replace(kHash, {data_value}));
