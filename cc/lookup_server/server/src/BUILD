@@ -101,7 +101,9 @@ lookup_server_lib_deps = [
     "//cc/external:scp_cpio_parameter_client_interface",
     "//cc/external:scp_cpio_ondemand_key_fetcher",
     "//cc/external:scp_cpio_dual_writing_metric_client",
+    "//cc/external:scp_cpio_noop_dual_writing_metric_client",
     "//cc/external:scp_cpio_key_fetcher_interface",
+    "//cc/external:scp_cpio_wrapped_key_handler",
     "//protos/lookup_server/backend:coordinator_set_configurations_cc_proto",
 ]
 

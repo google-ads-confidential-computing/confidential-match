@@ -35,6 +35,13 @@ inline constexpr char kIoAsyncExecutorQueueSize[] =
 // Configuration key for the number of IO async executor threads.
 inline constexpr char kIoAsyncExecutorThreadsCount[] =
     "io_async_executor_threads_count";
+// Configuration key for the max concurrent queue size for the key fetching
+// async executor.
+inline constexpr char kKeyFetchingAsyncExecutorQueueSize[] =
+    "key_fetching_async_executor_queue_size";
+// Configuration key for the number of key fetching async executor threads.
+inline constexpr char kKeyFetchingAsyncExecutorThreadsCount[] =
+    "key_fetching_async_executor_threads_count";
 // Configuration key for whether to enable Open Telemetry metrics client.
 inline constexpr char kEnableOtelMetricClient[] = "enable_otel_metric_client";
 // Configuration key for the Open Telemetry metrics namespace.
@@ -119,6 +126,9 @@ inline constexpr char kJwtValidatorMinJwkDurationSeconds[] =
 // Configuration key for whether to enable CPIO cached coordinator client.
 inline constexpr char kEnableCpioCachedCoordinatorClient[] =
     "enable_cpio_cached_coordinator_client";
+// Configuration key for whether to enable CPIO AEAD crypto client.
+inline constexpr char kEnableCpioAeadCryptoClient[] =
+    "enable_cpio_aead_crypto_client";
 // Configuration key for the CoordinatorSetConfigurations proto.
 inline constexpr char kCoordinatorSetConfigurations[] =
     "coordinator_set_configurations";

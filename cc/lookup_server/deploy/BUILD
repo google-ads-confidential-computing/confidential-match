@@ -51,6 +51,8 @@ oci_image(
         "async_executor_threads_count": "4",  # For n2d-standard-4
         "io_async_executor_queue_size": "1000",
         "io_async_executor_threads_count": "50",
+        "key_fetching_async_executor_queue_size": "1000",
+        "key_fetching_async_executor_threads_count": "4",  # For n2d-standard-4
         # Required to use :cacerts, see that target definition for details
         "SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt",
     },
@@ -102,6 +104,8 @@ oci_image(
         "async_executor_threads_count": "48",  # For n2d-highmem-48
         "io_async_executor_queue_size": "100000",
         "io_async_executor_threads_count": "500",
+        "key_fetching_async_executor_queue_size": "100000",
+        "key_fetching_async_executor_threads_count": "48",  # For n2d-highmem-48
         # Required to use :cacerts, see that target definition for details
         "SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt",
     },
@@ -152,6 +156,8 @@ oci_image(
         "async_executor_threads_count": "48",  # For n2d-highmem-48
         "io_async_executor_queue_size": "100000",
         "io_async_executor_threads_count": "500",
+        "key_fetching_async_executor_queue_size": "100000",
+        "key_fetching_async_executor_threads_count": "48",  # For n2d-highmem-48
         # Required to use :cacerts, see that target definition for details
         "SSL_CERT_FILE": "/etc/ssl/certs/ca-certificates.crt",
     },
@@ -172,6 +178,8 @@ oci_image(
             "async_executor_threads_count",
             "io_async_executor_queue_size",
             "io_async_executor_threads_count",
+            "key_fetching_async_executor_queue_size",
+            "key_fetching_async_executor_threads_count",
         ]),
         "tee.launch_policy.log_redirect": "always",
         "tee.launch_policy.monitoring_memory_allow": "always",

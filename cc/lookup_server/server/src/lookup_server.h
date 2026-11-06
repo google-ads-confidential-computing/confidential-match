@@ -44,10 +44,12 @@
 #include "cc/lookup_server/service/src/lookup_service.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "cc/public/cpio/interface/blob_storage_client/blob_storage_client_interface.h"
+#include "cc/public/cpio/interface/kms_client/kms_client_interface.h"
 #include "cc/public/cpio/interface/metric_client/metric_client_interface.h"
 #include "cc/public/cpio/interface/private_key_client/private_key_client_interface.h"
 #include "cc/public/cpio/utils/dual_writing_metric_client/interface/dual_writing_metric_client_interface.h"
 #include "cc/public/cpio/utils/key_fetching/interface/key_fetcher_with_cache_interface.h"
+#include "cc/public/cpio/utils/key_fetching/src/wrapped_key_handler_with_cache_interface.h"
 #include "cc/public/cpio/utils/metric_instance/interface/metric_instance_factory_interface.h"
 #include "protos/lookup_server/backend/coordinator_set_configurations.pb.h"
 
@@ -59,6 +61,9 @@ struct CpioOptionsConfig {
   size_t async_executor_thread_pool_size = 8;  // Should be same as no. of cores
   size_t io_async_executor_queue_size = 10000;
   size_t io_async_executor_thread_pool_size = 256;
+  size_t key_fetching_async_executor_queue_size = 10000;
+  // Should be same as no. of cores
+  size_t key_fetching_async_executor_thread_pool_size = 8;
 };
 
 // Stores values for variables passed in from tee metadata
@@ -134,6 +139,8 @@ struct LookupServerParameters {
   // Whether to use CpioCachedCoordinatorClient instead of regular
   // CachedCoordinatorClient.
   bool enable_cpio_cached_coordinator_client = false;
+  // Whether to use CpioAeadCryptoClient instead of regular AeadCryptoClient.
+  bool enable_cpio_aead_crypto_client = false;
   // Configured CoordinatorSetConfigurations for CPIO key fetchers.
   proto_backend::CoordinatorSetConfigurations coordinator_set_configurations;
   // CPIO metric client used for Open Telemetry metrics.
@@ -165,6 +172,8 @@ class LookupServer : public scp::core::ServiceInterface {
   std::shared_ptr<scp::core::ConfigProviderInterface> config_provider_;
   std::shared_ptr<scp::core::AsyncExecutorInterface> async_executor_;
   std::shared_ptr<scp::core::AsyncExecutorInterface> io_async_executor_;
+  std::shared_ptr<scp::core::AsyncExecutorInterface>
+      key_fetching_async_executor_;
   std::shared_ptr<scp::cpio::CpioOptions> cpio_options_;
   std::shared_ptr<ParameterClientInterface> parameter_client_;
   std::shared_ptr<scp::core::HttpClientInterface> http1_client_;
@@ -176,6 +185,12 @@ class LookupServer : public scp::core::ServiceInterface {
   std::shared_ptr<scp::core::AuthorizationProxyInterface>
       pass_thru_authorization_proxy_;
   std::shared_ptr<scp::cpio::BlobStorageClientInterface> blob_storage_client_;
+  std::shared_ptr<scp::cpio::KmsClientInterface> cpio_aws_kms_client_;
+  std::shared_ptr<scp::cpio::KmsClientInterface> cpio_gcp_kms_client_;
+  std::shared_ptr<scp::cpio::WrappedKeyHandlerWithCacheInterface>
+      aws_wrapped_key_handler_;
+  std::shared_ptr<scp::cpio::WrappedKeyHandlerWithCacheInterface>
+      gcp_wrapped_key_handler_;
   std::shared_ptr<KmsClientInterface> aws_kms_client_;
   std::shared_ptr<KmsClientInterface> aws_cached_kms_client_;
   std::shared_ptr<KmsClientInterface> gcp_kms_client_;
