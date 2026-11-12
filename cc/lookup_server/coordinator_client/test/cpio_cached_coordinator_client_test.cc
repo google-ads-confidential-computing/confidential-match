@@ -514,17 +514,17 @@ TEST(StringifyTest, StringifyEndpointsAndCoordinatorsEquivalent) {
         coordinators {
           key_service_endpoint: "$1"
           account_identity: "completely-different-account-identity"
-          kms_wip_provider: "$2"
-          key_service_audience_url: "$3"
+          kms_wip_provider: "completely-different-wip-provider"
+          key_service_audience_url: "$2"
         }
         coordinators {
-          key_service_endpoint: "$4"
-          kms_wip_provider: "$5"
-          key_service_audience_url: "$6"
+          key_service_endpoint: "$3"
+          kms_wip_provider: "$4"
+          key_service_audience_url: "$5"
         }
       )pb",
-      kKeyId, kTestEndpoint1, kTestWipProvider1, kTestAudienceUrl1,
-      kTestEndpoint2, kTestWipProvider2, kTestAudienceUrl2);
+      kKeyId, kTestEndpoint1, kTestAudienceUrl1, kTestEndpoint2,
+      kTestWipProvider2, kTestAudienceUrl2);
 
   std::string endpoints_str = StringifyEndpoints(key_coordinator_config);
   std::string coordinators_str = StringifyCoordinators(request.coordinators());
@@ -560,17 +560,17 @@ TEST(StringifyTest, StringifyEncryptionKeyInfoCoordinatorsEquivalent) {
             coordinator_info {
               key_service_endpoint: "$0"
               kms_identity: "completely-different-kms-identity"
-              kms_wip_provider: "$1"
-              key_service_audience_url: "$2"
+              kms_wip_provider: "completely-different-wip-provider"
+              key_service_audience_url: "$1"
             }
             coordinator_info {
-              key_service_endpoint: "$3"
-              kms_wip_provider: "$4"
-              key_service_audience_url: "$5"
+              key_service_endpoint: "$2"
+              kms_wip_provider: "$3"
+              key_service_audience_url: "$4"
             }
           )pb",
-          kTestEndpoint1, kTestWipProvider1, kTestAudienceUrl1,
-          kTestEndpoint2, kTestWipProvider2, kTestAudienceUrl2);
+          kTestEndpoint1, kTestAudienceUrl1, kTestEndpoint2, kTestWipProvider2,
+          kTestAudienceUrl2);
 
   std::string endpoints_str = StringifyEndpoints(key_coordinator_config);
   std::string coordinators_str =
@@ -637,9 +637,8 @@ TEST(StringifyTest, StringifyEndpointsAndCoordinatorsSortsByEndpoint) {
           kTestEndpoint1, kTestWipProvider1, kTestAudienceUrl1, kTestEndpoint2,
           kTestWipProvider2, kTestAudienceUrl2);
 
-  std::string expected =
-      absl::StrCat(kTestEndpoint1, kTestWipProvider1, kTestAudienceUrl1,
-                   kTestEndpoint2, kTestWipProvider2, kTestAudienceUrl2);
+  std::string expected = absl::StrCat(kTestEndpoint1, kTestAudienceUrl1,
+                                      kTestEndpoint2, kTestAudienceUrl2);
 
   EXPECT_EQ(StringifyEndpoints(key_coordinator_config_reverse), expected);
   EXPECT_EQ(StringifyCoordinators(request_reverse.coordinators()), expected);

@@ -204,6 +204,12 @@ grpc::Status CreateApiStatus(ExternalError::Reason error_reason) noexcept {
 }
 
 // Maps from backend error reason to external-facing API error reason.
+//
+// External error reasons are only used when an entire request fails (to build
+// the request-level gRPC status). Some backend errors are only ever emitted as
+// field-level errors on individual matched keys (e.g. INVALID_HASHED_VALUE) and
+// never at the request level, so their mapping here has no effect. They are
+// still listed because the switch below must be exhaustive.
 ExternalError::Reason ToExternalErrorReason(
     const backend::Error::Reason backend_error_reason) {
   switch (backend_error_reason) {
@@ -245,6 +251,9 @@ ExternalError::Reason ToExternalErrorReason(
     case backend::Error::INVALID_MATCH_KEY_ENCODING:
       return ExternalError::INVALID_MATCH_KEY_ENCODING;
     case backend::Error::INVALID_MATCH_KEY_FIELD:
+      return ExternalError::INVALID_MATCH_KEY_FIELD;
+    // Field-level only; this mapping has no effect (see function comment).
+    case backend::Error::INVALID_HASHED_VALUE:
       return ExternalError::INVALID_MATCH_KEY_FIELD;
     case backend::Error::DECRYPTION_ERROR:
     case backend::Error::KMS_CLIENT_ERROR:

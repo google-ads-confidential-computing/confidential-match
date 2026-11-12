@@ -49,6 +49,9 @@ message MatchRequest {
   // Optional: Any arbitrary caller-owned data to be passed through and
   // returned unchanged in the response.
   repeated KeyValue metadata = 7;
+
+  // Optional: Per-request options that control how the request is processed.
+  MatchRequestOptions match_request_options = 8;
 }
 
 // Response from matching data records.
@@ -369,6 +372,64 @@ message DataRecordAssociatedData {
   string selected_first_party_identifier = 1;
 }
 
+// Per-request options that control how a match request is processed.
+message MatchRequestOptions {
+  // Optional: Whether to auto-detect plaintext (unhashed) PII in decrypted
+  // match keys and normalize and hash it before matching. Only supported for
+  // requests with `MATCH_KEY_FORMAT_HASHED_ENCRYPTED`; requests with
+  // `MATCH_KEY_FORMAT_HASHED` that set this to true are rejected.
+  // Defaults to false, in which case all decrypted match keys are assumed to
+  // be hashed.
+  bool enable_encrypted_plaintext_pii_auto_detection = 1;
+
+  // Optional: Options for normalizing plaintext PII that is detected when
+  // `enable_encrypted_plaintext_pii_auto_detection` is true. Fields that are
+  // not set use the server-side defaults. Only supported with
+  // `MATCH_KEY_FORMAT_HASHED_ENCRYPTED`; requests with
+  // `MATCH_KEY_FORMAT_HASHED` that set this field are rejected.
+  UserDataNormalizerOptions user_data_normalizer_options = 2;
+
+  // Optional: Regional group identifier (e.g. "eu") for regional TEE routing
+  // and sharding scheme selection.
+  string regional_group = 3;
+}
+
+// Options for normalizing plaintext PII in decrypted match keys. Fields that
+// are not set use the server-side default noted on each field.
+message UserDataNormalizerOptions {
+  // Optional: Whether to use the country code of a composite address in the
+  // same data record as a hint when normalizing plaintext phone numbers.
+  // Server-side default: false.
+  bool enable_phone_country_code_hint = 1;
+
+  // Optional: Whether to strip the part after a plus sign (e.g. "+tag") from
+  // the username of plaintext gmail.com and googlemail.com email addresses.
+  // Server-side default: true.
+  bool strip_parts_after_plus_sign_in_email = 2;
+
+  // Optional: Whether to strip periods from the username of plaintext
+  // facebookmail.com email addresses.
+  // Server-side default: true.
+  bool strip_periods_in_facebookmail = 3;
+
+  // Optional: Whether to strip common prefixes ("mr.", "mrs.", "ms.", "dr.")
+  // from plaintext first and last names.
+  // Server-side default: true.
+  bool strip_common_prefixes_in_names = 4;
+
+  // Optional: Whether to remove numbers, whitespace, and special characters
+  // from plaintext first and last names.
+  // Server-side default: false.
+  bool remove_numbers_and_special_chars_in_names = 5;
+
+  // Optional: Whether to only trim surrounding whitespace from the zip codes
+  // of plaintext composite addresses, instead of fully normalizing them
+  // (removing non-alphanumeric characters, lowercasing, and truncating US zip
+  // codes to 5 digits).
+  // Server-side default: false.
+  bool only_trim_surrounding_whitespaces_in_zip_code = 6;
+}
+
 // Identifiers for the callers of Confidential Match.
 enum Application {
   // The default value of Application. Should not be used.
@@ -385,6 +446,9 @@ enum Application {
 
   // Identifier for Store Sales.
   APPLICATION_STORE_SALES = 4;
+
+  // Identifier for Cloud Staging.
+  APPLICATION_CLOUD_STAGING = 5;
 }
 
 enum FieldType {
@@ -438,14 +502,18 @@ enum MatchKeyFormat {
   // The key is hashed and encoded.
   MATCH_KEY_FORMAT_HASHED = 1;
 
-  // The key is hashed, encoded, then encrypted, then encoded.
+  // The key is hashed, encoded, then encrypted, then encoded. If
+  // `MatchRequestOptions.enable_encrypted_plaintext_pii_auto_detection` is
+  // true, the key may instead be plaintext (unhashed) PII that is encrypted,
+  // then encoded.
   MATCH_KEY_FORMAT_HASHED_ENCRYPTED = 2;
 }
 
 // Encoding of the match key values.
 // For hashed encrypted payloads, this indicates the outermost encoding of the
 // encrypted bytes. The decrypted contents of these bytes should contain a
-// base-64 encoded hash.
+// base-64 encoded hash, or plaintext PII if
+// `MatchRequestOptions.enable_encrypted_plaintext_pii_auto_detection` is true.
 enum MatchKeyEncoding {
   // The default value of MatchKeyEncoding. Should not be used.
   MATCH_KEY_ENCODING_UNSPECIFIED = 0;

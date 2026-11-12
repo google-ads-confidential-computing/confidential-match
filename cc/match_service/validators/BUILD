@@ -17,6 +17,34 @@ load("@rules_cc//cc:defs.bzl", "cc_library", "cc_test")
 package(default_visibility = ["//cc/match_service:__subpackages__"])
 
 cc_library(
+    name = "hashed_pii_validator",
+    srcs = ["hashed_pii_validator.cc"],
+    hdrs = ["hashed_pii_validator.h"],
+    deps = [
+        "//cc/external:absl_span",
+        "//cc/external:absl_status",
+        "//cc/external:absl_strings",
+        "//cc/external:scp_cpio_format_detection",
+        "//cc/match_service/error",
+        "//protos/match_service/backend:error_cc_proto",
+    ],
+)
+
+cc_test(
+    name = "hashed_pii_validator_test",
+    size = "small",
+    srcs = ["hashed_pii_validator_test.cc"],
+    deps = [
+        ":hashed_pii_validator",
+        "//cc/external:absl_status",
+        "//cc/external:absl_status_matchers",
+        "//cc/external:google_gtest_main",
+        "//cc/match_service/error",
+        "//protos/match_service/backend:error_cc_proto",
+    ],
+)
+
+cc_library(
     name = "match_key_encoding_validator",
     srcs = ["match_key_encoding_validator.cc"],
     hdrs = ["match_key_encoding_validator.h"],

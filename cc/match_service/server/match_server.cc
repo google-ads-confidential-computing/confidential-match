@@ -663,7 +663,7 @@ absl::Status MatchServer::CreateComponents() noexcept {
         cpu_async_executor_, *cpio_gcp_kms_client_, wrapped_key_handler_options,
         *dual_writing_metric_client_);
     aead_crypto_client_ = std::make_unique<CpioAeadCryptoClient>(
-        cpu_async_executor_.get(), aws_wrapped_key_handler_.get(),
+        match_service_async_executor_.get(), aws_wrapped_key_handler_.get(),
         gcp_wrapped_key_handler_.get());
   } else {
     gcp_kms_client_ = std::make_unique<KmsClient>(cpio_gcp_kms_client_);

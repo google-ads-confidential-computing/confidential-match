@@ -61,15 +61,11 @@ constexpr absl::string_view kComponentName = "CpioCachedCoordinatorClient";
 // This is used to sort the endpoints in the StringifyEndpointInfos function.
 struct EndpointInfo {
   std::string_view endpoint;
-  std::string_view wip_provider;
   std::string_view audience_url;
 
   bool operator<(const EndpointInfo& other) const {
     if (endpoint != other.endpoint) {
       return endpoint < other.endpoint;
-    }
-    if (wip_provider != other.wip_provider) {
-      return wip_provider < other.wip_provider;
     }
     return audience_url < other.audience_url;
   }
@@ -79,8 +75,7 @@ std::string StringifyEndpointInfos(std::vector<EndpointInfo> endpoints) {
   std::sort(endpoints.begin(), endpoints.end());
   std::string result;
   for (const auto& endpoint : endpoints) {
-    absl::StrAppend(&result, endpoint.endpoint, endpoint.wip_provider,
-                    endpoint.audience_url);
+    absl::StrAppend(&result, endpoint.endpoint, endpoint.audience_url);
   }
   return result;
 }
@@ -130,8 +125,8 @@ std::string StringifyEndpoints(
   endpoints.reserve(key_coordinator_configuration.private_key_endpoints_size());
   for (const auto& endpoint :
        key_coordinator_configuration.private_key_endpoints()) {
-    endpoints.push_back({endpoint.endpoint(), endpoint.gcp_wip_provider(),
-                         endpoint.gcp_cloud_function_url()});
+    endpoints.push_back(
+        {endpoint.endpoint(), endpoint.gcp_cloud_function_url()});
   }
   return StringifyEndpointInfos(std::move(endpoints));
 }
@@ -142,7 +137,6 @@ std::string StringifyCoordinators(
   endpoints.reserve(coordinators.size());
   for (const auto& coordinator : coordinators) {
     endpoints.push_back({coordinator.key_service_endpoint(),
-                         coordinator.kms_wip_provider(),
                          coordinator.key_service_audience_url()});
   }
   return StringifyEndpointInfos(std::move(endpoints));
@@ -155,7 +149,6 @@ std::string StringifyCoordinators(
   endpoints.reserve(coordinators.size());
   for (const auto& coordinator : coordinators) {
     endpoints.push_back({coordinator.key_service_endpoint(),
-                         coordinator.kms_wip_provider(),
                          coordinator.key_service_audience_url()});
   }
   return StringifyEndpointInfos(std::move(endpoints));

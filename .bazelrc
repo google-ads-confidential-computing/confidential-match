@@ -1,6 +1,11 @@
 # Hide warnings from building external dependencies
 build --output_filter='^//((?!(external):).)*$'
 
+# Route snapshot.debian.org .deb downloads through Debian CDN mirrors
+# (deb.debian.org and snapshot-cloudflare.debian.org) before falling back to
+# upstream snapshot.debian.org to prevent 504 Gateway Timeouts.
+common --experimental_downloader_config=build_defs/shared/bazel_downloader.cfg
+
 # C++
 build --extra_toolchains=@llvm_toolchain//:all
 build --repo_env=BAZEL_CXXOPTS=-std=c++17
@@ -32,3 +37,12 @@ build --incompatible_sandbox_hermetic_tmp
 build:gcp-tee-build --//cc/lookup_server/server/src:platform=gcp
 build:gcp-tee-build --@com_google_adm_cloud_scp//cc/public/cpio/interface:platform=gcp
 build:gcp-tee-build --@com_google_adm_cloud_scp//cc/public/cpio/interface:run_inside_tee=True
+
+# Retry flaky external downloads (e.g. HTTP 503 from snapshot.debian.org).
+# HTTP 5xx responses are retried per URL with exponential backoff (100ms,
+# doubling, capped at 30s): 12 attempts wait ~110s in total, versus ~13s for
+# the default of 8 attempts.
+common --http_connector_attempts=12
+common --http_connector_retry_max_timeout=30s
+# Also retry downloads interrupted by connection resets or truncated bodies.
+common --experimental_repository_downloader_retries=5

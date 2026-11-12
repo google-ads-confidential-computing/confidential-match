@@ -361,6 +361,16 @@ alias(
 )
 
 alias(
+    name = "scp_cpio_format_detection",
+    actual = "@com_google_adm_cloud_scp//cc/public/cpio/utils/data_normalization/format_detection",
+)
+
+alias(
+    name = "scp_cpio_plaintext_pii",
+    actual = "@com_google_adm_cloud_scp//cc/public/cpio/utils/data_normalization/plaintext_pii",
+)
+
+alias(
     name = "scp_cpio_blob_storage_client_interface",
     actual = "@com_google_adm_cloud_scp//cc/public/cpio/interface/blob_storage_client:blob_storage_client",
 )

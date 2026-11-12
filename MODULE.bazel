@@ -17,12 +17,17 @@ module(
     version = "0.0.0",
 )
 
-SCP_VERSION = "1.38.0"  # latest as of October 22, 2026
+SCP_VERSION = "1.42.0"  # latest as of November 5, 2026
 
 bazel_dep(name = "google_ads_confidential_computing_scp", version = SCP_VERSION, repo_name = "com_google_adm_cloud_scp")
 archive_override(
     module_name = "google_ads_confidential_computing_scp",
-    integrity = "sha256-vC9SEVdzJUv4dDCmogu+7ls8HQV1YoyVlYDdcE5u95w=",
+    # To generat this hash, run:
+    #   curl -L <URL-from-below-for-this-version> -o /tmp/<filename>
+    #   openssl dgst -sha256 -binary /tmp/<filename> | base64
+    integrity = "sha256-trFiJfj10PfNA2qKpbxSZDRrrXZyS4uXFA1tK7l4mno=",
+    patch_strip = 1,
+    patches = ["//build_defs/shared:scp_serverless_connector.patch"],
     strip_prefix = "conf-data-processing-architecture-reference-" + SCP_VERSION,
     urls = [
         "https://github.com/google-ads-confidential-computing/conf-data-processing-architecture-reference/archive/v" + SCP_VERSION + ".tar.gz",

@@ -146,5 +146,8 @@ message Error {
     // incorrectly classified the country code or zip code as encrypted.
     INTERNAL_ERROR_PROCESSING_COUNTRY_ZIP_CODE = 33
         [(backend_rpc_code) = INTERNAL];
+
+    // A match key value that is expected to be a hash is not a valid hash.
+    INVALID_HASHED_VALUE = 34 [(backend_rpc_code) = INVALID_ARGUMENT];
   }
 }
