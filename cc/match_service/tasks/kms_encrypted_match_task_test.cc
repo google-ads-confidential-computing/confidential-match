@@ -3210,5 +3210,19 @@ TEST_F(KmsEncryptedMatchTaskTest, CheckDecryptionErrorSingleFieldFailed) {
             backend::ERROR_REASON_DECRYPTION_ERROR);
 }
 
+TEST_F(KmsEncryptedMatchTaskTest, HashedPiiValidationDisabledByDefault) {
+  EXPECT_FALSE(kms_encrypted_match_task_.IsHashedPiiValidationEnabled());
+}
+
+TEST_F(KmsEncryptedMatchTaskTest, HashedPiiValidationCanBeEnabled) {
+  KmsEncryptedMatchTask task(
+      mock_lookup_service_client_.get(), mock_aead_crypto_client_.get(),
+      mock_hasher_.get(), mock_hybrid_crypto_client_.get(),
+      PrivateKeyEndpoints(), /*metric_client=*/nullptr,
+      /*metric_namespace=*/"",
+      /*enable_encrypted_country_zip_code=*/true,
+      /*enable_hashed_pii_validation=*/true);
+  EXPECT_TRUE(task.IsHashedPiiValidationEnabled());
+}
 }  // namespace
 }  // namespace google::confidential_match::match_service

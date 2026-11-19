@@ -105,6 +105,10 @@ struct ConfigOptions {
   bool enable_grpc_otel_metrics = false;
   // A boolean to enable CpioAeadCryptoClient instead of AeadCryptoClient.
   bool enable_cpio_aead_crypto_client = false;
+  // A boolean to fail match keys whose PII is not a valid hash, both in hashed
+  // requests and in encrypted hashed requests (after decryption). When false,
+  // invalid values are only counted (shadow mode).
+  bool enable_hashed_pii_validation = false;
 };
 
 // The main server responsible for running Match Service.

@@ -20,7 +20,6 @@ cc_library(
     name = "lookup_server_interface_lib",
     srcs = glob(
         [
-            "*.cc",
             "*.h",
         ],
     ),

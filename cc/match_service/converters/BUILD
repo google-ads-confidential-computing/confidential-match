@@ -28,6 +28,7 @@ cc_library(
         ":key_value_converters",
         ":match_key_encoding_converters",
         ":match_key_format_converters",
+        ":match_request_options_converters",
         "//cc/core/error:status_macros",
         "//cc/external:absl_status",
         "//protos/match_service/api/v1:match_service_cc_proto",
@@ -46,6 +47,34 @@ cc_test(
         ":match_request_converters",
         "//cc/core/test/src:test_lib",
         "//cc/external:absl_status",
+        "//cc/external:absl_status_matchers",
+        "//cc/external:google_gtest_main",
+        "//protos/match_service/api/v1:match_service_cc_proto",
+        "//protos/match_service/backend:match_service_cc_proto",
+    ],
+)
+
+cc_library(
+    name = "match_request_options_converters",
+    srcs = ["match_request_options_converters.cc"],
+    hdrs = ["match_request_options_converters.h"],
+    deps = [
+        "//cc/core/error:status_macros",
+        "//cc/external:absl_status",
+        "//protos/match_service/api/v1:match_service_cc_proto",
+        "//protos/match_service/backend:match_service_cc_proto",
+    ],
+)
+
+cc_test(
+    name = "match_request_options_converters_test",
+    size = "small",
+    srcs = ["match_request_options_converters_test.cc"],
+    copts = [
+        "-std=c++17",
+    ],
+    deps = [
+        ":match_request_options_converters",
         "//cc/external:absl_status_matchers",
         "//cc/external:google_gtest_main",
         "//protos/match_service/api/v1:match_service_cc_proto",

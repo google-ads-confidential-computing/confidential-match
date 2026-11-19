@@ -665,6 +665,19 @@ absl::Status ValidateRequest(const MatchRequest& request) {
     return Status(Error::INVALID_MATCH_KEY_FORMAT,
                   "Encryption keys must not be set for hashed requests.");
   }
+  // Plaintext PII auto-detection and user data normalizer options are only
+  // supported with MATCH_KEY_FORMAT_HASHED_ENCRYPTED.
+  if (request.match_request_options()
+          .enable_encrypted_plaintext_pii_auto_detection()) {
+    return Status(Error::INVALID_MATCH_KEY_FORMAT,
+                  "Plaintext PII auto-detection is only supported with "
+                  "MATCH_KEY_FORMAT_HASHED_ENCRYPTED.");
+  }
+  if (request.match_request_options().has_user_data_normalizer_options()) {
+    return Status(Error::INVALID_MATCH_KEY_FORMAT,
+                  "User data normalizer options are only supported with "
+                  "MATCH_KEY_FORMAT_HASHED_ENCRYPTED.");
+  }
   if (request.key_encoding() ==
       MatchKeyEncoding::MATCH_KEY_ENCODING_UNSPECIFIED) {
     return Status(Error::INVALID_MATCH_KEY_ENCODING,

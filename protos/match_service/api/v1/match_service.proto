@@ -397,37 +397,98 @@ message MatchRequestOptions {
 // Options for normalizing plaintext PII in decrypted match keys. Fields that
 // are not set use the server-side default noted on each field.
 message UserDataNormalizerOptions {
+  // Optional: Options for normalizing plaintext email addresses.
+  EmailNormalizerOptions email_normalizer_options = 1;
+
+  // Optional: Options for normalizing the zip codes of plaintext composite
+  // addresses.
+  ZipCodeNormalizerOptions zip_code_normalizer_options = 2;
+
+  // Optional: Options for normalizing plaintext first and last names of
+  // composite addresses.
+  NameNormalizerOptions name_normalizer_options = 3;
+
+  // Optional: Options for normalizing plaintext phone numbers.
+  PhoneNumberNormalizerOptions phone_number_normalizer_options = 4;
+}
+
+// Options for normalizing plaintext phone numbers. Fields that are not set
+// use the server-side default noted on each field.
+message PhoneNumberNormalizerOptions {
   // Optional: Whether to use the country code of a composite address in the
-  // same data record as a hint when normalizing plaintext phone numbers.
+  // same data record as a hint when normalizing phone numbers.
   // Server-side default: false.
-  bool enable_phone_country_code_hint = 1;
+  bool use_country_code_hint = 1;
+}
 
+// Options for normalizing plaintext first and last names. Fields that are not
+// set use the server-side default noted on each field.
+message NameNormalizerOptions {
+  // Optional: Whether to strip common prefixes ("mr.", "mrs.", "ms.", "dr.").
+  // Server-side default: true.
+  bool strip_common_prefixes = 1;
+
+  // Optional: Whether to remove numbers, whitespace, and special characters.
+  // Server-side default: false.
+  bool remove_numbers_and_special_chars = 2;
+}
+
+// Options for normalizing plaintext email addresses. Fields that are not set
+// use the server-side default noted on each field.
+message EmailNormalizerOptions {
   // Optional: Whether to strip the part after a plus sign (e.g. "+tag") from
-  // the username of plaintext gmail.com and googlemail.com email addresses.
+  // the username of gmail.com and googlemail.com email addresses.
   // Server-side default: true.
-  bool strip_parts_after_plus_sign_in_email = 2;
+  bool strip_parts_after_plus_sign = 1;
 
-  // Optional: Whether to strip periods from the username of plaintext
-  // facebookmail.com email addresses.
+  // Optional: Whether to strip periods from the username of facebookmail.com
+  // email addresses.
   // Server-side default: true.
-  bool strip_periods_in_facebookmail = 3;
+  bool strip_periods_in_facebookmail = 2;
 
-  // Optional: Whether to strip common prefixes ("mr.", "mrs.", "ms.", "dr.")
-  // from plaintext first and last names.
+  // Optional: Whether to replace the googlemail.com domain with gmail.com.
   // Server-side default: true.
-  bool strip_common_prefixes_in_names = 4;
+  bool replace_googlemail_with_gmail = 3;
+}
 
-  // Optional: Whether to remove numbers, whitespace, and special characters
-  // from plaintext first and last names.
+// Options for normalizing the zip codes of plaintext composite addresses.
+// Fields that are not set use the server-side default noted on each field.
+// US-specific options apply only when
+// pass_country_code_for_us_zip_code_normalization is true and the composite
+// address's normalized country code is "us".
+message ZipCodeNormalizerOptions {
+  // Optional: Whether to only trim leading and trailing ASCII whitespace,
+  // instead of removing all non-alphanumeric characters.
   // Server-side default: false.
-  bool remove_numbers_and_special_chars_in_names = 5;
+  bool only_trim_surrounding_whitespaces = 1;
 
-  // Optional: Whether to only trim surrounding whitespace from the zip codes
-  // of plaintext composite addresses, instead of fully normalizing them
-  // (removing non-alphanumeric characters, lowercasing, and truncating US zip
-  // codes to 5 digits).
-  // Server-side default: false.
-  bool only_trim_surrounding_whitespaces_in_zip_code = 6;
+  // Optional: Whether to convert alphanumeric characters to lowercase.
+  // Server-side default: true.
+  bool to_lowercase = 2;
+
+  // Optional: Whether to use the unnormalized zip code if no characters remain
+  // after normalization (e.g. "--" or "   "). If false, the empty normalized
+  // value is used.
+  // Server-side default: true.
+  bool fall_back_to_unnormalized_if_empty = 3;
+
+  // Optional: Whether to pass the composite address's normalized country code
+  // to zip code normalization, so that US-specific options
+  // (zero_pad_us_zip_code and truncate_us_zip_code) apply to US zip codes. If
+  // false, US-specific options are not applied.
+  // Server-side default: true.
+  bool pass_country_code_for_us_zip_code_normalization = 4;
+
+  // Optional: Whether to left-pad non-empty US zip codes with '0': codes
+  // shorter than 5 characters are padded to 5, and codes longer than 5 but
+  // shorter than 9 characters are padded to 9.
+  // Server-side default: true.
+  bool zero_pad_us_zip_code = 5;
+
+  // Optional: Whether to truncate 9-character US zip codes to the first 5
+  // characters.
+  // Server-side default: true.
+  bool truncate_us_zip_code = 6;
 }
 
 // Identifiers for the callers of Confidential Match.

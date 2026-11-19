@@ -46,3 +46,34 @@ cc_test(
         "@com_google_googletest//:gtest_main",
     ],
 )
+
+cc_library(
+    name = "user_data_detector",
+    srcs = ["user_data_detector.cc"],
+    hdrs = ["user_data_detector.h"],
+    deps = [
+        "//cc/external:scp_cpio_format_detection",
+        "//cc/match_service/error",
+        "//protos/match_service/backend:error_cc_proto",
+        "//protos/match_service/backend:match_service_cc_proto",
+        "@com_google_absl//absl/status",
+        "@com_google_absl//absl/status:statusor",
+        "@com_google_absl//absl/strings",
+        "@com_google_absl//absl/types:span",
+    ],
+)
+
+cc_test(
+    name = "user_data_detector_test",
+    size = "small",
+    srcs = ["user_data_detector_test.cc"],
+    deps = [
+        ":user_data_detector",
+        "//cc/external:absl_status_matchers",
+        "//cc/external:scp_cpio_format_detection",
+        "//cc/match_service/error",
+        "//protos/match_service/backend:error_cc_proto",
+        "//protos/match_service/backend:match_service_cc_proto",
+        "@com_google_googletest//:gtest_main",
+    ],
+)

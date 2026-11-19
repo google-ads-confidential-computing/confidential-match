@@ -25,6 +25,37 @@ namespace google::confidential_match::match_service {
 
 using ::absl_testing::IsOk;
 
+namespace {
+
+// Expects `options` to read the backend proto defaults of every
+// UserDataNormalizerOptions field.
+void ExpectUserDataNormalizerOptionsDefaults(
+    const backend::UserDataNormalizerOptions& options) {
+  EXPECT_FALSE(
+      options.phone_number_normalizer_options().use_country_code_hint());
+
+  EXPECT_TRUE(options.name_normalizer_options().strip_common_prefixes());
+  EXPECT_FALSE(
+      options.name_normalizer_options().remove_numbers_and_special_chars());
+
+  EXPECT_TRUE(options.email_normalizer_options().strip_parts_after_plus_sign());
+  EXPECT_TRUE(
+      options.email_normalizer_options().strip_periods_in_facebookmail());
+  EXPECT_TRUE(
+      options.email_normalizer_options().replace_googlemail_with_gmail());
+
+  const backend::ZipCodeNormalizerOptions& zip_options =
+      options.zip_code_normalizer_options();
+  EXPECT_FALSE(zip_options.only_trim_surrounding_whitespaces());
+  EXPECT_TRUE(zip_options.to_lowercase());
+  EXPECT_TRUE(zip_options.fall_back_to_unnormalized_if_empty());
+  EXPECT_TRUE(zip_options.pass_country_code_for_us_zip_code_normalization());
+  EXPECT_TRUE(zip_options.zero_pad_us_zip_code());
+  EXPECT_TRUE(zip_options.truncate_us_zip_code());
+}
+
+}  // namespace
+
 TEST(MatchRequestConvertersTest, ToBackendConvertsEmptyObject) {
   api::v1::MatchRequest in;
   backend::MatchRequest out;
@@ -39,6 +70,7 @@ TEST(MatchRequestConvertersTest, ToBackendConvertsEmptyObject) {
   EXPECT_FALSE(out.has_encryption_key());
   EXPECT_EQ(out.associated_data_types_size(), 0);
   EXPECT_EQ(out.metadata_size(), 0);
+  EXPECT_FALSE(out.has_match_request_options());
 }
 
 TEST(MatchRequestConvertersTest, ToBackendConvertsApplication) {
@@ -121,6 +153,34 @@ TEST(MatchRequestConvertersTest, ToBackendConvertsMetadata) {
   EXPECT_EQ(out.metadata_size(), 1);
 }
 
+TEST(MatchRequestConvertersTest,
+     ToBackendConvertsMatchRequestOptionsAutoDetectionEnabled) {
+  api::v1::MatchRequest in;
+  in.mutable_match_request_options()
+      ->set_enable_encrypted_plaintext_pii_auto_detection(true);
+  backend::MatchRequest out;
+
+  EXPECT_THAT(ToBackend(in, out), IsOk());
+  ASSERT_TRUE(out.has_match_request_options());
+  EXPECT_TRUE(out.match_request_options()
+                  .enable_encrypted_plaintext_pii_auto_detection());
+}
+
+TEST(MatchRequestConvertersTest,
+     ToBackendConvertsMatchRequestOptionsAutoDetectionDisabled) {
+  api::v1::MatchRequest in;
+  in.mutable_match_request_options()
+      ->set_enable_encrypted_plaintext_pii_auto_detection(false);
+  backend::MatchRequest out;
+
+  EXPECT_THAT(ToBackend(in, out), IsOk());
+  ASSERT_TRUE(out.has_match_request_options());
+  EXPECT_TRUE(out.match_request_options()
+                  .has_enable_encrypted_plaintext_pii_auto_detection());
+  EXPECT_FALSE(out.match_request_options()
+                   .enable_encrypted_plaintext_pii_auto_detection());
+}
+
 TEST(MatchRequestConvertersTest, ToApiConvertsEmptyObject) {
   backend::MatchRequest in;
   api::v1::MatchRequest out;
@@ -135,6 +195,7 @@ TEST(MatchRequestConvertersTest, ToApiConvertsEmptyObject) {
   EXPECT_FALSE(out.has_encryption_key());
   EXPECT_EQ(out.associated_data_types_size(), 0);
   EXPECT_EQ(out.metadata_size(), 0);
+  EXPECT_FALSE(out.has_match_request_options());
 }
 
 TEST(MatchRequestConvertersTest, ToApiConvertsApplication) {
@@ -215,6 +276,155 @@ TEST(MatchRequestConvertersTest, ToApiConvertsMetadata) {
 
   EXPECT_THAT(status, IsOk());
   EXPECT_EQ(out.metadata_size(), 1);
+}
+
+TEST(MatchRequestConvertersTest,
+     ToApiConvertsMatchRequestOptionsAutoDetectionEnabled) {
+  backend::MatchRequest in;
+  in.mutable_match_request_options()
+      ->set_enable_encrypted_plaintext_pii_auto_detection(true);
+  api::v1::MatchRequest out;
+
+  EXPECT_THAT(ToApi(in, out), IsOk());
+  ASSERT_TRUE(out.has_match_request_options());
+  EXPECT_TRUE(out.match_request_options()
+                  .enable_encrypted_plaintext_pii_auto_detection());
+}
+
+TEST(MatchRequestConvertersTest,
+     ToApiConvertsMatchRequestOptionsAutoDetectionDisabled) {
+  backend::MatchRequest in;
+  in.mutable_match_request_options()
+      ->set_enable_encrypted_plaintext_pii_auto_detection(false);
+  api::v1::MatchRequest out;
+
+  EXPECT_THAT(ToApi(in, out), IsOk());
+  ASSERT_TRUE(out.has_match_request_options());
+  EXPECT_TRUE(out.match_request_options()
+                  .has_enable_encrypted_plaintext_pii_auto_detection());
+  EXPECT_FALSE(out.match_request_options()
+                   .enable_encrypted_plaintext_pii_auto_detection());
+}
+
+TEST(MatchRequestConvertersTest,
+     ToBackendConvertsMatchRequestOptionsUserDataNormalizerOptions) {
+  api::v1::MatchRequest in;
+  in.mutable_match_request_options()
+      ->mutable_user_data_normalizer_options()
+      ->mutable_phone_number_normalizer_options()
+      ->set_use_country_code_hint(true);
+  backend::MatchRequest out;
+
+  EXPECT_THAT(ToBackend(in, out), IsOk());
+  ASSERT_TRUE(out.match_request_options().has_user_data_normalizer_options());
+  EXPECT_TRUE(out.match_request_options()
+                  .user_data_normalizer_options()
+                  .phone_number_normalizer_options()
+                  .use_country_code_hint());
+}
+
+TEST(MatchRequestConvertersTest,
+     ToApiConvertsMatchRequestOptionsUserDataNormalizerOptions) {
+  backend::MatchRequest in;
+  in.mutable_match_request_options()
+      ->mutable_user_data_normalizer_options()
+      ->mutable_phone_number_normalizer_options()
+      ->set_use_country_code_hint(true);
+  api::v1::MatchRequest out;
+
+  EXPECT_THAT(ToApi(in, out), IsOk());
+  ASSERT_TRUE(out.match_request_options().has_user_data_normalizer_options());
+  EXPECT_TRUE(out.match_request_options()
+                  .user_data_normalizer_options()
+                  .phone_number_normalizer_options()
+                  .use_country_code_hint());
+}
+
+TEST(MatchRequestConvertersTest,
+     ToBackendConvertsMatchRequestOptionsRegionalGroup) {
+  api::v1::MatchRequest in;
+  in.mutable_match_request_options()->set_regional_group("eu");
+  backend::MatchRequest out;
+
+  EXPECT_THAT(ToBackend(in, out), IsOk());
+  ASSERT_TRUE(out.match_request_options().has_regional_group());
+  EXPECT_EQ(out.match_request_options().regional_group(), "eu");
+}
+
+TEST(MatchRequestConvertersTest,
+     ToApiConvertsMatchRequestOptionsRegionalGroup) {
+  backend::MatchRequest in;
+  in.mutable_match_request_options()->set_regional_group("eu");
+  api::v1::MatchRequest out;
+
+  EXPECT_THAT(ToApi(in, out), IsOk());
+  ASSERT_TRUE(out.match_request_options().has_regional_group());
+  EXPECT_EQ(out.match_request_options().regional_group(), "eu");
+}
+
+TEST(MatchRequestConvertersTest,
+     ToBackendWithoutRegionalGroupLeavesRegionalGroupUnset) {
+  api::v1::MatchRequest in;
+  in.mutable_match_request_options()
+      ->set_enable_encrypted_plaintext_pii_auto_detection(true);
+  backend::MatchRequest out;
+
+  EXPECT_THAT(ToBackend(in, out), IsOk());
+  ASSERT_TRUE(out.has_match_request_options());
+  EXPECT_FALSE(out.match_request_options().has_regional_group());
+}
+
+TEST(MatchRequestConvertersTest,
+     ToApiWithoutRegionalGroupLeavesRegionalGroupUnset) {
+  backend::MatchRequest in;
+  in.mutable_match_request_options()
+      ->set_enable_encrypted_plaintext_pii_auto_detection(true);
+  api::v1::MatchRequest out;
+
+  EXPECT_THAT(ToApi(in, out), IsOk());
+  ASSERT_TRUE(out.has_match_request_options());
+  EXPECT_FALSE(out.match_request_options().has_regional_group());
+}
+
+TEST(MatchRequestConvertersTest,
+     ToBackendWithoutMatchRequestOptionsReadsNormalizerDefaults) {
+  // match_request_options is not set at all.
+  api::v1::MatchRequest in;
+  backend::MatchRequest out;
+
+  EXPECT_THAT(ToBackend(in, out), IsOk());
+  EXPECT_FALSE(out.has_match_request_options());
+  ExpectUserDataNormalizerOptionsDefaults(
+      out.match_request_options().user_data_normalizer_options());
+}
+
+TEST(MatchRequestConvertersTest,
+     ToBackendWithoutUserDataNormalizerOptionsReadsNormalizerDefaults) {
+  // match_request_options is set, but user_data_normalizer_options is not.
+  api::v1::MatchRequest in;
+  in.mutable_match_request_options()
+      ->set_enable_encrypted_plaintext_pii_auto_detection(true);
+  backend::MatchRequest out;
+
+  EXPECT_THAT(ToBackend(in, out), IsOk());
+  ASSERT_TRUE(out.has_match_request_options());
+  EXPECT_FALSE(out.match_request_options().has_user_data_normalizer_options());
+  ExpectUserDataNormalizerOptionsDefaults(
+      out.match_request_options().user_data_normalizer_options());
+}
+
+TEST(MatchRequestConvertersTest,
+     ToBackendEmptyUserDataNormalizerOptionsReadsNormalizerDefaults) {
+  // user_data_normalizer_options is set, but none of its fields are.
+  api::v1::MatchRequest in;
+  in.mutable_match_request_options()->mutable_user_data_normalizer_options();
+  backend::MatchRequest out;
+
+  EXPECT_THAT(ToBackend(in, out), IsOk());
+  ASSERT_TRUE(out.has_match_request_options());
+  ASSERT_TRUE(out.match_request_options().has_user_data_normalizer_options());
+  ExpectUserDataNormalizerOptionsDefaults(
+      out.match_request_options().user_data_normalizer_options());
 }
 
 }  // namespace google::confidential_match::match_service

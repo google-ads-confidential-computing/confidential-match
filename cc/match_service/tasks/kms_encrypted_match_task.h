@@ -117,7 +117,8 @@ class KmsEncryptedMatchTask : public MatchTaskInterface {
       const backend::PrivateKeyEndpoints& private_key_endpoints,
       scp::cpio::MetricClientInterface* metric_client = nullptr,
       absl::string_view metric_namespace = "",
-      bool enable_encrypted_country_zip_code = false)
+      bool enable_encrypted_country_zip_code = false,
+      bool enable_hashed_pii_validation = false)
       : lookup_service_client_(lookup_service_client),
         aead_crypto_client_(aead_crypto_client),
         sha256_hasher_(sha256_hasher),
@@ -125,7 +126,14 @@ class KmsEncryptedMatchTask : public MatchTaskInterface {
         private_key_endpoints_(private_key_endpoints),
         metric_client_(metric_client),
         metric_namespace_(metric_namespace),
-        enable_encrypted_country_zip_code_(enable_encrypted_country_zip_code) {}
+        enable_encrypted_country_zip_code_(enable_encrypted_country_zip_code),
+        enable_hashed_pii_validation_(enable_hashed_pii_validation) {}
+
+  // Returns whether match keys whose decrypted PII is not a valid hash are
+  // failed (true) or only counted in shadow mode (false).
+  bool IsHashedPiiValidationEnabled() const noexcept {
+    return enable_hashed_pii_validation_;
+  }
 
   // Performs the match operation.
   void Match(AsyncContext<backend::MatchRequest, backend::MatchResponse>
@@ -255,6 +263,10 @@ class KmsEncryptedMatchTask : public MatchTaskInterface {
   std::string metric_namespace_;
   // A boolean to enable support for encrypted country code and zip code.
   bool enable_encrypted_country_zip_code_ = false;
+  // Whether to fail match keys whose decrypted PII is not a valid hash when
+  // plaintext PII auto-detection is disabled. When false, invalid values are
+  // only counted (shadow mode).
+  bool enable_hashed_pii_validation_ = false;
 };
 
 }  // namespace google::confidential_match::match_service

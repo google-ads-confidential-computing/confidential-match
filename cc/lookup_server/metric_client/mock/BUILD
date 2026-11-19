@@ -21,7 +21,6 @@ cc_library(
     srcs = glob(
         [
             "*.h",
-            "*.cc",
         ],
     ),
     copts = [

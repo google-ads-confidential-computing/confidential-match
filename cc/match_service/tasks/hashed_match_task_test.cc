@@ -27,7 +27,9 @@
 #include "cc/core/async/async_context.h"
 #include "cc/core/hash/mock_hasher.h"
 #include "cc/core/logger/logger_interface.h"
+#include "cc/match_service/error/error.h"
 #include "cc/match_service/lookup_service_client/mock_lookup_service_client.h"
+#include "protos/match_service/backend/error.pb.h"
 #include "protos/match_service/backend/match_service.pb.h"
 
 namespace google::confidential_match::match_service {
@@ -39,6 +41,7 @@ using ::google::confidential_match::MockHasher;
 using ::google::confidential_match::match_service::MockLookupServiceClient;
 using ::google::confidential_match::match_service::backend::Application;
 using ::google::confidential_match::match_service::backend::DataRecord;
+using ::google::confidential_match::match_service::backend::Error;
 using ::google::confidential_match::match_service::backend::Field;
 using ::google::confidential_match::match_service::backend::FieldType;
 using ::google::confidential_match::match_service::backend::KeyValue;
@@ -58,6 +61,7 @@ using ::google::scp::core::test::EqualsProto;
 using ::testing::_;
 using ::testing::DoAll;
 using ::testing::Eq;
+using ::testing::HasSubstr;
 using ::testing::Invoke;
 using ::testing::Return;
 
@@ -815,6 +819,199 @@ TEST_F(HashedMatchTaskTest, MatchWithUnspecifiedMatchKeyFormat) {
   hashed_match_task_.Match(context);
 }
 
+TEST_F(HashedMatchTaskTest, MatchWithPlaintextPiiAutoDetectionEnabledFails) {
+  AsyncContext<MatchRequest, MatchResponse> context(logger_);
+  context.request = std::make_shared<MatchRequest>();
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        application: APPLICATION_ECL
+        match_key_format: MATCH_KEY_FORMAT_HASHED
+        key_encoding: MATCH_KEY_ENCODING_BASE64
+        data_records {
+          match_keys { field { type: FIELD_TYPE_EMAIL value: "nomatch" } }
+        }
+        match_request_options {
+          enable_encrypted_plaintext_pii_auto_detection: true
+        }
+      )pb",
+      context.request.get()));
+  EXPECT_CALL(*mock_lookup_service_client_, Lookup).Times(0);
+
+  bool callback_invoked = false;
+  context.callback = [&](auto& ctx) {
+    callback_invoked = true;
+    EXPECT_THAT(ctx.status,
+                StatusIs(absl::StatusCode::kInvalidArgument,
+                         HasSubstr("Plaintext PII auto-detection is only "
+                                   "supported with "
+                                   "MATCH_KEY_FORMAT_HASHED_ENCRYPTED")));
+    EXPECT_EQ(GetBackendErrorReason(ctx.status),
+              Error::INVALID_MATCH_KEY_FORMAT);
+  };
+
+  hashed_match_task_.Match(context);
+  EXPECT_TRUE(callback_invoked);
+}
+
+TEST_F(HashedMatchTaskTest,
+       MatchWithPlaintextPiiAutoDetectionDisabledSucceeds) {
+  AsyncContext<MatchRequest, MatchResponse> context(logger_);
+  context.request = std::make_shared<MatchRequest>();
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        application: APPLICATION_ECL
+        match_key_format: MATCH_KEY_FORMAT_HASHED
+        key_encoding: MATCH_KEY_ENCODING_BASE64
+        match_request_options {
+          enable_encrypted_plaintext_pii_auto_detection: false
+        }
+      )pb",
+      context.request.get()));
+  // No data records, so the lookup is short-circuited after validation.
+  EXPECT_CALL(*mock_lookup_service_client_, Lookup).Times(0);
+
+  bool callback_invoked = false;
+  context.callback = [&](auto& ctx) {
+    callback_invoked = true;
+    EXPECT_THAT(ctx.status, IsOk());
+  };
+
+  hashed_match_task_.Match(context);
+  EXPECT_TRUE(callback_invoked);
+}
+
+TEST_F(HashedMatchTaskTest, MatchWithUserDataNormalizerOptionsFails) {
+  AsyncContext<MatchRequest, MatchResponse> context(logger_);
+  context.request = std::make_shared<MatchRequest>();
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        application: APPLICATION_ECL
+        match_key_format: MATCH_KEY_FORMAT_HASHED
+        key_encoding: MATCH_KEY_ENCODING_BASE64
+        data_records {
+          match_keys { field { type: FIELD_TYPE_EMAIL value: "nomatch" } }
+        }
+        match_request_options {
+          user_data_normalizer_options {
+            phone_number_normalizer_options { use_country_code_hint: true }
+          }
+        }
+      )pb",
+      context.request.get()));
+  EXPECT_CALL(*mock_lookup_service_client_, Lookup).Times(0);
+
+  bool callback_invoked = false;
+  context.callback = [&](auto& ctx) {
+    callback_invoked = true;
+    EXPECT_THAT(ctx.status,
+                StatusIs(absl::StatusCode::kInvalidArgument,
+                         HasSubstr("User data normalizer options are only "
+                                   "supported with "
+                                   "MATCH_KEY_FORMAT_HASHED_ENCRYPTED")));
+    EXPECT_EQ(GetBackendErrorReason(ctx.status),
+              Error::INVALID_MATCH_KEY_FORMAT);
+  };
+
+  hashed_match_task_.Match(context);
+  EXPECT_TRUE(callback_invoked);
+}
+
+TEST_F(HashedMatchTaskTest, MatchWithEmptyUserDataNormalizerOptionsFails) {
+  AsyncContext<MatchRequest, MatchResponse> context(logger_);
+  context.request = std::make_shared<MatchRequest>();
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        application: APPLICATION_ECL
+        match_key_format: MATCH_KEY_FORMAT_HASHED
+        key_encoding: MATCH_KEY_ENCODING_BASE64
+        data_records {
+          match_keys { field { type: FIELD_TYPE_EMAIL value: "nomatch" } }
+        }
+        match_request_options { user_data_normalizer_options {} }
+      )pb",
+      context.request.get()));
+  EXPECT_CALL(*mock_lookup_service_client_, Lookup).Times(0);
+
+  bool callback_invoked = false;
+  context.callback = [&](auto& ctx) {
+    callback_invoked = true;
+    EXPECT_THAT(ctx.status,
+                StatusIs(absl::StatusCode::kInvalidArgument,
+                         HasSubstr("User data normalizer options are only "
+                                   "supported with "
+                                   "MATCH_KEY_FORMAT_HASHED_ENCRYPTED")));
+    EXPECT_EQ(GetBackendErrorReason(ctx.status),
+              Error::INVALID_MATCH_KEY_FORMAT);
+  };
+
+  hashed_match_task_.Match(context);
+  EXPECT_TRUE(callback_invoked);
+}
+
+// When both options are set, the auto-detection check runs first, so its error
+// is returned.
+TEST_F(HashedMatchTaskTest,
+       MatchWithAutoDetectionAndUserDataNormalizerOptionsFails) {
+  AsyncContext<MatchRequest, MatchResponse> context(logger_);
+  context.request = std::make_shared<MatchRequest>();
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        application: APPLICATION_ECL
+        match_key_format: MATCH_KEY_FORMAT_HASHED
+        key_encoding: MATCH_KEY_ENCODING_BASE64
+        data_records {
+          match_keys { field { type: FIELD_TYPE_EMAIL value: "nomatch" } }
+        }
+        match_request_options {
+          enable_encrypted_plaintext_pii_auto_detection: true
+          user_data_normalizer_options {
+            phone_number_normalizer_options { use_country_code_hint: true }
+          }
+        }
+      )pb",
+      context.request.get()));
+  EXPECT_CALL(*mock_lookup_service_client_, Lookup).Times(0);
+
+  bool callback_invoked = false;
+  context.callback = [&](auto& ctx) {
+    callback_invoked = true;
+    EXPECT_THAT(ctx.status,
+                StatusIs(absl::StatusCode::kInvalidArgument,
+                         HasSubstr("Plaintext PII auto-detection is only "
+                                   "supported with "
+                                   "MATCH_KEY_FORMAT_HASHED_ENCRYPTED")));
+    EXPECT_EQ(GetBackendErrorReason(ctx.status),
+              Error::INVALID_MATCH_KEY_FORMAT);
+  };
+
+  hashed_match_task_.Match(context);
+  EXPECT_TRUE(callback_invoked);
+}
+
+TEST_F(HashedMatchTaskTest, MatchWithEmptyMatchRequestOptionsSucceeds) {
+  AsyncContext<MatchRequest, MatchResponse> context(logger_);
+  context.request = std::make_shared<MatchRequest>();
+  ASSERT_TRUE(TextFormat::ParseFromString(
+      R"pb(
+        application: APPLICATION_ECL
+        match_key_format: MATCH_KEY_FORMAT_HASHED
+        key_encoding: MATCH_KEY_ENCODING_BASE64
+        match_request_options {}
+      )pb",
+      context.request.get()));
+  // No data records, so the lookup is short-circuited after validation.
+  EXPECT_CALL(*mock_lookup_service_client_, Lookup).Times(0);
+
+  bool callback_invoked = false;
+  context.callback = [&](auto& ctx) {
+    callback_invoked = true;
+    EXPECT_THAT(ctx.status, IsOk());
+  };
+
+  hashed_match_task_.Match(context);
+  EXPECT_TRUE(callback_invoked);
+}
+
 TEST_F(HashedMatchTaskTest, MatchPartialFailureEncodingError) {
   AsyncContext<MatchRequest, MatchResponse> context(logger_);
   context.request = std::make_shared<MatchRequest>();
@@ -1514,6 +1711,16 @@ TEST_F(HashedMatchTaskTest, MatchCompositeFieldUnsupportedSubFieldType) {
   };
 
   hashed_match_task_.Match(context);
+}
+
+TEST_F(HashedMatchTaskTest, HashedPiiValidationDisabledByDefault) {
+  EXPECT_FALSE(hashed_match_task_.IsHashedPiiValidationEnabled());
+}
+
+TEST_F(HashedMatchTaskTest, HashedPiiValidationCanBeEnabled) {
+  HashedMatchTask task(mock_lookup_service_client_.get(), mock_hasher_.get(),
+                       /*enable_hashed_pii_validation=*/true);
+  EXPECT_TRUE(task.IsHashedPiiValidationEnabled());
 }
 
 }  // namespace

@@ -33,6 +33,7 @@ cc_library(
     deps = [
         "//cc/core/data_table/src:data_table_error_codes",
         "//cc/external:absl_base_core_headers",
+        "//cc/external:absl_check",
         "//cc/external:absl_hash",
         "//cc/external:absl_span",
         "//cc/external:absl_str_format",

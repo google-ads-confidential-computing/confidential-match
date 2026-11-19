@@ -359,6 +359,21 @@ KeyCoordinatorConfiguration ConvertEndpoints(
   return config;
 }
 
+void FetchBoolParameter(ConfigurationFetcherInterface& config_fetcher,
+                        ConfigurationKeys config_key,
+                        absl::string_view display_name, bool& target_field) {
+  DLOG(INFO) << "Fetching " << display_name;
+  const std::string& key_name = ConfigurationKeys_Name(config_key);
+  auto value_or = config_fetcher.GetBoolByNameSync(key_name);
+  const bool is_fetched = value_or.Successful();
+  if (is_fetched) {
+    target_field = value_or.value();
+  }
+  LOG(INFO) << display_name << ": " << (target_field ? "true" : "false")
+            << (is_fetched ? " (fetched from " : " (default; ") << key_name
+            << (is_fetched ? ")" : " not found)");
+}
+
 }  // namespace
 
 absl::Status MatchServer::SetConfiguration() noexcept {
@@ -470,25 +485,12 @@ absl::Status MatchServer::SetConfigFromParameters() noexcept {
               << config_.auth_token_cache_entry_lifetime_seconds << " seconds.";
   }
 
-  DLOG(INFO) << "Fetching DisableServiceAccountEmailRetrieval";
-  const auto disable_retrieval_config_key = ConfigurationKeys::
-      CONFIGURATION_KEYS_DISABLE_SERVICE_ACCOUNT_EMAIL_RETRIEVAL;
-  auto disable_sa_email_retrieval_or = config_fetcher_->GetBoolByNameSync(
-      ConfigurationKeys_Name(disable_retrieval_config_key));
-  if (disable_sa_email_retrieval_or.Successful()) {
-    config_.disable_service_account_email_retrieval =
-        disable_sa_email_retrieval_or.value();
-  } else {
-    LOG(WARNING) << "Failed to fetch "
-                    "CONFIGURATION_KEYS_DISABLE_SERVICE_ACCOUNT_EMAIL_"
-                    "RETRIEVAL: "
-                 << GetErrorMessage(
-                        disable_sa_email_retrieval_or.result().status_code);
-  }
-
-  LOG(INFO) << "DisableServiceAccountEmailRetrieval: "
-            << (config_.disable_service_account_email_retrieval ? "true"
-                                                                : "false");
+  FetchBoolParameter(
+      *config_fetcher_,
+      ConfigurationKeys::
+          CONFIGURATION_KEYS_DISABLE_SERVICE_ACCOUNT_EMAIL_RETRIEVAL,
+      "DisableServiceAccountEmailRetrieval",
+      config_.disable_service_account_email_retrieval);
 
   if (config_.disable_service_account_email_retrieval) {
     DLOG(INFO) << "Fetching ServiceAccountEmail";
@@ -505,72 +507,33 @@ absl::Status MatchServer::SetConfigFromParameters() noexcept {
     }
   }
 
-  DLOG(INFO) << "Fetching EnableBackgroundAuthTokenRefresh";
-  const auto enable_refresh_config_key = ConfigurationKeys::
-      CONFIGURATION_KEYS_ENABLE_BACKGROUND_AUTH_TOKEN_REFRESH;
-  auto enable_refresh_or = config_fetcher_->GetBoolByNameSync(
-      ConfigurationKeys_Name(enable_refresh_config_key));
-  if (enable_refresh_or.Successful()) {
-    config_.enable_background_auth_token_refresh = enable_refresh_or.value();
-  } else {
-    LOG(INFO) << "CONFIGURATION_KEYS_ENABLE_BACKGROUND_AUTH_TOKEN_REFRESH "
-              << "not found, using default: "
-              << (config_.enable_background_auth_token_refresh ? "true"
-                                                               : "false");
-  }
+  FetchBoolParameter(
+      *config_fetcher_,
+      ConfigurationKeys::
+          CONFIGURATION_KEYS_ENABLE_BACKGROUND_AUTH_TOKEN_REFRESH,
+      "EnableBackgroundAuthTokenRefresh",
+      config_.enable_background_auth_token_refresh);
 
-  LOG(INFO) << "EnableBackgroundAuthTokenRefresh: "
-            << (config_.enable_background_auth_token_refresh ? "true"
-                                                             : "false");
+  FetchBoolParameter(
+      *config_fetcher_,
+      ConfigurationKeys::CONFIGURATION_KEYS_ENABLE_ENCRYPTED_COUNTRY_ZIP_CODE,
+      "EnableEncryptedCountryZipCode",
+      config_.enable_encrypted_country_zip_code);
 
-  DLOG(INFO) << "Fetching EnableEncryptedCountryZipCode";
-  const auto enable_encrypted_cz_config_key =
-      ConfigurationKeys::CONFIGURATION_KEYS_ENABLE_ENCRYPTED_COUNTRY_ZIP_CODE;
-  auto enable_encrypted_cz_or = config_fetcher_->GetBoolByNameSync(
-      ConfigurationKeys_Name(enable_encrypted_cz_config_key));
-  if (enable_encrypted_cz_or.Successful()) {
-    config_.enable_encrypted_country_zip_code = enable_encrypted_cz_or.value();
-  } else {
-    LOG(INFO) << "CONFIGURATION_KEYS_ENABLE_ENCRYPTED_COUNTRY_ZIP_CODE "
-              << "not found, using default: "
-              << (config_.enable_encrypted_country_zip_code ? "true" : "false");
-  }
+  FetchBoolParameter(
+      *config_fetcher_,
+      ConfigurationKeys::CONFIGURATION_KEYS_ENABLE_GRPC_OTEL_METRICS,
+      "EnableGrpcOtelMetrics", config_.enable_grpc_otel_metrics);
 
-  LOG(INFO) << "EnableEncryptedCountryZipCode: "
-            << (config_.enable_encrypted_country_zip_code ? "true" : "false");
+  FetchBoolParameter(
+      *config_fetcher_,
+      ConfigurationKeys::CONFIGURATION_KEYS_ENABLE_CPIO_AEAD_CRYPTO_CLIENT,
+      "EnableCpioAeadCryptoClient", config_.enable_cpio_aead_crypto_client);
 
-  DLOG(INFO) << "Fetching EnableGrpcOtelMetrics";
-  const auto enable_grpc_otel_metrics_config_key =
-      ConfigurationKeys::CONFIGURATION_KEYS_ENABLE_GRPC_OTEL_METRICS;
-  auto enable_grpc_otel_metrics_or = config_fetcher_->GetBoolByNameSync(
-      ConfigurationKeys_Name(enable_grpc_otel_metrics_config_key));
-  if (enable_grpc_otel_metrics_or.Successful()) {
-    config_.enable_grpc_otel_metrics = enable_grpc_otel_metrics_or.value();
-  } else {
-    LOG(INFO) << "CONFIGURATION_KEYS_ENABLE_GRPC_OTEL_METRICS "
-              << "not found, using default: "
-              << (config_.enable_grpc_otel_metrics ? "true" : "false");
-  }
-
-  LOG(INFO) << "EnableGrpcOtelMetrics: "
-            << (config_.enable_grpc_otel_metrics ? "true" : "false");
-
-  DLOG(INFO) << "Fetching EnableCpioAeadCryptoClient";
-  const auto enable_cpio_aead_crypto_client_config_key =
-      ConfigurationKeys::CONFIGURATION_KEYS_ENABLE_CPIO_AEAD_CRYPTO_CLIENT;
-  auto enable_cpio_aead_crypto_client_or = config_fetcher_->GetBoolByNameSync(
-      ConfigurationKeys_Name(enable_cpio_aead_crypto_client_config_key));
-  if (enable_cpio_aead_crypto_client_or.Successful()) {
-    config_.enable_cpio_aead_crypto_client =
-        enable_cpio_aead_crypto_client_or.value();
-  } else {
-    LOG(INFO) << "CONFIGURATION_KEYS_ENABLE_CPIO_AEAD_CRYPTO_CLIENT "
-              << "not found, using default: "
-              << (config_.enable_cpio_aead_crypto_client ? "true" : "false");
-  }
-
-  LOG(INFO) << "EnableCpioAeadCryptoClient: "
-            << (config_.enable_cpio_aead_crypto_client ? "true" : "false");
+  FetchBoolParameter(
+      *config_fetcher_,
+      ConfigurationKeys::CONFIGURATION_KEYS_ENABLE_HASHED_PII_VALIDATION,
+      "EnableHashedPiiValidation", config_.enable_hashed_pii_validation);
 
   return absl::OkStatus();
 }
@@ -708,12 +671,14 @@ absl::Status MatchServer::CreateComponents() noexcept {
       std::make_unique<HybridCryptoClient>(key_fetcher_.get());
 
   hashed_match_task_ = std::make_unique<HashedMatchTask>(
-      lookup_service_client_.get(), sha256_hasher_.get());
+      lookup_service_client_.get(), sha256_hasher_.get(),
+      config_.enable_hashed_pii_validation);
   kms_encrypted_match_task_ = std::make_unique<KmsEncryptedMatchTask>(
       lookup_service_client_.get(), aead_crypto_client_.get(),
       sha256_hasher_.get(), hybrid_crypto_client_.get(),
       config_.private_key_endpoints, metric_client_.get(),
-      config_.metric_namespace, config_.enable_encrypted_country_zip_code);
+      config_.metric_namespace, config_.enable_encrypted_country_zip_code,
+      config_.enable_hashed_pii_validation);
   match_task_ = std::make_unique<MatchTask>(hashed_match_task_.get(),
                                             kms_encrypted_match_task_.get());
   match_service_ = std::make_unique<MatchService>(

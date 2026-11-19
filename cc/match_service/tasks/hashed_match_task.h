@@ -32,9 +32,17 @@ class HashedMatchTask : public MatchTaskInterface {
   // Does not take any ownership, and all pointers must refer to valid objects
   // that outlive the HashedMatchTask object.
   explicit HashedMatchTask(LookupServiceClientInterface* lookup_service_client,
-                           HasherInterface* sha256_hasher)
+                           HasherInterface* sha256_hasher,
+                           bool enable_hashed_pii_validation = false)
       : lookup_service_client_(lookup_service_client),
-        sha256_hasher_(sha256_hasher) {}
+        sha256_hasher_(sha256_hasher),
+        enable_hashed_pii_validation_(enable_hashed_pii_validation) {}
+
+  // Returns whether match keys whose PII is not a valid hash are failed (true)
+  // or only counted in shadow mode (false).
+  bool IsHashedPiiValidationEnabled() const noexcept {
+    return enable_hashed_pii_validation_;
+  }
 
   // Performs the match operation.
   void Match(AsyncContext<backend::MatchRequest, backend::MatchResponse>
@@ -51,6 +59,9 @@ class HashedMatchTask : public MatchTaskInterface {
   LookupServiceClientInterface* lookup_service_client_;
   // The hasher used to generate SHA-256 hashes.
   HasherInterface* sha256_hasher_;
+  // Whether to fail match keys whose PII is not a valid hash. When false,
+  // invalid values are only counted (shadow mode).
+  bool enable_hashed_pii_validation_ = false;
 };
 
 }  // namespace google::confidential_match::match_service

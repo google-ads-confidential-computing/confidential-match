@@ -21,15 +21,14 @@
 #include "absl/functional/bind_front.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/str_format.h"
+#include "cc/core/async/async_context.h"
 #include "cc/core/common/uuid/src/uuid.h"
+#include "cc/core/error/status_macros.h"
 #include "cc/core/interface/errors.h"
 #include "cc/core/interface/http_types.h"
-#include "google/protobuf/util/json_util.h"
-
-#include "cc/core/async/async_context.h"
-#include "cc/core/error/status_macros.h"
 #include "cc/core/logger/log.h"
 #include "cc/match_service/error/error.h"
+#include "google/protobuf/util/json_util.h"
 #include "protos/core/auth_token.pb.h"
 #include "protos/match_service/backend/error.pb.h"
 #include "protos/orchestrator/api/orchestrator.pb.h"
@@ -41,6 +40,7 @@ using ::google::confidential_match::orchestrator::
     GetCurrentShardingSchemeRequest;
 using ::google::confidential_match::orchestrator::
     GetCurrentShardingSchemeResponse;
+using ::google::protobuf::util::JsonParseOptions;
 using ::google::protobuf::util::JsonStringToMessage;
 using ::google::scp::core::ExecutionResult;
 using ::google::scp::core::ExecutionResultOr;
@@ -167,7 +167,11 @@ void OrchestratorClient::OnGetCurrentShardingSchemeHttpCallback(
 
   std::string response_json = http_context.response->body.ToString();
   GetCurrentShardingSchemeResponse cur_sharding_scheme;
-  if (!JsonStringToMessage(response_json, &cur_sharding_scheme).ok()) {
+  constexpr JsonParseOptions kJsonParseOptions = {.ignore_unknown_fields =
+                                                      true};
+  if (!JsonStringToMessage(response_json, &cur_sharding_scheme,
+                           kJsonParseOptions)
+           .ok()) {
     std::string msg =
         absl::StrCat("Failed to parse GetCurrentShardingSchemeResponse proto: ",
                      response_json);

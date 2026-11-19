@@ -112,7 +112,9 @@ cc_test(
         "//cc/external:google_gtest_main",
         "//cc/external:google_protobuf",
         "//cc/external:scp_core_test_utils",
+        "//cc/match_service/error",
         "//cc/match_service/lookup_service_client:mock_lookup_service_client",
+        "//protos/match_service/backend:error_cc_proto",
         "//protos/match_service/backend:match_service_cc_proto",
     ],
 )

@@ -24,6 +24,7 @@
 #include "cc/match_service/converters/key_value_converters.h"
 #include "cc/match_service/converters/match_key_encoding_converters.h"
 #include "cc/match_service/converters/match_key_format_converters.h"
+#include "cc/match_service/converters/match_request_options_converters.h"
 #include "protos/match_service/api/v1/match_service.pb.h"
 #include "protos/match_service/backend/match_service.pb.h"
 
@@ -65,6 +66,11 @@ absl::Status ToBackend(const api::v1::MatchRequest& in,
     RETURN_IF_ERROR(ToBackend(metadata, *out.add_metadata()));
   }
 
+  if (in.has_match_request_options()) {
+    RETURN_IF_ERROR(ToBackend(in.match_request_options(),
+                              *out.mutable_match_request_options()));
+  }
+
   return absl::OkStatus();
 }
 
@@ -101,6 +107,11 @@ absl::Status ToApi(const backend::MatchRequest& in,
 
   for (const auto& metadata : in.metadata()) {
     RETURN_IF_ERROR(ToApi(metadata, *out.add_metadata()));
+  }
+
+  if (in.has_match_request_options()) {
+    RETURN_IF_ERROR(ToApi(in.match_request_options(),
+                          *out.mutable_match_request_options()));
   }
 
   return absl::OkStatus();

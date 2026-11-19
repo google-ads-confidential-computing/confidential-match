@@ -24,13 +24,12 @@
 #include "cc/core/interface/http_types.h"
 #include "cc/core/interface/type_def.h"
 #include "cc/core/test/utils/proto_test_utils.h"
+#include "cc/match_service/auth_token_client/mock_auth_token_client.h"
+#include "cc/match_service/error/error.h"
 #include "cc/public/core/interface/execution_result.h"
 #include "gmock/gmock.h"
 #include "google/protobuf/util/json_util.h"
 #include "gtest/gtest.h"
-
-#include "cc/match_service/auth_token_client/mock_auth_token_client.h"
-#include "cc/match_service/error/error.h"
 #include "protos/match_service/backend/error.pb.h"
 #include "protos/orchestrator/api/orchestrator.pb.h"
 
@@ -80,6 +79,39 @@ constexpr absl::string_view kShardingSchemeJson = R"({
             "serverAddressUri": "https://lookup-server-1"
         }
     ]
+})";
+constexpr absl::string_view kShardingSchemeWithUnknownFieldsJson = R"({
+  "shardingSchemeId": "123",
+  "type": "jch",
+  "unknownTopLevelField": "ignored-value",
+  "shards": [
+    {
+      "shardNumber": "0",
+      "serverAddressUri": "https://lookup-server-0",
+      "unknownShardObject": {
+        "futureGroup": "https://lookup-server-0.future.domain.goog"
+      },
+      "unknownShardList": [1, 2]
+    },
+    {
+      "shardNumber": "1",
+      "serverAddressUri": "https://lookup-server-1",
+      "unknownShardObject": {
+        "futureGroup": "https://lookup-server-1.future.domain.goog"
+      },
+      "unknownShardList": [1, 2]
+    }
+  ]
+})";
+constexpr absl::string_view kShardingSchemeWithInvalidKnownFieldTypeJson = R"({
+  "shardingSchemeId": "123",
+  "type": "jch",
+  "shards": [
+    {
+      "shardNumber": "not-a-number",
+      "serverAddressUri": "https://lookup-server-0"
+    }
+  ]
 })";
 
 class OrchestratorClientTest : public testing::Test {
@@ -177,6 +209,50 @@ TEST_F(OrchestratorClientTest, GetShardingSchemeIsSuccessful) {
 }
 
 TEST_F(OrchestratorClientTest,
+       GetCurrentShardingSchemeSuccessWithUnknownFields) {
+  GetCurrentShardingSchemeResponse expected_response;
+  ASSERT_THAT(JsonStringToMessage(kShardingSchemeJson, &expected_response),
+              IsOk());
+  std::string captured_request_query;
+  mock_http2_client_.perform_request_mock =
+      [&captured_request_query](
+          scp::core::AsyncContext<HttpRequest, HttpResponse>& context) {
+        captured_request_query = *context.request->query;
+        context.response = std::make_shared<HttpResponse>();
+        context.response->body =
+            BytesBuffer(std::string(kShardingSchemeWithUnknownFieldsJson));
+        context.result = SuccessExecutionResult();
+        context.Finish();
+        return SuccessExecutionResult();
+      };
+  EXPECT_CALL(mock_auth_token_client_, GetAuthToken).WillOnce(MockGetAuthToken);
+  GetCurrentShardingSchemeRequest request;
+  request.set_cluster_group_id(kClusterGroupId);
+  bool callback_called = false;
+  AsyncContext<GetCurrentShardingSchemeRequest,
+               GetCurrentShardingSchemeResponse>
+      get_sharding_scheme_context(
+          std::make_shared<GetCurrentShardingSchemeRequest>(request),
+          [&callback_called, &expected_response](
+              AsyncContext<GetCurrentShardingSchemeRequest,
+                           GetCurrentShardingSchemeResponse>& context) {
+            callback_called = true;
+            EXPECT_THAT(context.status, IsOk())
+                << "BackendErrorReason: "
+                << GetBackendErrorReasonString(context.status);
+            ASSERT_NE(context.response, nullptr);
+            EXPECT_THAT(*context.response, EqualsProto(expected_response));
+          },
+          logger_);
+
+  orchestrator_client_->GetCurrentShardingScheme(get_sharding_scheme_context);
+
+  EXPECT_TRUE(callback_called);
+  EXPECT_THAT(captured_request_query,
+              HasSubstr(absl::StrFormat("clusterGroupId=%s", kClusterGroupId)));
+}
+
+TEST_F(OrchestratorClientTest,
        GetShardingSchemeWithAuthStatusErrorYieldsFailure) {
   GetCurrentShardingSchemeResponse expected_response;
   EXPECT_TRUE(
@@ -246,6 +322,42 @@ TEST_F(OrchestratorClientTest,
           logger_);
 
   orchestrator_client_->GetCurrentShardingScheme(get_sharding_scheme_context);
+}
+
+TEST_F(OrchestratorClientTest,
+       GetShardingSchemeWithInvalidKnownFieldTypeYieldsFailure) {
+  mock_http2_client_.perform_request_mock =
+      [](scp::core::AsyncContext<HttpRequest, HttpResponse>& context) {
+        context.response = std::make_shared<HttpResponse>();
+        context.response->body = BytesBuffer(
+            std::string(kShardingSchemeWithInvalidKnownFieldTypeJson));
+        context.result = SuccessExecutionResult();
+        context.Finish();
+        return SuccessExecutionResult();
+      };
+  EXPECT_CALL(mock_auth_token_client_, GetAuthToken).WillOnce(MockGetAuthToken);
+  GetCurrentShardingSchemeRequest request;
+  request.set_cluster_group_id(kClusterGroupId);
+  bool callback_called = false;
+  AsyncContext<GetCurrentShardingSchemeRequest,
+               GetCurrentShardingSchemeResponse>
+      get_sharding_scheme_context(
+          std::make_shared<GetCurrentShardingSchemeRequest>(request),
+          [&callback_called](
+              AsyncContext<GetCurrentShardingSchemeRequest,
+                           GetCurrentShardingSchemeResponse>& context) {
+            callback_called = true;
+            EXPECT_FALSE(context.status.ok());
+            EXPECT_THAT(context.status, StatusIs(absl::StatusCode::kInternal));
+            EXPECT_EQ(GetBackendErrorReason(context.status),
+                      Error::ORCHESTRATOR_RESPONSE_DESERIALIZATION_ERROR);
+            EXPECT_EQ(context.response, nullptr);
+          },
+          logger_);
+
+  orchestrator_client_->GetCurrentShardingScheme(get_sharding_scheme_context);
+
+  EXPECT_TRUE(callback_called);
 }
 
 }  // namespace
